@@ -1,0 +1,16 @@
+{
+  "appId": "com.edumeet.live",
+  "appName": "Axon Med Academy",
+  "webDir": "dist/client",
+  "server": {
+    "url": "https://oc-pro.vercel.app",
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "ScreenOrientation": {
+      "defaultOrientation": "landscape"
+    }
+  },
+  "scheme": "edumeetlive"
+}
