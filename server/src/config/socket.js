@@ -97,6 +97,12 @@ function socketCorsOrigin(origin, callback) {
   // Exact match
   if (allowed.includes(origin)) return callback(null, true);
 
+  // Allow custom production domain and its subdomains
+  if (/^https:\/\/(www\.)?axonmedacademy\.com$/.test(origin) ||
+    /^https:\/\/[a-zA-Z0-9-]+\.axonmedacademy\.com$/.test(origin)) {
+    return callback(null, true);
+  }
+
   // Allow all *.vercel.app preview and production deployments
   if (/^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin) ||
     /^https:\/\/[a-zA-Z0-9-]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+\.vercel\.app$/.test(origin)) {

@@ -3,7 +3,7 @@
   "appName": "Axon Med Academy",
   "webDir": "dist/client",
   "server": {
-    "url": "https://oc-pro.vercel.app",
+    "url": "https://www.axonmedacademy.com",
     "androidScheme": "https",
     "cleartext": true
   },
