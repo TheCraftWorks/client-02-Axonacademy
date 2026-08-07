@@ -6,9 +6,20 @@ export default function ParticipantsPanel({ localUser, roomId }) {
   const dispatch = useDispatch();
   const { participants, raisedHands } = useSelector(s => s.meeting);
 
+  const localName = (localUser?.name || 'You').trim().toLowerCase();
+
+  // Deduplicate remote participants to prevent admin showing twice when screen sharing
+  const filteredRemote = participants.filter(p => {
+    if (!p || !p.name) return false;
+    const nameLower = p.name.trim().toLowerCase();
+    if (nameLower === localName) return false;
+    if (nameLower.endsWith("'s screen") || nameLower.endsWith(" screen")) return false;
+    return true;
+  });
+
   const all = [
     { socketId: 'local', name: localUser?.name || 'You', role: localUser?.role, isLocal: true, audio: true, video: true },
-    ...participants,
+    ...filteredRemote,
   ];
   const isStaff = localUser?.role === 'staff';
 

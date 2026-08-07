@@ -52,6 +52,7 @@ export default function VideoTile({
             width: '100%', height: '100%',
             objectFit: isScreenShare ? 'contain' : 'cover',
             transform: isLocal && !isScreenShare ? 'scaleX(-1)' : 'none',
+            imageRendering: isScreenShare ? 'crisp-edges' : 'auto',
           }}
         />
       )}

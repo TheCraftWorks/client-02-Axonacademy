@@ -63,8 +63,8 @@ function LiveClassroomRoom() {
         if (!canvas) {
           canvas = document.createElement('canvas');
           canvas.id = 'native-screen-share-canvas';
-          canvas.width = 640;
-          canvas.height = 360;
+          canvas.width = 1920;
+          canvas.height = 1080;
           canvas.style.display = 'none';
           document.body.appendChild(canvas);
         }
@@ -91,8 +91,11 @@ function LiveClassroomRoom() {
         await ScreenShare.startScreenShare();
         const listener = await ScreenShare.addListener('onFrame', frameListener);
 
-        const stream = (canvas as any).captureStream(8);
+        const stream = (canvas as any).captureStream(15);
         const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.contentHint = 'detail';
+        }
 
         const originalStop = videoTrack.stop.bind(videoTrack);
         videoTrack.stop = () => {
@@ -688,7 +691,32 @@ function _MediaControllerSync({
         }
 
         try {
-          await localParticipant.setScreenShareEnabled(next);
+          if (next) {
+            await localParticipant.setScreenShareEnabled(true, {
+              audio: false,
+              resolution: {
+                width: 1920,
+                height: 1080,
+                frameRate: 15,
+              },
+            });
+
+            // Set contentHint to 'detail' on screen share mediaStreamTrack for razor-sharp text clarity
+            setTimeout(() => {
+              try {
+                const pub = Array.from(localParticipant.trackPublications.values()).find(
+                  (p: any) => p.source === 'screen_share' || p.trackName === 'screen'
+                );
+                if (pub?.track?.mediaStreamTrack) {
+                  pub.track.mediaStreamTrack.contentHint = 'detail';
+                }
+              } catch (err) {
+                console.warn('[LK] Could not set contentHint detail:', err);
+              }
+            }, 300);
+          } else {
+            await localParticipant.setScreenShareEnabled(false);
+          }
           onToggleScreen(next);
         } catch (e: any) {
           console.warn('[LK] screen', e);
