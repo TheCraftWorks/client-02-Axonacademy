@@ -536,12 +536,11 @@ router.post('/', async (req, res, next) => {
           });
 
           sendFCMNotification(allTokens, {
-            title: `📅 New Live Class Scheduled: ${title}`,
-            body: `${classroomDoc.name} · ${scheduledTime}. Tap to view the class.`,
+            title: `📅 Live Class Scheduled: ${title}`,
+            body: `${classroomDoc.name} · Scheduled for ${scheduledTime}.`,
             data: {
               type: 'meeting_scheduled',
               meetingId: String(meeting._id),
-              roomId: roomCode,
               click_action: `${clientUrl}/student/live`,
             },
           }).then(async ({ invalidTokens }) => {
@@ -686,8 +685,8 @@ router.post('/:id/start', async (req, res, next) => {
             const classroomName = classroomDoc.name || 'your class';
 
             sendFCMNotification(allTokens, {
-              title: `🔴 Live Class Started: ${meeting.title}`,
-              body: `${classroomName} live session is now live! Tap to join.`,
+              title: `🔴 Live Class is NOW LIVE: ${meeting.title}`,
+              body: `${classroomName} is starting now! Tap to join class.`,
               data: {
                 type: 'live_class_started',
                 meetingId: String(meeting._id),

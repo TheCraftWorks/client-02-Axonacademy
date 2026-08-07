@@ -106,9 +106,15 @@ function RootComponent() {
   const [authReady, setAuthReady] = useState(false);
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateDetails, setUpdateDetails] = useState<{
+    latestVersion: string;
+    versionCode: number;
+    downloadUrl: string;
+    releaseNotes: string;
+  } | null>(null);
   const router = useRouter();
 
-  // Check Capacitor native app build version for updates
+  // Check Capacitor native app build version against server /api/public/app-version
   useEffect(() => {
     const checkAppVersion = async () => {
       try {
@@ -117,13 +123,28 @@ function RootComponent() {
 
         const { App } = await import('@capacitor/app');
         const info = await App.getInfo();
-        console.log('[Capacitor] Current App info:', info);
-        const buildNum = parseInt(info.build || '1', 10);
-        if (buildNum < 2 || info.version === '1.0') {
+        const currentBuild = parseInt(info.build || '1', 10);
+
+        // Fetch latest release details from backend API
+        const { api } = await import('@/lib/api');
+        const apiRes = await api.get('/public/app-version').catch(() => null);
+        const data = apiRes?.data;
+
+        if (data?.success && data?.versionCode && currentBuild < data.versionCode) {
+          setUpdateDetails(data);
+          setShowUpdateModal(true);
+        } else if (currentBuild < 3) {
+          // Fallback if API fails or build is older than v1.0.2 (build 3)
+          setUpdateDetails({
+            latestVersion: '1.0.2',
+            versionCode: 3,
+            downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-release.apk',
+            releaseNotes: 'Includes high-definition 1080p screen sharing, background wake-lock for Notepad, and back button exit confirmation.',
+          });
           setShowUpdateModal(true);
         }
       } catch (err) {
-        console.warn('[Capacitor] App info check failed:', err);
+        console.warn('[Capacitor] App version check failed:', err);
       }
     };
     checkAppVersion();
@@ -311,7 +332,7 @@ function RootComponent() {
           </div>
         </div>
       )}
-      {showUpdateModal && (
+      {showUpdateModal && updateDetails && (
         <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-zinc-900 border border-purple-200 dark:border-zinc-800 rounded-3xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden transform animate-in zoom-in-95 duration-200">
             <div className="h-14 w-14 rounded-2xl bg-plum-dark text-cream flex items-center justify-center mb-4 shadow-lg shadow-plum/30">
@@ -326,22 +347,22 @@ function RootComponent() {
               New App Update Available!
             </h3>
             <p className="text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 mt-1">
-              Version 1.0.1 Released
+              Version {updateDetails.latestVersion} Released
             </p>
 
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-3 leading-relaxed">
-              A critical update for <strong>Axon Med Academy</strong> is ready. Please update your app to restore live classroom connections and enjoy new features.
+              {updateDetails.releaseNotes || 'A critical update for Axon Med Academy is ready. Please update your app to enjoy the latest features and screen share enhancements.'}
             </p>
 
             <div className="mt-6 flex flex-col gap-3">
               <a
-                href="https://www.axonmedacademy.com/downloads/AxonMedAcademy-v1.0.1.apk"
+                href={updateDetails.downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full text-center rounded-2xl bg-plum-dark text-cream hover:bg-plum py-3.5 px-6 font-bold shadow-xl shadow-plum/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                Download & Install Update (.apk)
+                ⚡ Download & Install Update (.apk)
               </a>
               <button
                 onClick={() => setShowUpdateModal(false)}

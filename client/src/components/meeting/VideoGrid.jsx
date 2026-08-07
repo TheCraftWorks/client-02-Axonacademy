@@ -295,21 +295,21 @@ export default function VideoGrid() {
         style={S.strip(stripVisible)}
         aria-hidden={!stripVisible}
       >
-        {/* Render up to 12 prioritized tiles (screen share, staff, active speaker, local) to prevent DOM crash with 100+ students */}
         {(() => {
           const maxVisible = 12;
-          const visibleTiles = allTiles.slice(0, maxVisible);
-          const hiddenCount = Math.max(0, allTiles.length - maxVisible);
+          // Exclude mainTile (currently in spotlight view) from thumbnail strip to prevent duplicates
+          const stripTiles = allTiles.filter(t => t.id !== mainTile.id);
+          const visibleTiles = stripTiles.slice(0, maxVisible);
+          const hiddenCount = Math.max(0, stripTiles.length - maxVisible);
 
           return (
             <>
               {visibleTiles.map(tile => {
-                const isActive = tile.id === mainTile.id;
                 return (
                   <div
                     key={tile.id}
                     data-tile-id={tile.id}
-                    style={S.thumb(isActive)}
+                    style={S.thumb(false)}
                     onClick={() => handleThumbClick(tile.id)}
                     title={`Switch to ${tile.name}`}
                   >
@@ -319,12 +319,10 @@ export default function VideoGrid() {
                       name={tile.name}
                       isLocal={tile.isLocal}
                       audioEnabled={tile.audio}
-                      videoEnabled={tile.video && !isActive}
+                      videoEnabled={tile.video}
                       isScreenShare={tile.isScreen}
                       isHandRaised={checkHandRaised(tile)}
                     />
-                    {/* Active indicator dot */}
-                    {isActive && <div style={S.activeIndicator} />}
                   </div>
                 );
               })}

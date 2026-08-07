@@ -81,6 +81,7 @@ async function sendFCMNotification(tokens, { title, body, data = {} }) {
 
   for (let i = 0; i < tokens.length; i += CHUNK_SIZE) {
     const chunk = tokens.slice(i, i + CHUNK_SIZE);
+    const notifTag = data.meetingId ? `meeting-${data.meetingId}` : `fcm-${Date.now()}`;
 
     const message = {
       tokens: chunk,
@@ -95,10 +96,12 @@ async function sendFCMNotification(tokens, { title, body, data = {} }) {
           body,
           icon: '/favicon.ico',
           badge: '/favicon.ico',
+          tag: notifTag, // Browser collapses duplicates into a single clean notification
+          renotify: true,
           requireInteraction: true,
-          actions: [
+          actions: data.roomId ? [
             { action: 'join', title: '▶ Join Class' },
-          ],
+          ] : [],
         },
         fcmOptions: {
           link: data.click_action || '/',

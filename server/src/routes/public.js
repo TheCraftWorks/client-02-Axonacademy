@@ -14,6 +14,17 @@ const https = require('https');
 const http = require('http');
 const { generatePresignedGetUrl } = require('../config/cloudflare');
 
+// GET /app-version → Latest APK Version & GitHub Download Information for automatic in-app update prompts
+router.get('/app-version', (req, res) => {
+  res.json({
+    success: true,
+    latestVersion: '1.0.2',
+    versionCode: 3,
+    downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-release.apk',
+    releaseNotes: 'Includes high-definition 1080p screen sharing, background wake-lock for Notepad, and back button confirmation.',
+  });
+});
+
 // GET /programs → Published programs list
 router.get('/programs', (req, res) => {
   res.json({ success: true, programs: [] });

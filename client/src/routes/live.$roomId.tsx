@@ -126,11 +126,40 @@ function LiveClassroomRoom() {
   const [liveRoomId, setLiveRoomId] = useState<string | null>(routeRoomId);
   const roomIdRef = useRef<string | null>(routeRoomId);
   const [lkToken, setLkToken] = useState<string | null>(null);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
 
   const [continueInBrowser, setContinueInBrowser] = useState(false);
   const isMobileOrTablet = isMobileDevice();
   const isCapacitor = typeof window !== 'undefined' && (window as any).Capacitor;
   const showRedirectOverlay = isMobileOrTablet && !isCapacitor && !continueInBrowser;
+
+  // Intercept Android hardware back button & browser back swipe to ask confirmation before leaving live class
+  useEffect(() => {
+    if (status !== 'live') return;
+
+    let capacitorListener: any = null;
+    import('@capacitor/app').then(({ App }) => {
+      App.addListener('backButton', () => {
+        setShowExitConfirm(true);
+      }).then(l => { capacitorListener = l; });
+    }).catch(() => {});
+
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, '', window.location.href);
+      setShowExitConfirm(true);
+    };
+
+    window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (capacitorListener && capacitorListener.remove) {
+        capacitorListener.remove();
+      }
+    };
+  }, [status]);
 
   // Auto redirect to app if on mobile/tablet browser when class becomes live and token is fetched
   useEffect(() => {
@@ -641,6 +670,56 @@ function LiveClassroomRoom() {
           </div>
         ))}
       </div>
+
+      {/* ── Leave Class Confirmation Modal ── */}
+      {showExitConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99999,
+          background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px',
+        }}>
+          <div className="animate-in" style={{
+            background: '#130B29', border: '1px solid rgba(255, 74, 106, 0.4)',
+            borderRadius: '24px', padding: '28px 24px', maxWidth: '380px', width: '100%',
+            textAlign: 'center', boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9)',
+          }}>
+            <div style={{ fontSize: '42px', marginBottom: '12px' }}>⚠️</div>
+            <h3 style={{ color: '#fff', fontSize: '19px', fontWeight: '700', margin: '0 0 8px', fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+              Leave Live Class?
+            </h3>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', margin: '0 0 24px', lineHeight: 1.5, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+              {isStaff
+                ? 'Are you sure you want to end or leave this live class for all participants?'
+                : 'Are you sure you want to leave this class session?'}
+            </p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setShowExitConfirm(false)}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#fff', fontWeight: '600', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Stay in Class
+              </button>
+              <button
+                onClick={() => {
+                  setShowExitConfirm(false);
+                  handleEnd();
+                }}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '12px',
+                  background: 'linear-gradient(135deg, #FF4A6A, #E11D48)', border: 'none',
+                  color: '#fff', fontWeight: '700', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Yes, Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

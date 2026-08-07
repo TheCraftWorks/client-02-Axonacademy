@@ -43,6 +43,7 @@ public class ScreenSharePlugin extends Plugin {
     
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
+    private android.os.PowerManager.WakeLock wakeLock;
 
     private ServiceConnection serviceConnection = null;
 
@@ -99,13 +100,19 @@ public class ScreenSharePlugin extends Plugin {
 
     private void startCapturePipeline(PluginCall call) {
         try {
+            android.os.PowerManager pm = (android.os.PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
+                wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EduMeet:ScreenShareWakeLock");
+                wakeLock.acquire();
+            }
+
             DisplayMetrics metrics = new DisplayMetrics();
             getActivity().getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
             final int screenWidth = metrics.widthPixels;
             final int screenHeight = metrics.heightPixels;
             final int screenDensity = metrics.densityDpi;
 
-            final int capWidth = 640;
+            final int capWidth = 1080;
             final int capHeight = (screenHeight * capWidth) / screenWidth;
 
             handlerThread = new HandlerThread("ScreenShareBackgroundThread");
@@ -133,7 +140,7 @@ public class ScreenSharePlugin extends Plugin {
                         if (image == null) return;
 
                         long now = System.currentTimeMillis();
-                        if (now - lastFrameTime < 120) {
+                        if (now - lastFrameTime < 100) {
                             image.close();
                             return;
                         }
@@ -153,7 +160,7 @@ public class ScreenSharePlugin extends Plugin {
                         Bitmap croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height);
                         
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 45, baos);
+                        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 75, baos);
                         byte[] byteArray = baos.toByteArray();
                         String base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP);
 
@@ -190,6 +197,11 @@ public class ScreenSharePlugin extends Plugin {
         if (!isSharing) return;
 
         isSharing = false;
+
+        if (wakeLock != null && wakeLock.isHeld()) {
+            try { wakeLock.release(); } catch (Exception e) {}
+            wakeLock = null;
+        }
 
         if (virtualDisplay != null) {
             virtualDisplay.release();

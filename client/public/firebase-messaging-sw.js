@@ -38,18 +38,20 @@ function initializeFirebase(config) {
       const body = notification.body || 'Your live class is now available. Tap to join.';
       const roomId = data.roomId || '';
       const clickUrl = data.click_action || (roomId ? `${self.location.origin}/live/${roomId}` : self.location.origin);
+      const tag = data.meetingId ? `meeting-${data.meetingId}` : `sw-${Date.now()}`;
 
       const options = {
         body,
         icon: '/favicon.ico',
         badge: '/favicon.ico',
-        tag: `live-class-${data.meetingId || Date.now()}`,
+        tag: tag, // Browser collapses duplicate notifications with same tag into 1 window
+        renotify: true,
         requireInteraction: true,
         data: { clickUrl, roomId, meetingId: data.meetingId || '' },
-        actions: [
+        actions: roomId ? [
           { action: 'join',    title: '▶ Join Class' },
           { action: 'dismiss', title: 'Dismiss' },
-        ],
+        ] : [],
       };
 
       return self.registration.showNotification(title, options);

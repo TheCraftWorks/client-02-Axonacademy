@@ -117,24 +117,26 @@ export async function initFCM(): Promise<void> {
       console.info('[FCM] Token registered:', token.slice(0, 20) + '…');
     }
 
-    // 6. Handle foreground messages (app is open) — show a custom toast instead of native notification
+    // 6. Handle foreground messages (app is open) — dispatch CustomEvent for UI toast
     onMessage(messaging, (payload) => {
       const { title, body } = payload.notification || {};
       const data = payload.data || {};
 
-      // Dispatch a custom DOM event so any React component can listen
+      // Dispatch a custom DOM event so any React component can listen and display UI alert
       window.dispatchEvent(
         new CustomEvent('fcm:foreground-message', {
           detail: { title, body, data },
         })
       );
 
-      // Also trigger a browser notification if the page is visible
-      if (document.visibilityState !== 'visible' && Notification.permission === 'granted') {
-        new Notification(title ?? 'Live Class Started', {
-          body: body ?? 'Tap to join',
+      // Only trigger a native browser notification if tab is in background (hidden)
+      // Use explicit tag matching meetingId so Chrome collapses duplicates into 1 window
+      if (document.visibilityState === 'hidden' && Notification.permission === 'granted') {
+        const tag = data.meetingId ? `meeting-${data.meetingId}` : `fcm-${Date.now()}`;
+        new Notification(title ?? 'Live Class Alert', {
+          body: body ?? 'Tap to view',
           icon: '/favicon.ico',
-          tag: `live-class-${data.meetingId || Date.now()}`,
+          tag,
         });
       }
     });
