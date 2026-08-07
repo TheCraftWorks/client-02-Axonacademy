@@ -130,17 +130,11 @@ function RootComponent() {
         const apiRes = await api.get('/public/app-version').catch(() => null);
         const data = apiRes?.data;
 
-        if (data?.success && data?.versionCode && currentBuild < data.versionCode) {
+        const targetVersionCode = data?.versionCode || 3;
+        const isDismissed = sessionStorage.getItem(`update_dismissed_${targetVersionCode}`);
+
+        if (data?.success && data?.versionCode && currentBuild < data.versionCode && !isDismissed) {
           setUpdateDetails(data);
-          setShowUpdateModal(true);
-        } else if (currentBuild < 3) {
-          // Fallback if API fails or build is older than v1.0.2 (build 3)
-          setUpdateDetails({
-            latestVersion: '1.0.2',
-            versionCode: 3,
-            downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-release.apk',
-            releaseNotes: 'Includes high-definition 1080p screen sharing, background wake-lock for Notepad, and back button exit confirmation.',
-          });
           setShowUpdateModal(true);
         }
       } catch (err) {
@@ -365,7 +359,12 @@ function RootComponent() {
                 ⚡ Download & Install Update (.apk)
               </a>
               <button
-                onClick={() => setShowUpdateModal(false)}
+                onClick={() => {
+                  if (updateDetails?.versionCode) {
+                    sessionStorage.setItem(`update_dismissed_${updateDetails.versionCode}`, 'true');
+                  }
+                  setShowUpdateModal(false);
+                }}
                 className="w-full text-center py-2 text-xs font-medium text-zinc-400 hover:text-zinc-600 transition-colors"
               >
                 Remind Me Later
