@@ -70,22 +70,25 @@ export default function ControlBar({
           icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>}
           label="People"
           onClick={() => dispatch(setActivePanel('participants'))}
-          active={activePanel === 'participants'} />
+          active={activePanel === 'participants'}
+          badge={raisedHands.length} />
 
-        {/* Waiting (staff) / Raise Hand (student) */}
-        {isStaff ? (
+        {/* Raise Hand */}
+        <Btn id="btn-hand"
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0"/><path d="M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v2"/><path d="M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8"/><path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15"/></svg>}
+          label={raisedHands.some(h => h.socketId === getSocket()?.id) ? "Lower Hand" : "Raise Hand"}
+          onClick={onRaiseHand}
+          active={raisedHands.some(h => h.socketId === getSocket()?.id)}
+          badge={isStaff ? raisedHands.length : 0} />
+
+        {/* Waiting (staff) */}
+        {isStaff && (
           <Btn id="btn-waiting"
             icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>}
             label="Waiting"
             onClick={() => dispatch(setActivePanel('waiting'))}
             active={activePanel === 'waiting'}
             badge={waitingList.length} />
-        ) : (
-          <Btn id="btn-hand"
-            icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 11V6a2 2 0 00-2-2v0a2 2 0 00-2 2v0"/><path d="M14 10V4a2 2 0 00-2-2v0a2 2 0 00-2 2v2"/><path d="M10 10.5V6a2 2 0 00-2-2v0a2 2 0 00-2 2v8"/><path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15"/></svg>}
-            label={raisedHands.some(h => h.socketId === getSocket()?.id) ? "Lower Hand" : "Raise Hand"}
-            onClick={onRaiseHand}
-            active={raisedHands.some(h => h.socketId === getSocket()?.id)} />
         )}
 
         {/* Divider */}

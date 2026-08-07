@@ -231,11 +231,17 @@ router.post('/room/:roomId/heartbeat', protect, async (req, res, next) => {
       attendee = meeting.attendees[meeting.attendees.length - 1];
     }
 
-    attendee.duration = Math.max(0, Math.round((Date.now() - attendee.joinedAt.getTime()) / 60000));
-    await meeting.save();
-    const attendance = await upsertMeetingAttendance(meeting, req.user._id);
+    const newDuration = Math.max(0, Math.round((Date.now() - attendee.joinedAt.getTime()) / 60000));
+    const durationChanged = attendee.duration !== newDuration;
+    attendee.duration = newDuration;
 
-    res.json({ success: true, duration: attendee.duration, attendance });
+    if (durationChanged) {
+      await meeting.save();
+      const attendance = await upsertMeetingAttendance(meeting, req.user._id);
+      return res.json({ success: true, duration: attendee.duration, attendance });
+    }
+
+    res.json({ success: true, duration: attendee.duration });
   } catch (error) {
     next(error);
   }

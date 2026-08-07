@@ -137,12 +137,22 @@ function PeopleIcon() {
 
 // ── Main VideoGrid ─────────────────────────────────────────────────────────────
 export default function VideoGrid() {
-  const { viewMode, speakerSocketId, participants } = useSelector(s => s.meeting);
+  const { viewMode, speakerSocketId, participants, raisedHands = [] } = useSelector(s => s.meeting);
   const { currentUser } = useClassroomStore();
 
   const [focusedTileId, setFocusedTileId] = useState(null);
   const [stripVisible, setStripVisible] = useState(true);
   const stripRef = useRef(null);
+
+  // Helper to check if hand is raised for a participant tile
+  const checkHandRaised = (tile) => {
+    if (!tile || tile.isScreen || !raisedHands.length) return false;
+    return raisedHands.some(h =>
+      (h.name && tile.name && h.name.trim().toLowerCase() === tile.name.trim().toLowerCase()) ||
+      (h.socketId && h.socketId === tile.id) ||
+      (h.userId && h.userId === tile.id)
+    );
+  };
 
   // Track reference list (cameras + screens)
   const cameraTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }]);
@@ -220,6 +230,7 @@ export default function VideoGrid() {
           audioEnabled={allTiles[0].audio}
           videoEnabled={allTiles[0].video}
           isScreenShare={allTiles[0].isScreen}
+          isHandRaised={checkHandRaised(allTiles[0])}
         />
       </div>
     );
@@ -227,7 +238,6 @@ export default function VideoGrid() {
 
   // ── Multi-participant: Google Meet–style spotlight + thumbnail strip ─────────
   const mainTile   = allTiles.find(t => t.id === activeFocusedId) || allTiles[0];
-  const thumbTiles = allTiles.filter(t => t.id !== mainTile.id);
 
   return (
     <div style={S.root}>
@@ -239,9 +249,9 @@ export default function VideoGrid() {
           audioTrackRef={mainTile.audioTrackRef}
           name={mainTile.name}
           isLocal={mainTile.isLocal}
-          // audioEnabled={mainTile.audio}
           videoEnabled={mainTile.video}
           isScreenShare={mainTile.isScreen}
+          isHandRaised={checkHandRaised(mainTile)}
         />
 
         {/* Strip toggle button — overlaid on main video bottom-right */}
@@ -285,33 +295,67 @@ export default function VideoGrid() {
         style={S.strip(stripVisible)}
         aria-hidden={!stripVisible}
       >
-        {/* Include ALL tiles in the strip (even mainTile) so users can quickly switch */}
-        {allTiles.map(tile => {
-          const isActive = tile.id === mainTile.id;
+        {/* Render up to 12 prioritized tiles (screen share, staff, active speaker, local) to prevent DOM crash with 100+ students */}
+        {(() => {
+          const maxVisible = 12;
+          const visibleTiles = allTiles.slice(0, maxVisible);
+          const hiddenCount = Math.max(0, allTiles.length - maxVisible);
+
           return (
-            <div
-              key={tile.id}
-              data-tile-id={tile.id}
-              style={S.thumb(isActive)}
-              onClick={() => handleThumbClick(tile.id)}
-              title={`Switch to ${tile.name}`}
-            >
-              <VideoTile
-                trackRef={tile.trackRef}
-                audioTrackRef={tile.audioTrackRef}
-                name={tile.name}
-                isLocal={tile.isLocal}
-                audioEnabled={tile.audio}
-                videoEnabled={tile.video && !isActive}
-                isScreenShare={tile.isScreen}
-              />
-         
-             
-              {/* Active indicator dot */}
-              {isActive && <div style={S.activeIndicator} />}
-            </div>
+            <>
+              {visibleTiles.map(tile => {
+                const isActive = tile.id === mainTile.id;
+                return (
+                  <div
+                    key={tile.id}
+                    data-tile-id={tile.id}
+                    style={S.thumb(isActive)}
+                    onClick={() => handleThumbClick(tile.id)}
+                    title={`Switch to ${tile.name}`}
+                  >
+                    <VideoTile
+                      trackRef={tile.trackRef}
+                      audioTrackRef={tile.audioTrackRef}
+                      name={tile.name}
+                      isLocal={tile.isLocal}
+                      audioEnabled={tile.audio}
+                      videoEnabled={tile.video && !isActive}
+                      isScreenShare={tile.isScreen}
+                      isHandRaised={checkHandRaised(tile)}
+                    />
+                    {/* Active indicator dot */}
+                    {isActive && <div style={S.activeIndicator} />}
+                  </div>
+                );
+              })}
+              {hiddenCount > 0 && (
+                <div
+                  style={{
+                    flexShrink: 0,
+                    width: '90px',
+                    height: '65px',
+                    borderRadius: '10px',
+                    background: 'rgba(124, 58, 237, 0.15)',
+                    border: '1px dashed rgba(124, 58, 237, 0.4)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#A78BFA',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    gap: '2px',
+                    fontFamily: 'Plus Jakarta Sans, sans-serif'
+                  }}
+                  title={`${hiddenCount} more participants in room`}
+                >
+                  <span>+{hiddenCount}</span>
+                  <span style={{ fontSize: '9px', fontWeight: '500', opacity: 0.8 }}>more</span>
+                </div>
+              )}
+            </>
           );
-        })}      
+        })()}
       </div>
     </div>
   );

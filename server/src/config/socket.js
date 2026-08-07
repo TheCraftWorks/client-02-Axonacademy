@@ -28,46 +28,57 @@ function cleanupSocket(socket, roomId) {
   // Include name so client can show "X left the class"
   socket.to(roomId).emit('user-left', { socketId: socket.id, name });
 
-  // If the host disconnected, end the meeting for everyone
+  // If the host disconnected, start a 120s grace period instead of immediately ending the meeting
   if (room.hostSocketId === socket.id) {
-    io.to(roomId).emit('meeting-ended');
-    rooms.delete(roomId);
+    room.hostSocketId = null;
+    console.log(`[Socket.io] Host disconnected from room ${roomId}. Starting 120s grace period.`);
+    io.to(roomId).emit('host-reconnecting', { gracePeriodSec: 120 });
 
-    // Update MongoDB status to ended
-    const LiveMeeting = require('../models/LiveMeeting');
-    const Attendance = require('../models/Attendance');
-    LiveMeeting.findOne({ roomId }).then(async meeting => {
-      if (meeting) {
-        meeting.status = 'ended';
-        meeting.endedAt = new Date();
-        for (const attendee of meeting.attendees) {
-          if (!attendee.leftAt) {
-            attendee.leftAt = meeting.endedAt;
-            const diffMs = attendee.leftAt - attendee.joinedAt;
-            attendee.duration = Math.max(0, Math.round(diffMs / 60000));
+    if (room.hostDisconnectTimeout) {
+      clearTimeout(room.hostDisconnectTimeout);
+    }
+
+    room.hostDisconnectTimeout = setTimeout(() => {
+      console.log(`[Socket.io] Host grace period expired for room ${roomId}. Ending meeting.`);
+      io.to(roomId).emit('meeting-ended');
+      rooms.delete(roomId);
+
+      // Update MongoDB status to ended
+      const LiveMeeting = require('../models/LiveMeeting');
+      const Attendance = require('../models/Attendance');
+      LiveMeeting.findOne({ roomId }).then(async meeting => {
+        if (meeting) {
+          meeting.status = 'ended';
+          meeting.endedAt = new Date();
+          for (const attendee of meeting.attendees) {
+            if (!attendee.leftAt) {
+              attendee.leftAt = meeting.endedAt;
+              const diffMs = attendee.leftAt - attendee.joinedAt;
+              attendee.duration = Math.max(0, Math.round(diffMs / 60000));
+            }
+            const scheduledDate = meeting.scheduledAt || attendee.joinedAt || new Date();
+            await Attendance.findOneAndUpdate(
+              { meeting: meeting._id, student: attendee.student },
+              {
+                $set: {
+                  classroom: meeting.classroom,
+                  date: scheduledDate,
+                  status: attendee.duration >= 1 ? 'present' : 'late',
+                  markedBy: 'auto',
+                  joinedAt: attendee.joinedAt,
+                  leftAt: attendee.leftAt,
+                  duration: attendee.duration
+                }
+              },
+              { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
           }
-          const scheduledDate = meeting.scheduledAt || attendee.joinedAt || new Date();
-          await Attendance.findOneAndUpdate(
-            { meeting: meeting._id, student: attendee.student },
-            {
-              $set: {
-                classroom: meeting.classroom,
-                date: scheduledDate,
-                status: attendee.duration >= 1 ? 'present' : 'late',
-                markedBy: 'auto',
-                joinedAt: attendee.joinedAt,
-                leftAt: attendee.leftAt,
-                duration: attendee.duration
-              }
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-          );
+          return meeting.save();
         }
-        return meeting.save();
-      }
-    }).catch(err => {
-      console.error('[Socket cleanupSocket Error] Could not update meeting status to ended:', err.message);
-    });
+      }).catch(err => {
+        console.error('[Socket cleanupSocket Error] Could not update meeting status to ended:', err.message);
+      });
+    }, 120000);
   }
 }
 
@@ -120,7 +131,8 @@ const initSocket = (server) => {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       credentials: true
     },
-    pingTimeout: 60000
+    pingTimeout: 120000,
+    pingInterval: 25000,
   });
 
   console.log('[Socket.io] Realtime Server initialized');
@@ -274,6 +286,12 @@ const initSocket = (server) => {
         });
       } else {
         const room = rooms.get(roomId);
+        if (room.hostDisconnectTimeout) {
+          clearTimeout(room.hostDisconnectTimeout);
+          room.hostDisconnectTimeout = null;
+          console.log(`[Socket.io] Host reconnected to room ${roomId}. Cancelled termination grace period timer.`);
+          io.to(roomId).emit('host-reconnected');
+        }
         room.hostSocketId = socket.id;
         room.hostUserId = user.userId;
         room.hostName = user.name;
@@ -294,10 +312,10 @@ const initSocket = (server) => {
       room.participants.set(socket.id, { userId: user.userId, name: user.name, role: 'staff' });
       socketUsers.set(socket.id, { ...user, roomId });
 
-      cb?.({ roomId, participants: getRoomParticipants(roomId) });
+      cb?.({ roomId, participants: getRoomParticipants(roomId), raisedHands: room.raisedHands || [] });
     });
 
-    // ── STUDENT: Request to join (enters waiting room)
+    // ── STUDENT: Request to join (enters waiting room or auto-admits)
     socket.on('student-request-join', async ({ roomId }, cb) => {
       let room = rooms.get(roomId);
       if (!room) {
@@ -316,11 +334,20 @@ const initSocket = (server) => {
             startedAt: null,
             waitingList: [],
             participants: new Map(),
+            raisedHands: [],
           });
           room = rooms.get(roomId);
         } catch (err) {
           return cb?.({ error: 'Failed to verify class.' });
         }
+      }
+
+      // Auto-admit registered/authenticated students so 100+ students join instantly without bottlenecking host UI
+      const isRegisteredStudent = user.userId && !user.userId.startsWith('guest_');
+      if (isRegisteredStudent) {
+        const existing = getRoomParticipants(roomId);
+        socket.emit('admitted', { roomId, existingParticipants: existing });
+        return cb?.({ status: 'admitted' });
       }
 
       const alreadyWaiting = room.waitingList.some(w => w.socketId === socket.id);
@@ -382,7 +409,7 @@ const initSocket = (server) => {
         role: user.role,
       });
 
-      cb?.({ existingParticipants });
+      cb?.({ existingParticipants, raisedHands: room.raisedHands || [] });
     });
 
     // ── STAFF: Kick a participant
@@ -465,13 +492,11 @@ const initSocket = (server) => {
       const room = rooms.get(roomId);
       if (room) {
         if (!room.raisedHands) room.raisedHands = [];
-        if (!room.raisedHands.some(h => h.socketId === socket.id)) {
-          room.raisedHands.push({ socketId: socket.id, name: user.name });
+        const item = { socketId: socket.id, name: user.name, userId: user.userId };
+        if (!room.raisedHands.some(h => h.socketId === socket.id || (h.name && h.name === user.name))) {
+          room.raisedHands.push(item);
         }
-        io.to(roomId).emit('hand-raised', {
-          socketId: socket.id,
-          name: user.name,
-        });
+        io.to(roomId).emit('hand-raised', item);
       }
     });
 
@@ -480,7 +505,9 @@ const initSocket = (server) => {
       const room = rooms.get(roomId);
       if (room) {
         if (room.raisedHands) {
-          room.raisedHands = room.raisedHands.filter(h => h.socketId !== targetSocketId);
+          room.raisedHands = room.raisedHands.filter(h =>
+            h.socketId !== targetSocketId && h.name !== targetSocketId && h.userId !== targetSocketId
+          );
         }
         io.to(roomId).emit('hand-lowered', {
           socketId: targetSocketId,

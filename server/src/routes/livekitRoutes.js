@@ -20,6 +20,7 @@ router.get('/get-token', protect, async (req, res) => {
     const at = new AccessToken(apiKey, apiSecret, {
       identity: participantName,
       name: participantName,
+      ttl: '24h',
     });
     
     // Set permissions: allow user to join the room, publish/subscribe tracks.

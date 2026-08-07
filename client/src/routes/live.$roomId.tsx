@@ -13,7 +13,7 @@ import '../index.css';
 import {
   setStatus, addParticipant, removeParticipant,
   addToWaiting, removeFromWaiting, addMessage,
-  resetMeeting, setRoomId, setScreenSharing,
+  resetMeeting, setRoomId, setScreenSharing, setRaisedHands,
   addRaisedHand, removeRaisedHand,
 } from '@/store/slices/meetingSlice';
 import { LiveKitRoom, useLocalParticipant } from '@livekit/components-react';
@@ -214,7 +214,30 @@ function LiveClassroomRoom() {
       socket = connectSocket({ token: token || undefined });
 
       socket.on('connect_error', (err: any) => {
-        if (mounted) dispatch(setStatus('error'));
+        console.warn('[Socket] Temporary connection error:', err?.message || err);
+        // Do not immediately throw user to error screen on transient disconnect; Socket.io auto-reconnects
+      });
+
+      socket.on('host-reconnecting', ({ gracePeriodSec }: any) => {
+        if (!mounted) return;
+        dispatch(addMessage({
+          senderId: '__system__',
+          senderName: 'System',
+          message: `Host connection lost. Reconnecting (grace period ${gracePeriodSec}s)...`,
+          timestamp: Date.now(),
+          _system: true
+        }));
+      });
+
+      socket.on('host-reconnected', () => {
+        if (!mounted) return;
+        dispatch(addMessage({
+          senderId: '__system__',
+          senderName: 'System',
+          message: `Host reconnected successfully.`,
+          timestamp: Date.now(),
+          _system: true
+        }));
       });
 
       socket.on('admitted', ({ roomId: admittedRoomId, existingParticipants }: any) => {
@@ -222,6 +245,7 @@ function LiveClassroomRoom() {
         socket.emit('join-room', { roomId: admittedRoomId }, (res: any) => {
           if (!mounted) return;
           dispatch(setStatus('live'));
+          if (res?.raisedHands) dispatch(setRaisedHands(res.raisedHands));
           startTimer();
           fetchLiveKitToken(admittedRoomId, user?.name || '');
         });
@@ -246,6 +270,7 @@ function LiveClassroomRoom() {
         if (!mounted) return;
         dispatch(removeParticipant(socketId));
         dispatch(removeFromWaiting(socketId));
+        dispatch(removeRaisedHand(socketId));
         if (name) {
           dispatch(addMessage({ senderId: '__system__', senderName: 'System', message: `${name} left the class`, timestamp: Date.now(), _system: true }));
         }
@@ -260,8 +285,15 @@ function LiveClassroomRoom() {
       });
 
       socket.on('new-message', (msg: any) => { if (mounted) dispatch(addMessage(msg)); });
-      socket.on('hand-raised', (data: any) => { if (mounted) { dispatch(addRaisedHand(data)); if (isStaff) playHandSound(); } });
-      socket.on('hand-lowered', ({ socketId }: any) => { if (mounted) dispatch(removeRaisedHand(socketId)); });
+      socket.on('hand-raised', (data: any) => {
+        if (mounted) {
+          dispatch(addRaisedHand(data));
+          if (isStaff) playHandSound();
+        }
+      });
+      socket.on('hand-lowered', (data: any) => {
+        if (mounted) dispatch(removeRaisedHand(data?.socketId || data));
+      });
 
       const onConnect = () => {
         if (!mounted) return;
@@ -277,6 +309,7 @@ function LiveClassroomRoom() {
             roomIdRef.current = resolvedRoomId;
             dispatch(setRoomId(resolvedRoomId));
             dispatch(setStatus('live'));
+            if (res?.raisedHands) dispatch(setRaisedHands(res.raisedHands));
             startTimer();
             fetchLiveKitToken(resolvedRoomId, user?.name || '');
           });

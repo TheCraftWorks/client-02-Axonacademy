@@ -76,13 +76,26 @@ const meetingSlice = createSlice({
 
     setScreenSharing(state, { payload }) { state.isScreenSharing = payload; },
 
-    addRaisedHand(state, { payload }) {
-      if (!state.raisedHands.find(h => h.socketId === payload.socketId))
-        state.raisedHands.push(payload);
+    setRaisedHands(state, { payload }) {
+      state.raisedHands = Array.isArray(payload) ? payload : [];
     },
 
-    removeRaisedHand(state, { payload: socketId }) {
-      state.raisedHands = state.raisedHands.filter(h => h.socketId !== socketId);
+    addRaisedHand(state, { payload }) {
+      if (!payload) return;
+      const exists = state.raisedHands.some(h =>
+        (payload.socketId && h.socketId === payload.socketId) ||
+        (payload.name && h.name === payload.name) ||
+        (payload.userId && h.userId === payload.userId)
+      );
+      if (!exists) state.raisedHands.push(payload);
+    },
+
+    removeRaisedHand(state, { payload }) {
+      if (!payload) return;
+      const target = typeof payload === 'object' ? (payload.socketId || payload.name || payload.userId) : payload;
+      state.raisedHands = state.raisedHands.filter(h =>
+        h.socketId !== target && h.name !== target && h.userId !== target
+      );
     },
 
     setViewMode(state, { payload }) { state.viewMode = payload; },
@@ -102,7 +115,7 @@ const meetingSlice = createSlice({
 export const {
   setRoomId, setStatus, setParticipants, addParticipant, removeParticipant,
   updateParticipantMedia, addToWaiting, removeFromWaiting, addMessage, markMessagesRead,
-  clearMessages, setActivePanel, closePanel, setScreenSharing,
+  clearMessages, setActivePanel, closePanel, setScreenSharing, setRaisedHands,
   addRaisedHand, removeRaisedHand, setViewMode, setSpeaker, resetMeeting,
 } = meetingSlice.actions;
 

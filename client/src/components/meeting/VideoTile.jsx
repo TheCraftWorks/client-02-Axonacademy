@@ -9,6 +9,7 @@ export default function VideoTile({
   audioEnabled = true,
   videoEnabled = true,
   isScreenShare = false,
+  isHandRaised = false,
 }) {
   const videoHolderRef = useRef(null);
   const letter = name?.charAt(0)?.toUpperCase() || '?';
@@ -22,8 +23,27 @@ export default function VideoTile({
         position: 'relative', background: '#0F0820', 
         overflow: 'hidden', display: 'flex', alignItems: 'center',
         justifyContent: 'center', height: '100%',
+        border: isHandRaised ? '2px solid #FFB547' : 'none',
+        boxShadow: isHandRaised ? '0 0 16px rgba(255, 181, 71, 0.4)' : 'none',
       }}
     >
+      {/* Hand Raised Overlay Badge */}
+      {isHandRaised && (
+        <div style={{
+          position: 'absolute', top: '8px', right: '8px',
+          background: 'linear-gradient(135deg, #FFB547, #F59E0B)',
+          color: '#070412',
+          boxShadow: '0 0 14px rgba(255, 181, 71, 0.9)',
+          borderRadius: '50%',
+          width: '32px', height: '32px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '16px', fontWeight: '800',
+          zIndex: 12,
+        }} title={`${name} raised hand`}>
+          ✋
+        </div>
+      )}
+
       {/* Video stream */}
       {showVideo && trackRef && (!isLocal || !isScreenShare) && (
         <VideoTrack
@@ -96,9 +116,11 @@ export default function VideoTile({
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 2,
       }}>
         <div style={{
-          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', color: '#fff',
+          background: isHandRaised ? 'rgba(255, 181, 71, 0.25)' : 'rgba(0,0,0,0.7)',
+          border: isHandRaised ? '1px solid rgba(255, 181, 71, 0.5)' : 'none',
+          backdropFilter: 'blur(4px)', color: '#fff',
           fontSize: '10px', fontWeight: '600', padding: '2px 6px 2px 2px', borderRadius: '99px',
-          maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           fontFamily: 'Plus Jakarta Sans, sans-serif',
           display: 'flex', alignItems: 'center', gap: '4px',
         }}>
@@ -113,6 +135,7 @@ export default function VideoTile({
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {name}{isLocal ? ' (You)' : ''}
           </span>
+          {isHandRaised && <span style={{ fontSize: '11px' }}>✋</span>}
         </div>
         {!audioEnabled && (
           <div style={{
