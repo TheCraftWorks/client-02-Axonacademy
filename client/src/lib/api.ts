@@ -833,6 +833,8 @@ export async function uploadClassroomRecordingToCloudflare({
 
   const fileMB = (file.size / (1024 * 1024)).toFixed(1);
 
+  const videoContentType = getNormalizedVideoContentType(file);
+
   // ============================================================
   // PATH A — Single presigned PUT for small files (< 50 MB)
   // ============================================================
@@ -843,7 +845,7 @@ export async function uploadClassroomRecordingToCloudflare({
       method: 'POST',
       credentials: 'include',
       headers: baseHeaders,
-      body: JSON.stringify({ classroom, filename: file.name, contentType: file.type || 'video/mp4' }),
+      body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
     });
 
     const presignData = await presignRes.json().catch(() => ({}));
@@ -862,7 +864,7 @@ export async function uploadClassroomRecordingToCloudflare({
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('PUT', uploadUrl, true);
-      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+      xhr.setRequestHeader('Content-Type', videoContentType);
 
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) reportProgress(e.loaded, e.total);
@@ -911,7 +913,7 @@ export async function uploadClassroomRecordingToCloudflare({
     method: 'POST',
     credentials: 'include',
     headers: baseHeaders,
-    body: JSON.stringify({ classroom, filename: file.name, contentType: file.type || 'video/mp4' }),
+    body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
   });
 
   const initiateData = await initiateRes.json().catch(() => ({}));
@@ -1574,6 +1576,14 @@ export async function sendMessage(receiverId: string, message: string): Promise<
 }
 
 
+function getNormalizedVideoContentType(file: File): string {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.mov') || name.endsWith('.qt') || file.type === 'video/quicktime' || !file.type) {
+    return 'video/mp4';
+  }
+  return file.type;
+}
+
 export async function uploadLibraryRecordingToCloudflare({
   file,
   folderId,
@@ -1593,7 +1603,7 @@ export async function uploadLibraryRecordingToCloudflare({
     percentage: number;
     part?: number;       
     totalParts?: number; 
-  }) => void;
+    }) => void;
 }) {
   const authHeaders = getDevAuthUserHeaders();
   const accessToken = classroomStore.getState().accessToken;
@@ -1602,6 +1612,8 @@ export async function uploadLibraryRecordingToCloudflare({
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     ...authHeaders,
   };
+
+  const videoContentType = getNormalizedVideoContentType(file);
 
   const reportProgress = (loaded: number, total: number, part?: number, totalParts?: number) => {
     onProgress?.({
@@ -1617,7 +1629,7 @@ export async function uploadLibraryRecordingToCloudflare({
       method: 'POST',
       credentials: 'include',
       headers: baseHeaders,
-      body: JSON.stringify({ filename: file.name, contentType: file.type || 'video/mp4' }),
+      body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
     });
 
     const presignData = await presignRes.json().catch(() => ({}));
@@ -1628,7 +1640,7 @@ export async function uploadLibraryRecordingToCloudflare({
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('PUT', uploadUrl, true);
-      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+      xhr.setRequestHeader('Content-Type', videoContentType);
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) reportProgress(e.loaded, e.total);
       });
@@ -1661,7 +1673,7 @@ export async function uploadLibraryRecordingToCloudflare({
     method: 'POST',
     credentials: 'include',
     headers: baseHeaders,
-    body: JSON.stringify({ filename: file.name, contentType: file.type || 'video/mp4' }),
+    body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
   });
   const initiateData = await initiateRes.json().catch(() => ({}));
   if (!initiateRes.ok) throw new Error(initiateData.message || 'Failed to initiate multipart upload');
