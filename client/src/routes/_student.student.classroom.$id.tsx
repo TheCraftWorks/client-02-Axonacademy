@@ -577,7 +577,7 @@ function SecurePlayer({
   const fmt = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col no-select select-none" onContextMenu={(e) => e.preventDefault()}>
+    <div className="fixed inset-0 z-50 bg-black flex flex-col h-[100dvh] overflow-hidden no-select select-none" onContextMenu={(e) => e.preventDefault()}>
       <style>{`
         @media print {
           body, html, #root, .fixed, video {
@@ -595,9 +595,9 @@ function SecurePlayer({
       `}</style>
 
       {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-3 bg-black/90 border-b border-white/10 z-40 relative">
-        <span className="text-white font-semibold text-sm truncate max-w-md">{recording.title}</span>
-        <div className="flex items-center gap-3 no-gesture">
+      <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 bg-black/90 border-b border-white/10 z-40 relative shrink-0">
+        <span className="text-white font-semibold text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md">{recording.title}</span>
+        <div className="flex items-center gap-2 sm:gap-3 no-gesture">
           {/* Quality Selector */}
           <div className="relative">
             <button
@@ -605,10 +605,10 @@ function SecurePlayer({
                 setShowQualityMenu((v) => !v);
                 setShowSpeedMenu(false);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors border border-white/10"
+              className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-[11px] sm:text-xs font-medium transition-colors border border-white/10"
               title="Select video quality"
             >
-              <Settings className="h-3.5 w-3.5 text-lime" />
+              <Settings className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-lime" />
               <span>{selectedQuality}</span>
             </button>
 
@@ -636,10 +636,10 @@ function SecurePlayer({
                 setShowSpeedMenu((v) => !v);
                 setShowQualityMenu(false);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition-colors border border-white/10"
+              className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-[11px] sm:text-xs font-medium transition-colors border border-white/10"
               title="Select playback speed"
             >
-              <Gauge className="h-3.5 w-3.5 text-lime" />
+              <Gauge className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-lime" />
               <span>{playbackSpeed}x</span>
             </button>
 
@@ -667,21 +667,21 @@ function SecurePlayer({
       </div>
 
       {/* Video area */}
-      <div className="flex flex-1 relative select-none">
+      <div className="flex flex-1 min-h-0 relative select-none flex-col md:flex-row overflow-hidden">
         <div
           onClick={handleVideoAreaClick}
-          className="flex-1 bg-linear-to-br from-plum-dark/90 to-[#0B0719] flex items-center justify-center relative cursor-pointer"
+          className="flex-1 min-h-0 bg-linear-to-br from-plum-dark/90 to-[#0B0719] flex items-center justify-center relative cursor-pointer overflow-hidden p-1.5 sm:p-3 pb-8 sm:pb-6"
         >
           {resolvedStreamUrl ? (
             <video
               ref={videoRef}
               src={resolvedStreamUrl}
               crossOrigin="anonymous"
-              className="w-full h-[95vh] object-contain bg-black no-select select-none pointer-events-auto"
+              className="w-full h-full max-h-full object-contain bg-black no-select select-none pointer-events-auto"
               controls
               autoPlay
               onError={handleVideoError}
-              controlsList="nodownload nofullscreen noremoteplayback"
+              controlsList="nodownload noremoteplayback"
               disablePictureInPicture
               disableRemotePlayback
               // @ts-ignore — non-standard AirPlay attribute for Safari iOS
@@ -908,13 +908,13 @@ function SecurePlayer({
 
         {/* Chapters sidebar */}
         {chapters.length > 0 && (
-          <div className="w-56 bg-[#111] border-l border-white/10 overflow-y-auto">
-            <div className="p-3 border-b border-white/10 text-white/70 text-xs uppercase tracking-widest">Chapters</div>
+          <div className="w-full md:w-56 max-h-36 md:max-h-full bg-[#111] border-t md:border-t-0 md:border-l border-white/10 overflow-y-auto shrink-0">
+            <div className="p-2.5 sm:p-3 border-b border-white/10 text-white/70 text-[10px] sm:text-xs uppercase tracking-widest font-semibold">Chapters</div>
             {chapters.map((ch) => (
               <button
                 key={ch.id}
                 onClick={() => setPosition(ch.startTimeSec)}
-                className={`w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-white/5 transition-colors ${position >= ch.startTimeSec ? "text-white" : "text-white/50"}`}
+                className={`w-full text-left px-3 py-2 sm:py-2.5 flex items-center gap-2 hover:bg-white/5 transition-colors ${position >= ch.startTimeSec ? "text-white" : "text-white/50"}`}
               >
                 <span className="font-mono text-[10px] text-lime shrink-0">{fmt(ch.startTimeSec)}</span>
                 <span className="text-xs truncate">{ch.title}</span>
