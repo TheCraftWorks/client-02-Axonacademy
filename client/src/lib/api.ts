@@ -1783,3 +1783,7 @@ export async function rejectClassroomJoinRequest(classroomId: string, requestId:
     method: 'POST',
   });
 }
+
+export async function getAppVersion() {
+  return fetchJson('/public/app-version');
+}

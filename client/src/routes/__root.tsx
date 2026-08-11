@@ -126,9 +126,8 @@ function RootComponent() {
         const currentBuild = parseInt(info.build || '1', 10);
 
         // Fetch latest release details from backend API
-        const { api } = await import('@/lib/api');
-        const apiRes = await api.get('/public/app-version').catch(() => null);
-        const data = apiRes?.data;
+        const { getAppVersion } = await import('@/lib/api');
+        const data = await getAppVersion().catch(() => null);
 
         const targetVersionCode = data?.versionCode || 3;
         const isDismissed = sessionStorage.getItem(`update_dismissed_${targetVersionCode}`);
