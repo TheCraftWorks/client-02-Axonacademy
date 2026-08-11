@@ -13,6 +13,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -34,6 +35,7 @@ import java.nio.ByteBuffer;
 public class ScreenSharePlugin extends Plugin {
     private MediaProjectionManager mediaProjectionManager;
     private MediaProjection mediaProjection;
+    private MediaProjection.Callback mediaProjectionCallback;
     private VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
     
@@ -72,7 +74,12 @@ public class ScreenSharePlugin extends Plugin {
             final int resultCode = result.getResultCode();
 
             Intent serviceIntent = new Intent(getContext(), ScreenShareService.class);
-            getContext().startService(serviceIntent);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                getContext().startForegroundService(serviceIntent);
+            } else {
+                getContext().startService(serviceIntent);
+            }
+
             serviceConnection = new ServiceConnection() {
                 @Override
                 public void onServiceConnected(ComponentName name, IBinder service) {
@@ -108,16 +115,32 @@ public class ScreenSharePlugin extends Plugin {
 
             DisplayMetrics metrics = new DisplayMetrics();
             getActivity().getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
-            final int screenWidth = metrics.widthPixels;
-            final int screenHeight = metrics.heightPixels;
-            final int screenDensity = metrics.densityDpi;
+            final int screenWidth = metrics.widthPixels > 0 ? metrics.widthPixels : 1080;
+            final int screenHeight = metrics.heightPixels > 0 ? metrics.heightPixels : 1920;
+            final int screenDensity = metrics.densityDpi > 0 ? metrics.densityDpi : DisplayMetrics.DENSITY_DEFAULT;
 
             final int capWidth = 1080;
-            final int capHeight = (screenHeight * capWidth) / screenWidth;
+            final int capHeight = Math.max(16, (screenHeight * capWidth) / screenWidth);
 
             handlerThread = new HandlerThread("ScreenShareBackgroundThread");
             handlerThread.start();
             backgroundHandler = new Handler(handlerThread.getLooper());
+
+            if (mediaProjection != null) {
+                mediaProjectionCallback = new MediaProjection.Callback() {
+                    @Override
+                    public void onStop() {
+                        super.onStop();
+                        Activity activity = getActivity();
+                        if (activity != null) {
+                            activity.runOnUiThread(() -> stopCapture());
+                        } else {
+                            stopCapture();
+                        }
+                    }
+                };
+                mediaProjection.registerCallback(mediaProjectionCallback, backgroundHandler);
+            }
 
             imageReader = ImageReader.newInstance(capWidth, capHeight, PixelFormat.RGBA_8888, 2);
             
@@ -174,7 +197,7 @@ public class ScreenSharePlugin extends Plugin {
 
                     } catch (Exception e) {
                         if (image != null) {
-                            image.close();
+                            try { image.close(); } catch (Exception ex) {}
                         }
                     }
                 }
@@ -204,24 +227,32 @@ public class ScreenSharePlugin extends Plugin {
         }
 
         if (virtualDisplay != null) {
-            virtualDisplay.release();
+            try { virtualDisplay.release(); } catch (Exception e) {}
             virtualDisplay = null;
         }
 
         if (imageReader != null) {
-            imageReader.setOnImageAvailableListener(null, null);
-            imageReader.close();
+            try {
+                imageReader.setOnImageAvailableListener(null, null);
+                imageReader.close();
+            } catch (Exception e) {}
             imageReader = null;
         }
 
         if (mediaProjection != null) {
-            mediaProjection.stop();
+            if (mediaProjectionCallback != null) {
+                try {
+                    mediaProjection.unregisterCallback(mediaProjectionCallback);
+                } catch (Exception e) {}
+                mediaProjectionCallback = null;
+            }
+            try { mediaProjection.stop(); } catch (Exception e) {}
             mediaProjection = null;
         }
 
         if (handlerThread != null) {
-            handlerThread.quitSafely();
             try {
+                handlerThread.quitSafely();
                 handlerThread.join();
             } catch (InterruptedException e) {
                 // Ignore
