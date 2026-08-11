@@ -20,7 +20,7 @@ router.get('/app-version', (req, res) => {
     success: true,
     latestVersion: '1.0.3',
     versionCode: 4,
-    downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-release.apk',
+    downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-debug.apk',
     releaseNotes: 'Includes high-definition 1080p screen sharing, background wake-lock for Notepad, and back button confirmation.',
   });
 });
