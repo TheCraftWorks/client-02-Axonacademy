@@ -257,6 +257,16 @@ export default function Meeting() {
           video={videoEnabled}
           screen={isScreenSharing}
           onDisconnected={handleEnd}
+          options={{
+            adaptiveStream: { pixelDensity: 'screen' },
+            dynacast: true,
+            publishDefaults: {
+              screenShareEncoding: {
+                maxBitrate: 3_000_000,
+                maxFramerate: 15,
+              },
+            },
+          }}
           style={{ display: 'flex', minHeight: 0, overflow: 'hidden' }}
         >
           <div className="meeting-main" style={{ flex: 1, minHeight: 0 }}>

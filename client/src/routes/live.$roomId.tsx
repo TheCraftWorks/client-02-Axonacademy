@@ -69,6 +69,7 @@ function LiveClassroomRoom() {
           document.body.appendChild(canvas);
         }
         const ctx = canvas.getContext('2d');
+        let lastLoadedImg: HTMLImageElement | null = null;
 
         const { registerPlugin } = await import('@capacitor/core');
         const ScreenShare = registerPlugin<any>('ScreenSharePlugin');
@@ -77,6 +78,7 @@ function LiveClassroomRoom() {
           if (!event || !event.base64) return;
           const img = new Image();
           img.onload = () => {
+            lastLoadedImg = img;
             if (ctx) {
               if (canvas.width !== img.width || canvas.height !== img.height) {
                 canvas.width = img.width;
@@ -91,6 +93,14 @@ function LiveClassroomRoom() {
         await ScreenShare.startScreenShare();
         const listener = await ScreenShare.addListener('onFrame', frameListener);
 
+        // Heartbeat tick on canvas context: repaints the canvas every 200ms (5 FPS)
+        // even if screen is static, preventing canvas.captureStream() from starving in WebRTC.
+        const tickInterval = setInterval(() => {
+          if (ctx && lastLoadedImg) {
+            ctx.drawImage(lastLoadedImg, 0, 0);
+          }
+        }, 200);
+
         const stream = (canvas as any).captureStream(15);
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
@@ -99,6 +109,7 @@ function LiveClassroomRoom() {
 
         const originalStop = videoTrack.stop.bind(videoTrack);
         videoTrack.stop = () => {
+          clearInterval(tickInterval);
           originalStop();
           listener.remove();
           ScreenShare.stopScreenShare().catch(console.error);
@@ -600,6 +611,16 @@ function LiveClassroomRoom() {
           audio={true}
           video={true}
           onDisconnected={handleEnd}
+          options={{
+            adaptiveStream: { pixelDensity: 'screen' },
+            dynacast: true,
+            publishDefaults: {
+              screenShareEncoding: {
+                maxBitrate: 3_000_000,
+                maxFramerate: 15,
+              },
+            },
+          }}
           style={{ display: 'flex', minHeight: 0, overflow: 'hidden' }}
         >
           {/* meeting-main fills the entire content row */}
@@ -749,6 +770,37 @@ function _MediaControllerSync({
   const stateRef = useRef({ audioEnabled, videoEnabled, isScreenSharing });
   stateRef.current = { audioEnabled, videoEnabled, isScreenSharing };
 
+  // Periodic keep-alive track optimization while screen sharing is active
+  useEffect(() => {
+    if (!isScreenSharing || !localParticipant) return;
+
+    const optimizeTrack = () => {
+      try {
+        const pub = Array.from(localParticipant.trackPublications.values()).find(
+          (p: any) => p.source === 'screen_share' || p.trackName === 'screen'
+        );
+        if (pub?.track?.mediaStreamTrack) {
+          if (pub.track.mediaStreamTrack.contentHint !== 'detail') {
+            pub.track.mediaStreamTrack.contentHint = 'detail';
+          }
+        }
+        if (pub?.track?.sender) {
+          const params = pub.track.sender.getParameters();
+          if (params && params.degradationPreference !== 'maintain-resolution') {
+            params.degradationPreference = 'maintain-resolution';
+            pub.track.sender.setParameters(params).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn('[LK] Keepalive track optimization error:', err);
+      }
+    };
+
+    optimizeTrack();
+    const interval = setInterval(optimizeTrack, 8000);
+    return () => clearInterval(interval);
+  }, [isScreenSharing, localParticipant]);
+
   useEffect(() => {
     onSyncActions({
       toggleAudio: async () => {
@@ -781,6 +833,7 @@ function _MediaControllerSync({
             });
 
             // Set contentHint to 'detail' on screen share mediaStreamTrack for razor-sharp text clarity
+            // and maintain-resolution degradationPreference for sustained PDF text quality.
             setTimeout(() => {
               try {
                 const pub = Array.from(localParticipant.trackPublications.values()).find(
@@ -788,6 +841,13 @@ function _MediaControllerSync({
                 );
                 if (pub?.track?.mediaStreamTrack) {
                   pub.track.mediaStreamTrack.contentHint = 'detail';
+                }
+                if (pub?.track?.sender) {
+                  const params = pub.track.sender.getParameters();
+                  if (params) {
+                    params.degradationPreference = 'maintain-resolution';
+                    pub.track.sender.setParameters(params).catch(() => {});
+                  }
                 }
               } catch (err) {
                 console.warn('[LK] Could not set contentHint detail:', err);

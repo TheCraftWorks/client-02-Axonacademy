@@ -49,6 +49,10 @@ public class ScreenSharePlugin extends Plugin {
 
     private ServiceConnection serviceConnection = null;
 
+    private String lastBase64Frame = null;
+    private Runnable heartbeatRunnable = null;
+    private volatile long lastRealFrameTime = 0;
+
     @PluginMethod
     public void startScreenShare(PluginCall call) {
         if (isSharing) {
@@ -191,6 +195,9 @@ public class ScreenSharePlugin extends Plugin {
                         croppedBitmap.recycle();
                         image.close();
 
+                        lastBase64Frame = base64;
+                        lastRealFrameTime = now;
+
                         JSObject frameData = new JSObject();
                         frameData.put("base64", base64);
                         notifyListeners("onFrame", frameData);
@@ -204,6 +211,28 @@ public class ScreenSharePlugin extends Plugin {
             }, backgroundHandler);
 
             isSharing = true;
+
+            // Heartbeat ticker: If screen is static (no image available from VirtualDisplay for 400ms),
+            // re-emit last cached frame to prevent WebRTC track starvation and freezing.
+            heartbeatRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isSharing || backgroundHandler == null) return;
+                    long now = System.currentTimeMillis();
+                    if (lastBase64Frame != null && (now - lastRealFrameTime >= 400)) {
+                        try {
+                            JSObject frameData = new JSObject();
+                            frameData.put("base64", lastBase64Frame);
+                            notifyListeners("onFrame", frameData);
+                        } catch (Exception e) {}
+                    }
+                    if (isSharing && backgroundHandler != null) {
+                        backgroundHandler.postDelayed(this, 400);
+                    }
+                }
+            };
+            backgroundHandler.postDelayed(heartbeatRunnable, 400);
+
             call.resolve();
         } catch (Exception e) {
             call.reject("Failed to initialize capture pipeline: " + e.getMessage());
@@ -220,6 +249,12 @@ public class ScreenSharePlugin extends Plugin {
         if (!isSharing) return;
 
         isSharing = false;
+
+        if (backgroundHandler != null && heartbeatRunnable != null) {
+            try { backgroundHandler.removeCallbacks(heartbeatRunnable); } catch (Exception e) {}
+            heartbeatRunnable = null;
+        }
+        lastBase64Frame = null;
 
         if (wakeLock != null && wakeLock.isHeld()) {
             try { wakeLock.release(); } catch (Exception e) {}

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { VideoTrack, AudioTrack } from '@livekit/components-react';
 
 export default function VideoTile({
@@ -14,6 +14,36 @@ export default function VideoTile({
   const videoHolderRef = useRef(null);
   const letter = name?.charAt(0)?.toUpperCase() || '?';
   const showVideo = trackRef && videoEnabled;
+
+  // Auto-play and stall recovery monitor for video stream (especially screen share)
+  useEffect(() => {
+    if (!showVideo || !videoHolderRef.current) return;
+    const videoEl = videoHolderRef.current.querySelector('video');
+    if (!videoEl) return;
+
+    const handleStall = () => {
+      if (videoEl.paused) {
+        videoEl.play().catch(() => {});
+      }
+    };
+
+    videoEl.addEventListener('stalled', handleStall);
+    videoEl.addEventListener('waiting', handleStall);
+    videoEl.addEventListener('pause', handleStall);
+
+    const interval = setInterval(() => {
+      if (videoEl && videoEl.paused && videoEl.srcObject) {
+        videoEl.play().catch(() => {});
+      }
+    }, 5000);
+
+    return () => {
+      videoEl.removeEventListener('stalled', handleStall);
+      videoEl.removeEventListener('waiting', handleStall);
+      videoEl.removeEventListener('pause', handleStall);
+      clearInterval(interval);
+    };
+  }, [showVideo, isScreenShare, trackRef]);
 
   return (
     <div
