@@ -18,8 +18,8 @@ const { generatePresignedGetUrl } = require('../config/cloudflare');
 router.get('/app-version', (req, res) => {
   res.json({
     success: true,
-    latestVersion: '1.0.4',
-    versionCode: 5,
+    latestVersion: '1.0.5',
+    versionCode: 6,
     downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-debug.apk',
     releaseNotes: 'Includes fixed screen share stream freezing, continuous heartbeat frame relay, and stability improvements.',
   });

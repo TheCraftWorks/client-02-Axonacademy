@@ -9,4 +9,25 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ScreenSharePlugin.class);
         super.onCreate(savedInstanceState);
     }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        keepWebViewAliveIfSharing();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        keepWebViewAliveIfSharing();
+    }
+
+    private void keepWebViewAliveIfSharing() {
+        if (ScreenSharePlugin.isSharingActive()) {
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                getBridge().getWebView().onResume();
+                getBridge().getWebView().resumeTimers();
+            }
+        }
+    }
 }

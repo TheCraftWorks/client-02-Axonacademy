@@ -41,7 +41,11 @@ public class ScreenSharePlugin extends Plugin {
     
     private ScreenShareService screenShareService;
     private boolean isServiceBound = false;
-    private boolean isSharing = false;
+    private static volatile boolean isSharing = false;
+    
+    public static boolean isSharingActive() {
+        return isSharing;
+    }
     
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
