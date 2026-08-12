@@ -18,10 +18,10 @@ const { generatePresignedGetUrl } = require('../config/cloudflare');
 router.get('/app-version', (req, res) => {
   res.json({
     success: true,
-    latestVersion: '1.0.3',
-    versionCode: 4,
+    latestVersion: '1.0.4',
+    versionCode: 5,
     downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-debug.apk',
-    releaseNotes: 'Includes high-definition 1080p screen sharing, background wake-lock for Notepad, and back button confirmation.',
+    releaseNotes: 'Includes fixed screen share stream freezing, continuous heartbeat frame relay, and stability improvements.',
   });
 });
 
