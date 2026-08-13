@@ -98,6 +98,22 @@ public class ScreenSharePlugin extends Plugin {
                     mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
                     screenShareService.setMediaProjection(mediaProjection);
 
+                    screenShareService.setOnStopListener(new ScreenShareService.OnStopListener() {
+                        @Override
+                        public void onStop() {
+                            if (getActivity() != null) {
+                                getActivity().runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        stopCapture();
+                                    }
+                                });
+                            } else {
+                                stopCapture();
+                            }
+                        }
+                    });
+
                     startCapturePipeline(call);
                 }
 
@@ -253,6 +269,13 @@ public class ScreenSharePlugin extends Plugin {
         if (!isSharing) return;
 
         isSharing = false;
+
+        try {
+            JSObject data = new JSObject();
+            notifyListeners("onStop", data);
+        } catch (Exception e) {
+            // Ignore
+        }
 
         if (backgroundHandler != null && heartbeatRunnable != null) {
             try { backgroundHandler.removeCallbacks(heartbeatRunnable); } catch (Exception e) {}

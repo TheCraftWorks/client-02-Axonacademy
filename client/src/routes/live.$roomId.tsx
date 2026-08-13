@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Navigate } from '@tanstack/react-router';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { isMobileDevice } from '@/utils/deviceDetect';
 import { openNativeApp } from '@/utils/nativeApp';
 import { Provider, useDispatch, useSelector } from 'react-redux';
@@ -74,24 +74,37 @@ function LiveClassroomRoom() {
         const { registerPlugin } = await import('@capacitor/core');
         const ScreenShare = registerPlugin<any>('ScreenSharePlugin');
 
-        const frameListener = (event: any) => {
+        const frameListener = async (event: any) => {
           if (!event || !event.base64) return;
-          const img = new Image();
-          img.onload = () => {
-            lastLoadedImg = img;
-            if (ctx) {
-              if (canvas.width !== img.width || canvas.height !== img.height) {
-                canvas.width = img.width;
-                canvas.height = img.height;
-              }
-              ctx.drawImage(img, 0, 0);
+          try {
+            const binaryString = atob(event.base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
             }
-          };
-          img.src = 'data:image/jpeg;base64,' + event.base64;
+            const blob = new Blob([bytes], { type: 'image/jpeg' });
+            const bitmap = await createImageBitmap(blob);
+            lastLoadedImg = bitmap as any;
+            if (ctx) {
+              if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+              }
+              ctx.drawImage(bitmap, 0, 0);
+            }
+          } catch (e) {
+            console.error('[ScreenShare] Error decoding frame in background:', e);
+          }
         };
 
         await ScreenShare.startScreenShare();
         const listener = await ScreenShare.addListener('onFrame', frameListener);
+        const stopListener = await ScreenShare.addListener('onStop', async () => {
+          if (lkActionsRef.current && isScreenSharingRef.current) {
+            await lkActionsRef.current.toggleScreen();
+          }
+        });
 
         // Heartbeat tick on canvas context: repaints the canvas every 200ms (5 FPS)
         // even if screen is static, preventing canvas.captureStream() from starving in WebRTC.
@@ -112,6 +125,9 @@ function LiveClassroomRoom() {
           clearInterval(tickInterval);
           originalStop();
           listener.remove();
+          if (stopListener) {
+            stopListener.remove();
+          }
           ScreenShare.stopScreenShare().catch(console.error);
           if (canvas.parentNode) {
             canvas.parentNode.removeChild(canvas);
@@ -218,7 +234,31 @@ function LiveClassroomRoom() {
   // Media state — visual state kept in React; actual LiveKit calls go via lkActionsRef
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
+
+  // Dynamic Room options optimized for roles (staff gets high-quality audio & no AGC/DTX)
+  const roomOptions = useMemo(() => ({
+    adaptiveStream: { pixelDensity: 'screen' as const },
+    dynacast: true,
+    audioCaptureDefaults: {
+      autoGainControl: isStaff ? false : true, // disable AGC for staff to keep voice natural/clear, keep enabled for students
+      echoCancellation: true,
+      noiseSuppression: true,
+    },
+    publishDefaults: {
+      audioBitrate: isStaff ? 96000 : 32000,   // 96kbps high-quality for staff, 32kbps for students
+      dtx: isStaff ? false : true,              // disable DTX for staff to prevent clipping, enable for students to save bandwidth
+      screenShareEncoding: {
+        maxBitrate: 3000000,
+        maxFramerate: 15,
+      },
+    },
+  }), [isStaff]);
+
   const [isScreenSharingState, setIsScreenSharingState] = useState(false);
+  const isScreenSharingRef = useRef(false);
+  useEffect(() => {
+    isScreenSharingRef.current = isScreenSharingState;
+  }, [isScreenSharingState]);
   // Ref that _MediaControllerSync populates once it has LiveKit room context
   const lkActionsRef = useRef<{
     toggleAudio: () => Promise<void>;
@@ -608,19 +648,10 @@ function LiveClassroomRoom() {
           serverUrl={LK_SERVER_URL}
           token={lkToken}
           connect={true}
-          audio={true}
-          video={true}
+          audio={audioEnabled}
+          video={videoEnabled}
           onDisconnected={handleEnd}
-          options={{
-            adaptiveStream: { pixelDensity: 'screen' },
-            dynacast: true,
-            publishDefaults: {
-              screenShareEncoding: {
-                maxBitrate: 3_000_000,
-                maxFramerate: 15,
-              },
-            },
-          }}
+          options={roomOptions}
           style={{ display: 'flex', minHeight: 0, overflow: 'hidden' }}
         >
           {/* meeting-main fills the entire content row */}
@@ -801,23 +832,84 @@ function _MediaControllerSync({
     return () => clearInterval(interval);
   }, [isScreenSharing, localParticipant]);
 
+  // Synchronize visual state with the actual track states of localParticipant.
+  // This ensures the UI remains fully accurate if tracks are modified by the browser/native app,
+  // or when first joining.
+  useEffect(() => {
+    if (!localParticipant) return;
+    
+    // Sync microphone state
+    if (audioEnabled !== localParticipant.isMicrophoneEnabled) {
+      onToggleAudio(localParticipant.isMicrophoneEnabled);
+    }
+    // Sync camera state
+    if (videoEnabled !== localParticipant.isCameraEnabled) {
+      onToggleVideo(localParticipant.isCameraEnabled);
+    }
+    // Sync screen share state
+    const hasScreenShare = Array.from(localParticipant.trackPublications.values()).some(
+      (p: any) => p.source === 'screen_share' || p.trackName === 'screen'
+    );
+    if (isScreenSharing !== hasScreenShare) {
+      onToggleScreen(hasScreenShare);
+    }
+  }, [
+    localParticipant,
+    localParticipant.isMicrophoneEnabled,
+    localParticipant.isCameraEnabled,
+    localParticipant.trackPublications,
+    audioEnabled,
+    videoEnabled,
+    isScreenSharing,
+    onToggleAudio,
+    onToggleVideo,
+    onToggleScreen
+  ]);
+
   useEffect(() => {
     onSyncActions({
       toggleAudio: async () => {
+        if (!localParticipant) {
+          console.warn('[LK] toggleAudio called but localParticipant is not ready.');
+          return;
+        }
         const next = !stateRef.current.audioEnabled;
-        try { await localParticipant.setMicrophoneEnabled(next); } catch (e) { console.warn('[LK] mic', e); }
-        onToggleAudio(next);
+        try {
+          await localParticipant.setMicrophoneEnabled(next);
+          onToggleAudio(next);
+        } catch (e: any) {
+          console.error('[LK] failed to setMicrophoneEnabled:', e);
+          alert(`Failed to toggle microphone: ${e?.message || e}`);
+          // Force revert UI state to match actual track state
+          onToggleAudio(localParticipant.isMicrophoneEnabled);
+        }
       },
       toggleVideo: async () => {
+        if (!localParticipant) {
+          console.warn('[LK] toggleVideo called but localParticipant is not ready.');
+          return;
+        }
         const next = !stateRef.current.videoEnabled;
-        try { await localParticipant.setCameraEnabled(next); } catch (e) { console.warn('[LK] cam', e); }
-        onToggleVideo(next);
+        try {
+          await localParticipant.setCameraEnabled(next);
+          onToggleVideo(next);
+        } catch (e: any) {
+          console.error('[LK] failed to setCameraEnabled:', e);
+          alert(`Failed to toggle camera: ${e?.message || e}`);
+          // Force revert UI state to match actual track state
+          onToggleVideo(localParticipant.isCameraEnabled);
+        }
       },
       toggleScreen: async () => {
         const next = !stateRef.current.isScreenSharing;
         
         if (next && !isStaff) {
           alert("Only instructors and administrators have permission to share screen.");
+          return;
+        }
+
+        if (!localParticipant) {
+          console.warn('[LK] toggleScreen called but localParticipant is not ready.');
           return;
         }
 
@@ -860,6 +952,11 @@ function _MediaControllerSync({
         } catch (e: any) {
           console.warn('[LK] screen', e);
           alert("Could not start screen sharing: " + (e?.message || String(e)));
+          // Force revert UI state to match actual screen share track status
+          const hasScreenShare = Array.from(localParticipant.trackPublications.values()).some(
+            (p: any) => p.source === 'screen_share' || p.trackName === 'screen'
+          );
+          onToggleScreen(hasScreenShare);
         }
       },
     });
