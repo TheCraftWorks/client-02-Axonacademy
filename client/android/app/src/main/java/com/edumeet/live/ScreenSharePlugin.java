@@ -181,7 +181,7 @@ public class ScreenSharePlugin extends Plugin {
             final int screenHeight = metrics.heightPixels > 0 ? metrics.heightPixels : 1920;
             final int screenDensity = metrics.densityDpi > 0 ? metrics.densityDpi : DisplayMetrics.DENSITY_DEFAULT;
 
-            final int capWidth = 1080;
+            final int capWidth = 720;
             final int capHeight = Math.max(16, (screenHeight * capWidth) / screenWidth);
 
             handlerThread = new HandlerThread("ScreenShareBackgroundThread");
@@ -225,7 +225,7 @@ public class ScreenSharePlugin extends Plugin {
                         if (image == null) return;
 
                         long now = System.currentTimeMillis();
-                        if (now - lastFrameTime < 100) {
+                        if (now - lastFrameTime < 150) {
                             image.close();
                             return;
                         }

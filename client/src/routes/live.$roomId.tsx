@@ -85,6 +85,9 @@ function LiveClassroomRoom() {
             }
             const blob = new Blob([bytes], { type: 'image/jpeg' });
             const bitmap = await createImageBitmap(blob);
+            if (lastLoadedImg && (lastLoadedImg as any).close) {
+              try { (lastLoadedImg as any).close(); } catch (err) {}
+            }
             lastLoadedImg = bitmap as any;
             if (ctx) {
               if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
