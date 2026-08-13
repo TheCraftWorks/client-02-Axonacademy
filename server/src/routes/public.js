@@ -18,8 +18,8 @@ const { generatePresignedGetUrl } = require('../config/cloudflare');
 router.get('/app-version', (req, res) => {
   res.json({
     success: true,
-    latestVersion: '1.0.9',
-    versionCode: 10,
+    latestVersion: '1.0.10',
+    versionCode: 11,
     downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-debug.apk',
     releaseNotes: 'Implemented Google Meet-style Picture-in-Picture (PiP) mode, eliminated GPU VRAM memory leaks, and prevented background screen share freezing on Android tablets and phones.',
   });
