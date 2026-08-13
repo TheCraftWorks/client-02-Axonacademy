@@ -20,6 +20,7 @@ import android.os.IBinder;
 import android.util.Base64;
 import android.util.DisplayMetrics;
 import androidx.activity.result.ActivityResult;
+import android.net.wifi.WifiManager;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -62,6 +63,7 @@ public class ScreenSharePlugin extends Plugin {
     private HandlerThread handlerThread;
     private Handler backgroundHandler;
     private android.os.PowerManager.WakeLock wakeLock;
+    private WifiManager.WifiLock wifiLock;
 
     private ServiceConnection serviceConnection = null;
 
@@ -165,6 +167,12 @@ public class ScreenSharePlugin extends Plugin {
             if (pm != null && (wakeLock == null || !wakeLock.isHeld())) {
                 wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EduMeet:ScreenShareWakeLock");
                 wakeLock.acquire();
+            }
+
+            WifiManager wm = (WifiManager) getContext().getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null && (wifiLock == null || !wifiLock.isHeld())) {
+                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "EduMeet:ScreenShareWifiLock");
+                wifiLock.acquire();
             }
 
             DisplayMetrics metrics = new DisplayMetrics();
@@ -317,6 +325,11 @@ public class ScreenSharePlugin extends Plugin {
         if (wakeLock != null && wakeLock.isHeld()) {
             try { wakeLock.release(); } catch (Exception e) {}
             wakeLock = null;
+        }
+
+        if (wifiLock != null && wifiLock.isHeld()) {
+            try { wifiLock.release(); } catch (Exception e) {}
+            wifiLock = null;
         }
 
         if (virtualDisplay != null) {

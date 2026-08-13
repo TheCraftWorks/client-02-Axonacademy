@@ -132,7 +132,7 @@ export async function initFCM(): Promise<void> {
       // Only trigger a native browser notification if tab is in background (hidden)
       // Use explicit tag matching meetingId so Chrome collapses duplicates into 1 window
       if (document.visibilityState === 'hidden' && Notification.permission === 'granted') {
-        const tag = data.meetingId ? `meeting-${data.meetingId}` : `fcm-${Date.now()}`;
+        const tag = data.meetingId ? `meeting-${data.meetingId}` : (payload.messageId || `fcm-${Date.now()}`);
         new Notification(title ?? 'Live Class Alert', {
           body: body ?? 'Tap to view',
           icon: '/favicon.ico',

@@ -31,14 +31,19 @@ function initializeFirebase(config) {
     messaging.onBackgroundMessage((payload) => {
       console.log('[SW] Background message received:', payload);
 
-      const notification = payload.notification || {};
-      const data = payload.data || {};
+      // If the message contains a notification payload, Firebase SDK will show it automatically.
+      // Do not call showNotification here to prevent duplicate notifications.
+      if (payload.notification) {
+        console.log('[SW] Payload contains notification. Let FCM handle automatic display.');
+        return;
+      }
 
-      const title = notification.title || '🔴 Live Class Started';
-      const body = notification.body || 'Your live class is now available. Tap to join.';
+      const data = payload.data || {};
+      const title = data.title || '🔴 Live Class Started';
+      const body = data.body || 'Your live class is now available. Tap to join.';
       const roomId = data.roomId || '';
       const clickUrl = data.click_action || (roomId ? `${self.location.origin}/live/${roomId}` : self.location.origin);
-      const tag = data.meetingId ? `meeting-${data.meetingId}` : `sw-${Date.now()}`;
+      const tag = data.meetingId ? `meeting-${data.meetingId}` : (payload.messageId || `sw-${Date.now()}`);
 
       const options = {
         body,

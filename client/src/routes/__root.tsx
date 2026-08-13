@@ -13,6 +13,7 @@ import { getCurrentUser, getClassrooms } from "@/lib/api";
 import { classroomStore, type User } from "@/lib/classroomStore";
 import { initFCM } from "@/lib/fcm";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 
 import appCss from "../styles.css?url";
 
@@ -242,26 +243,26 @@ function RootComponent() {
       });
   }, []);
 
-  // ── Foreground push: show a browser notification toast when app is active ──
+  // ── Foreground push: show an in-app toast when app is active and visible ──
   useEffect(() => {
     const handler = (event: CustomEvent) => {
       const { title, body, data } = event.detail || {};
       const roomId = data?.roomId;
       if (!title) return;
 
-      // If the browser Notification API is available and permitted, show it
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notif = new Notification(title, {
-          body: body ?? '',
-          icon: '/favicon.ico',
-          tag: `live-class-${data?.meetingId || Date.now()}`,
-          requireInteraction: true,
+      // Only show the toast on the currently active/visible tab to avoid multiple toasts across tabs
+      if (document.visibilityState === 'visible') {
+        toast.info(title, {
+          description: body ?? '',
+          duration: 10000,
+          action: roomId ? {
+            label: 'Join Class',
+            onClick: () => {
+              const url = data?.click_action || `/live/${roomId}`;
+              window.open(url, '_blank');
+            }
+          } : undefined,
         });
-        notif.onclick = () => {
-          const url = data?.click_action || (roomId ? `/live/${roomId}` : '/');
-          window.focus();
-          window.open(url, '_blank');
-        };
       }
     };
 

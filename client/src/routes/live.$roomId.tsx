@@ -99,6 +99,22 @@ function LiveClassroomRoom() {
         };
 
         await ScreenShare.startScreenShare();
+        
+        // Play silent audio to prevent WebView / Chromium background throttling
+        let silentAudio = document.getElementById('silent-background-audio') as HTMLAudioElement;
+        if (!silentAudio) {
+          silentAudio = document.createElement('audio');
+          silentAudio.id = 'silent-background-audio';
+          silentAudio.loop = true;
+          // 1-second silent WAV base64 data URI
+          silentAudio.src = 'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA==';
+          silentAudio.style.display = 'none';
+          document.body.appendChild(silentAudio);
+        }
+        silentAudio.play().catch((err) => {
+          console.warn('[ScreenShare] Could not auto-play silent audio keep-alive:', err);
+        });
+
         const listener = await ScreenShare.addListener('onFrame', frameListener);
         const stopListener = await ScreenShare.addListener('onStop', async () => {
           if (lkActionsRef.current && isScreenSharingRef.current) {
@@ -131,6 +147,17 @@ function LiveClassroomRoom() {
           ScreenShare.stopScreenShare().catch(console.error);
           if (canvas.parentNode) {
             canvas.parentNode.removeChild(canvas);
+          }
+          
+          // Stop and cleanup silent audio
+          const silentAudioEl = document.getElementById('silent-background-audio') as HTMLAudioElement;
+          if (silentAudioEl) {
+            try {
+              silentAudioEl.pause();
+              silentAudioEl.remove();
+            } catch (err) {
+              console.error('[ScreenShare] Error stopping silent audio:', err);
+            }
           }
         };
 
