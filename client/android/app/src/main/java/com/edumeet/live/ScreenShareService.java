@@ -39,12 +39,15 @@ public class ScreenShareService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        android.util.Log.i("ScreenShareService", "ScreenShareService onCreate called");
         createNotificationChannel();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        android.util.Log.i("ScreenShareService", "ScreenShareService onStartCommand called: action=" + (intent != null ? intent.getAction() : "null"));
         if (intent != null && ACTION_STOP_SCREEN_SHARE.equals(intent.getAction())) {
+            android.util.Log.i("ScreenShareService", "Received stop action, stopping share");
             if (stopListener != null) {
                 stopListener.onStop();
             }
@@ -95,17 +98,19 @@ public class ScreenShareService extends Service {
                 .setSmallIcon(android.R.drawable.ic_menu_share)
                 .setOngoing(true)
                 .setContentIntent(launchPendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Sharing", stopPendingIntent)
                 .build();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            android.util.Log.i("ScreenShareService", "Starting foreground service with MediaProjection type");
             startForeground(
                     NOTIFICATION_ID,
                     notification,
                     android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             );
         } else {
+            android.util.Log.i("ScreenShareService", "Starting foreground service");
             startForeground(NOTIFICATION_ID, notification);
         }
         
@@ -127,7 +132,9 @@ public class ScreenShareService extends Service {
 
     @Override
     public void onDestroy() {
+        android.util.Log.i("ScreenShareService", "ScreenShareService onDestroy called");
         if (mediaProjection != null) {
+            android.util.Log.i("ScreenShareService", "Stopping MediaProjection on service destroy");
             mediaProjection.stop();
             mediaProjection = null;
         }

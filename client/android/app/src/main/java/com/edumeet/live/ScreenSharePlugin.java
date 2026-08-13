@@ -25,13 +25,25 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+import android.Manifest;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 
-@CapacitorPlugin(name = "ScreenSharePlugin")
+@CapacitorPlugin(
+    name = "ScreenSharePlugin",
+    permissions = {
+        @Permission(
+            alias = "notifications",
+            strings = { Manifest.permission.POST_NOTIFICATIONS }
+        )
+    }
+)
 public class ScreenSharePlugin extends Plugin {
     private MediaProjectionManager mediaProjectionManager;
     private MediaProjection mediaProjection;
@@ -63,7 +75,25 @@ public class ScreenSharePlugin extends Plugin {
             call.resolve();
             return;
         }
-        
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (getPermissionState("notifications") != PermissionState.GRANTED) {
+                requestPermissionForAlias("notifications", call, "notificationsPermsCallback");
+                return;
+            }
+        }
+
+        proceedStartScreenShare(call);
+    }
+
+    @PermissionCallback
+    private void notificationsPermsCallback(PluginCall call) {
+        // Even if permission is denied, we can still proceed with screen share,
+        // but it is highly recommended to have it. Let's proceed anyway to not block the user.
+        proceedStartScreenShare(call);
+    }
+
+    private void proceedStartScreenShare(PluginCall call) {
         Context context = getContext();
         mediaProjectionManager = (MediaProjectionManager) context.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         
@@ -222,7 +252,8 @@ public class ScreenSharePlugin extends Plugin {
                         frameData.put("base64", base64);
                         notifyListeners("onFrame", frameData);
 
-                    } catch (Exception e) {
+                    } catch (Throwable t) {
+                        android.util.Log.e("ScreenSharePlugin", "Error processing capture frame: ", t);
                         if (image != null) {
                             try { image.close(); } catch (Exception ex) {}
                         }
