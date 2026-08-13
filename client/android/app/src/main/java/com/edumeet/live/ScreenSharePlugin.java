@@ -21,6 +21,7 @@ import android.util.Base64;
 import android.util.DisplayMetrics;
 import androidx.activity.result.ActivityResult;
 import android.net.wifi.WifiManager;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -66,6 +67,7 @@ public class ScreenSharePlugin extends Plugin {
     private WifiManager.WifiLock wifiLock;
 
     private ServiceConnection serviceConnection = null;
+    private final AtomicBoolean isProcessingFrame = new AtomicBoolean(false);
 
     private String lastBase64Frame = null;
     private Runnable heartbeatRunnable = null;
@@ -219,6 +221,15 @@ public class ScreenSharePlugin extends Plugin {
                 
                 @Override
                 public void onImageAvailable(ImageReader reader) {
+                    if (isProcessingFrame.get()) {
+                        try {
+                            Image stale = reader.acquireLatestImage();
+                            if (stale != null) stale.close();
+                        } catch (Exception e) {}
+                        return;
+                    }
+                    isProcessingFrame.set(true);
+
                     Image image = null;
                     try {
                         image = reader.acquireLatestImage();
@@ -245,7 +256,7 @@ public class ScreenSharePlugin extends Plugin {
                         Bitmap croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height);
                         
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 75, baos);
+                        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 70, baos);
                         byte[] byteArray = baos.toByteArray();
                         String base64 = Base64.encodeToString(byteArray, Base64.NO_WRAP);
 
@@ -265,6 +276,8 @@ public class ScreenSharePlugin extends Plugin {
                         if (image != null) {
                             try { image.close(); } catch (Exception ex) {}
                         }
+                    } finally {
+                        isProcessingFrame.set(false);
                     }
                 }
             }, backgroundHandler);

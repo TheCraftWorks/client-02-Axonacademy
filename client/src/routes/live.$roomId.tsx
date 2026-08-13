@@ -74,10 +74,29 @@ function LiveClassroomRoom() {
         const { registerPlugin } = await import('@capacitor/core');
         const ScreenShare = registerPlugin<any>('ScreenSharePlugin');
 
-        const frameListener = async (event: any) => {
-          if (!event || !event.base64) return;
+        let latestBase64: string | null = null;
+        let isDecoding = false;
+
+        const frameListener = (event: any) => {
+          if (event && event.base64) {
+            latestBase64 = event.base64;
+          }
+        };
+
+        const tickInterval = setInterval(async () => {
+          if (!latestBase64 || isDecoding) {
+            if (ctx && lastLoadedImg) {
+              ctx.drawImage(lastLoadedImg, 0, 0);
+            }
+            return;
+          }
+
+          const base64ToDecode = latestBase64;
+          latestBase64 = null;
+          isDecoding = true;
+
           try {
-            const binaryString = atob(event.base64);
+            const binaryString = atob(base64ToDecode);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
             for (let i = 0; i < len; i++) {
@@ -98,8 +117,10 @@ function LiveClassroomRoom() {
             }
           } catch (e) {
             console.error('[ScreenShare] Error decoding frame in background:', e);
+          } finally {
+            isDecoding = false;
           }
-        };
+        }, 120);
 
         await ScreenShare.startScreenShare();
         
@@ -124,14 +145,6 @@ function LiveClassroomRoom() {
             await lkActionsRef.current.toggleScreen();
           }
         });
-
-        // Heartbeat tick on canvas context: repaints the canvas every 200ms (5 FPS)
-        // even if screen is static, preventing canvas.captureStream() from starving in WebRTC.
-        const tickInterval = setInterval(() => {
-          if (ctx && lastLoadedImg) {
-            ctx.drawImage(lastLoadedImg, 0, 0);
-          }
-        }, 200);
 
         const stream = (canvas as any).captureStream(15);
         const videoTrack = stream.getVideoTracks()[0];
