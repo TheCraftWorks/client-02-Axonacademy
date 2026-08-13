@@ -18,10 +18,10 @@ const { generatePresignedGetUrl } = require('../config/cloudflare');
 router.get('/app-version', (req, res) => {
   res.json({
     success: true,
-    latestVersion: '1.0.5',
-    versionCode: 6,
+    latestVersion: '1.0.6',
+    versionCode: 7,
     downloadUrl: 'https://github.com/TheCraftWorks/client-02-Axonacademy/releases/latest/download/app-debug.apk',
-    releaseNotes: 'Includes fixed screen share stream freezing, continuous heartbeat frame relay, and stability improvements.',
+    releaseNotes: 'Optimized voice clarity for instructors (disabled AGC, increased bitrate, disabled DTX) and resolved bottom bar controls synchronization issues where mute mic/disable camera would fail on some devices.',
   });
 });
 
