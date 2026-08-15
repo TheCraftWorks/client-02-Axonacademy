@@ -69,6 +69,7 @@ function CreateClassroomModal({
 
   const [createError, setCreateError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = React.useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -109,8 +110,9 @@ function CreateClassroomModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || isSubmitting) return;
+    if (!form.name.trim() || isSubmitting || submittingRef.current) return;
 
+    submittingRef.current = true;
     setCreateError(null);
     setIsSubmitting(true);
     try {
@@ -125,6 +127,7 @@ function CreateClassroomModal({
       setCreateError(error instanceof Error ? error.message : "Failed to create classroom");
     } finally {
       setIsSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
@@ -636,8 +639,6 @@ function AdminClassrooms() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      // Skip refetch if list data is fresh in cache
-      if (classrooms.length > 0 && !isListStale()) return;
       if (classrooms.length === 0) setLoadingBackend(true);
       try {
         const data = await apiGetClassrooms();
@@ -710,8 +711,7 @@ function AdminClassrooms() {
       {showCreate && (
         <CreateClassroomModal
           onClose={() => setShowCreate(false)}
-          onCreated={(classroom) => {
-            classroomActions.addClassroom(classroom);
+          onCreated={() => {
             listLastFetchedAt = 0; // force re-sync on next visit
           }}
         />

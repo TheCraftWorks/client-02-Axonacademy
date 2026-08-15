@@ -2902,9 +2902,6 @@ function AdminClassroomDetail() {
     let active = true;
 
     const load = async () => {
-      // Skip entirely if cache is fresh
-      if (storeClassroom && !isClassroomStale(id)) return;
-
       try {
         if (!storeClassroom) setIsLoading(true);
         await refreshClassroom();

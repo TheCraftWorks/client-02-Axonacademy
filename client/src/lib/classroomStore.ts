@@ -426,7 +426,12 @@ export const classroomActions = {
     return newCls;
   },
   addClassroom: (c: Classroom) => {
-    classroomStore.setState((s) => ({ classrooms: [...s.classrooms, c] }));
+    classroomStore.setState((s) => {
+      if (s.classrooms.some((existing) => existing.id === c.id)) {
+        return { classrooms: s.classrooms.map((existing) => (existing.id === c.id ? c : existing)) };
+      }
+      return { classrooms: [...s.classrooms, c] };
+    });
   },
   setClassrooms: (classrooms: Classroom[]) => {
     classroomStore.setState(() => ({ classrooms }));
