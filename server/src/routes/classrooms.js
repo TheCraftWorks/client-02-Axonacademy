@@ -32,6 +32,30 @@ const slugify = (value) => String(value || '')
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '');
 
+// In-memory cache for ultra-fast classroom responses (TTL: 60 seconds)
+const responseCache = new Map();
+const CACHE_TTL_MS = 60 * 1000;
+
+function getCachedData(key) {
+  const item = responseCache.get(key);
+  if (!item) return null;
+  if (Date.now() - item.timestamp > CACHE_TTL_MS) {
+    responseCache.delete(key);
+    return null;
+  }
+  return item.data;
+}
+
+function setCachedData(key, data) {
+  responseCache.set(key, { data, timestamp: Date.now() });
+}
+
+function clearClassroomCache() {
+  responseCache.clear();
+}
+
+router.clearClassroomCache = clearClassroomCache;
+
 // Prevent CastError for all routes expecting a classroom :id
 router.param('id', (req, res, next, id) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -473,6 +497,12 @@ router.post('/upload-asset', protect, restrictTo('admin', 'superadmin', 'faculty
 // GET /my → Student: get classrooms I'm enrolled in
 router.get('/my', protect, async (req, res, next) => {
   try {
+    const cacheKey = `my_${req.user._id.toString()}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     // Find active classrooms where student is enrolled
     const classrooms = await Classroom.find({
       'students.student': req.user._id,
@@ -485,7 +515,9 @@ router.get('/my', protect, async (req, res, next) => {
       .lean();
 
     await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    res.json({ success: true, classrooms: await attachClassroomDetails(classrooms) });
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms) };
+    setCachedData(cacheKey, result);
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -494,6 +526,12 @@ router.get('/my', protect, async (req, res, next) => {
 // GET /:id → Get classroom details + stats
 router.get('/:id', protect, async (req, res, next) => {
   try {
+    const cacheKey = `detail_${req.params.id}_${req.user._id.toString()}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const classroom = await Classroom.findById(req.params.id)
       .populate('program')
       .populate('batch')
@@ -512,7 +550,9 @@ router.get('/:id', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    res.json({ success: true, classroom: await attachClassroomDetails(classroom) });
+    const result = { success: true, classroom: await attachClassroomDetails(classroom) };
+    setCachedData(cacheKey, result);
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -692,6 +732,7 @@ router.post('/', async (req, res, next) => {
 
     await classroom.populate('program batch instructors');
 
+    clearClassroomCache();
     res.status(201).json({ success: true, message: 'Classroom created successfully', classroom });
   } catch (error) {
     next(error);
@@ -702,6 +743,12 @@ router.post('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     const { status, program } = req.query;
+    const cacheKey = `all_${req.user._id.toString()}_${req.user.role}_${status || ''}_${program || ''}`;
+    const cached = getCachedData(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const filter = {};
     if (status) filter.status = status;
     if (program) filter.program = await resolveProgramId(program);
@@ -718,7 +765,9 @@ router.get('/', async (req, res, next) => {
       .lean();
 
     await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    res.json({ success: true, classrooms: await attachClassroomDetails(classrooms) });
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms) };
+    setCachedData(cacheKey, result);
+    res.json(result);
   } catch (error) {
     next(error);
   }

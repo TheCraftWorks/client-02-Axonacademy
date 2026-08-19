@@ -435,14 +435,34 @@ export async function deleteAdminUser(id: string) {
   });
 }
 
-export async function getClassrooms() {
-  const payload = await fetchJson('/classrooms');
-  return payload.classrooms.map(normalizeBackendClassroom);
+let cachedClassroomsList: { data: any[]; timestamp: number } | null = null;
+const cachedClassroomDetails = new Map<string, { data: any; timestamp: number }>();
+const CLIENT_CACHE_TTL = 30_000;
+
+export function invalidateClientClassroomCache() {
+  cachedClassroomsList = null;
+  cachedClassroomDetails.clear();
 }
 
-export async function getClassroomById(id: string) {
+export async function getClassrooms(forceRefresh = false) {
+  if (!forceRefresh && cachedClassroomsList && (Date.now() - cachedClassroomsList.timestamp < CLIENT_CACHE_TTL)) {
+    return cachedClassroomsList.data;
+  }
+  const payload = await fetchJson('/classrooms');
+  const normalized = payload.classrooms.map(normalizeBackendClassroom);
+  cachedClassroomsList = { data: normalized, timestamp: Date.now() };
+  return normalized;
+}
+
+export async function getClassroomById(id: string, forceRefresh = false) {
+  const cached = cachedClassroomDetails.get(id);
+  if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
+    return cached.data;
+  }
   const payload = await fetchJson(`/classrooms/${encodeURIComponent(id)}`);
-  return normalizeBackendClassroom(payload.classroom);
+  const normalized = normalizeBackendClassroom(payload.classroom);
+  cachedClassroomDetails.set(id, { data: normalized, timestamp: Date.now() });
+  return normalized;
 }
 
 export async function createClassroomAnnouncement(classroomId: string, content: string, attachments: any[] = []) {
