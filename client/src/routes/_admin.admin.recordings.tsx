@@ -635,25 +635,23 @@ function GlobalRecordingsLibrary() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap justify-center">
-                  {!useProxyFallback && (
-                    <Button
-                      onClick={() => {
-                        setFatalError(null);
-                        setUseProxyFallback(true);
-                        setRetryCount(2);
-                        setTimeout(() => {
-                          if (videoRef.current) {
-                            videoRef.current.load();
-                            videoRef.current.play().catch(() => {});
-                          }
-                        }, 500);
-                      }}
-                      className="bg-[#C084FC] text-black hover:scale-105 active:scale-95 text-xs h-9"
-                    >
-                      <Settings className="w-3.5 h-3.5 mr-1" />
-                      Force Proxy Streaming
-                    </Button>
-                  )}
+                  <Button
+                    onClick={() => {
+                      setFatalError(null);
+                      setUseProxyFallback(true);
+                      setRetryCount(2);
+                      setTimeout(() => {
+                        if (videoRef.current) {
+                          videoRef.current.load();
+                          videoRef.current.play().catch(() => {});
+                        }
+                      }, 500);
+                    }}
+                    className="bg-[#C084FC] text-black hover:scale-105 active:scale-95 text-xs h-9"
+                  >
+                    <Settings className="w-3.5 h-3.5 mr-1" />
+                    {useProxyFallback ? "Retry Local Proxy" : "Force Local Proxy"}
+                  </Button>
                   <Button
                     onClick={() => {
                       setFatalError(null);
@@ -670,7 +668,7 @@ function GlobalRecordingsLibrary() {
                     className="hover:scale-105 active:scale-95 text-xs h-9"
                   >
                     <RotateCw className="w-3.5 h-3.5 mr-1" />
-                    Retry Direct Stream
+                    {useProxyFallback ? "Switch to Direct Stream" : "Retry Direct Stream"}
                   </Button>
                   <Button
                     onClick={() => setActivePlayRec(null)}

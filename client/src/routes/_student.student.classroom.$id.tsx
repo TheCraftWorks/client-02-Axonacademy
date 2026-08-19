@@ -850,32 +850,35 @@ function SecurePlayer({
               </div>
 
               <div className="flex items-center gap-3 flex-wrap justify-center">
-                {!useProxyFallback && (
-                  <button
-                    onClick={() => {
-                      setFatalError(null);
-                      setUseProxyFallback(true);
-                      setRetryCount(2);
-                      const currentPos = videoRef.current ? videoRef.current.currentTime : position;
-                      setTimeout(() => {
-                        if (videoRef.current) {
-                          videoRef.current.load();
-                          videoRef.current.currentTime = currentPos;
-                          videoRef.current.play().catch(() => { });
-                        }
-                      }, 500);
-                    }}
-                    className="rounded-full px-6 py-3 text-sm font-bold shadow-lg transition-all duration-200 bg-[#C084FC] text-black hover:scale-105 active:scale-95 flex items-center gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Force Proxy Streaming
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    setFatalError(null);
+                    setUseProxyFallback(true);
+                    setRetryCount(2);
+                    const tokenQuery = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+                    setResolvedStreamUrl(`${getRecordingStreamUrl(recordingId)}${tokenQuery}${tokenQuery ? '&' : '?'}proxy=true&_t=${Date.now()}`);
+                    const currentPos = videoRef.current ? videoRef.current.currentTime : position;
+                    setTimeout(() => {
+                      if (videoRef.current) {
+                        videoRef.current.load();
+                        videoRef.current.currentTime = currentPos;
+                        videoRef.current.play().catch(() => { });
+                      }
+                    }, 500);
+                  }}
+                  className="rounded-full px-6 py-3 text-sm font-bold shadow-lg transition-all duration-200 bg-[#C084FC] text-black hover:scale-105 active:scale-95 flex items-center gap-2"
+                >
+                  <Settings className="h-4 w-4" />
+                  {useProxyFallback ? "Retry Local Proxy" : "Force Local Proxy"}
+                </button>
+
                 <button
                   onClick={() => {
                     setFatalError(null);
                     setRetryCount(0);
                     setUseProxyFallback(false);
+                    const tokenQuery = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+                    setResolvedStreamUrl(`${getRecordingStreamUrl(recordingId)}${tokenQuery}${tokenQuery ? '&' : '?'}direct=true&_t=${Date.now()}`);
                     const currentPos = videoRef.current ? videoRef.current.currentTime : position;
                     setTimeout(() => {
                       if (videoRef.current) {
@@ -888,8 +891,9 @@ function SecurePlayer({
                   className="rounded-full px-6 py-3 text-sm font-bold shadow-lg transition-all duration-200 bg-white/20 text-white hover:bg-white/30 hover:scale-105 active:scale-95 flex items-center gap-2"
                 >
                   <RotateCw className="h-4 w-4" />
-                  Retry Direct Stream
+                  {useProxyFallback ? "Switch to Direct Stream" : "Retry Direct Stream"}
                 </button>
+
                 <button
                   onClick={() => {
                     void sendProgress(true);

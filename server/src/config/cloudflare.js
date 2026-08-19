@@ -58,6 +58,33 @@ function getR2ObjectUrl(objectKey) {
   return `https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${CLOUDFLARE_R2_BUCKET}/${formattedKey}`;
 }
 
+function getMimeTypeFromKey(key, fallback = 'video/mp4') {
+  if (!key) return fallback;
+  const ext = String(key).split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'mp4':
+    case 'm4v':
+      return 'video/mp4';
+    case 'webm':
+      return 'video/webm';
+    case 'mkv':
+      return 'video/x-matroska';
+    case 'mov':
+      return 'video/quicktime';
+    case 'ogv':
+    case 'ogg':
+      return 'video/ogg';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'wav':
+      return 'audio/wav';
+    case 'pdf':
+      return 'application/pdf';
+    default:
+      return fallback;
+  }
+}
+
 // ✅ Accepts Buffer (memoryStorage) or file path (legacy)
 async function uploadFileToCloudflareR2(filePathOrBuffer, objectKey, contentType) {
   const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
@@ -67,11 +94,15 @@ async function uploadFileToCloudflareR2(filePathOrBuffer, objectKey, contentType
     ? filePathOrBuffer
     : fs.createReadStream(filePathOrBuffer);
 
+  const effectiveContentType = (!contentType || contentType === 'application/octet-stream' || contentType === 'binary/octet-stream')
+    ? getMimeTypeFromKey(objectKey, 'video/mp4')
+    : contentType;
+
   await client.send(new PutObjectCommand({
     Bucket: CLOUDFLARE_R2_BUCKET,
     Key: objectKey,
     Body: body,
-    ContentType: contentType || 'application/octet-stream',
+    ContentType: effectiveContentType,
   }));
 
   return {
@@ -112,10 +143,14 @@ async function generatePresignedUploadUrl(objectKey, contentType, expiresIn = 36
   const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
   const client = getS3Client();
 
+  const effectiveContentType = (!contentType || contentType === 'application/octet-stream' || contentType === 'binary/octet-stream')
+    ? getMimeTypeFromKey(objectKey, 'video/mp4')
+    : contentType;
+
   const command = new PutObjectCommand({
     Bucket: CLOUDFLARE_R2_BUCKET,
     Key: objectKey,
-    ContentType: contentType || 'application/octet-stream',
+    ContentType: effectiveContentType,
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn });
@@ -139,10 +174,14 @@ async function createMultipartUpload(objectKey, contentType) {
   const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
   const client = getS3Client();
 
+  const effectiveContentType = (!contentType || contentType === 'application/octet-stream' || contentType === 'binary/octet-stream')
+    ? getMimeTypeFromKey(objectKey, 'video/mp4')
+    : contentType;
+
   const result = await client.send(new CreateMultipartUploadCommand({
     Bucket: CLOUDFLARE_R2_BUCKET,
     Key: objectKey,
-    ContentType: contentType || 'video/mp4',
+    ContentType: effectiveContentType,
   }));
 
   return result.UploadId;
@@ -239,6 +278,7 @@ async function generatePresignedGetUrl(objectKey, expiresIn = 604800) {
 
 module.exports = {
   getR2ObjectUrl,
+  getMimeTypeFromKey,
   uploadFileToCloudflareR2,
   deleteFileFromCloudflareR2,
   generatePresignedUploadUrl,

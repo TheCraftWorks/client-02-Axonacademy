@@ -102,7 +102,7 @@ router.get('/:id/stream', protect, restrictTo('admin', 'superadmin', 'faculty'),
     const useProxy = req.query.proxy === 'true';
 
     if (useProxy) {
-      const { getS3Client, getCloudflareConfig } = require('../config/cloudflare');
+      const { getS3Client, getCloudflareConfig, getMimeTypeFromKey } = require('../config/cloudflare');
       const { GetObjectCommand } = require('@aws-sdk/client-s3');
       const client = getS3Client();
       const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
@@ -123,10 +123,17 @@ router.get('/:id/stream', protect, restrictTo('admin', 'superadmin', 'faculty'),
       // Set headers from S3 response to support proper media range streaming
       res.status(s3Response.$metadata.httpStatusCode || (range ? 206 : 200));
 
-      if (s3Response.ContentType) res.setHeader('Content-Type', s3Response.ContentType);
+      let contentType = s3Response.ContentType;
+      if (!contentType || contentType === 'application/octet-stream' || contentType === 'binary/octet-stream' || contentType === 'text/plain') {
+        contentType = getMimeTypeFromKey(recording.cloudflareKey, 'video/mp4');
+      }
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Disposition', 'inline');
+
       if (s3Response.ContentLength) res.setHeader('Content-Length', s3Response.ContentLength);
       if (s3Response.ContentRange) res.setHeader('Content-Range', s3Response.ContentRange);
-      if (s3Response.AcceptRanges) res.setHeader('Accept-Ranges', s3Response.AcceptRanges);
       if (s3Response.ETag) res.setHeader('ETag', s3Response.ETag);
 
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
