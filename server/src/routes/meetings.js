@@ -118,7 +118,6 @@ router.get('/my', protect, async (req, res, next) => {
     if (req.user.role === 'student') {
       const classrooms = await Classroom.find({
         'students.student': req.user._id,
-        'students.status': 'active',
         status: 'active'
       }).select('_id');
       filter.classroom = { $in: classrooms.map((c) => c._id) };

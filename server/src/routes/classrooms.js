@@ -189,19 +189,28 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   if (list.length === 0) return classrooms;
   const classroomIds = list.map((classroom) => classroom._id);
 
-  const meetings = await LiveMeeting.find({ classroom: { $in: classroomIds } })
-    .populate('createdBy', 'fullName')
-    .sort({ scheduledAt: 1 })
-    .lean();
+  // 1. Live Meetings
+  let meetingsQuery = LiveMeeting.find({ classroom: { $in: classroomIds } });
+  if (isList) {
+    meetingsQuery = meetingsQuery.select('_id classroom title status scheduledAt duration');
+  } else {
+    meetingsQuery = meetingsQuery.populate('createdBy', 'fullName');
+  }
+  const meetings = await meetingsQuery.sort({ scheduledAt: 1 }).lean();
 
+  // 2. Folders
   const folders = await ClassroomFolder.find({ classroom: { $in: classroomIds } })
     .sort({ order: 1, createdAt: -1 })
     .lean();
 
-  const recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } })
-    .populate('uploadedBy', 'fullName')
-    .sort({ createdAt: -1 })
-    .lean();
+  // 3. Recordings (exclude heavy viewStats/transcripts on list overview to prevent 45MB BSON overhead)
+  let recordingsQuery = ClassroomRecording.find({ classroom: { $in: classroomIds } });
+  if (isList) {
+    recordingsQuery = recordingsQuery.select('_id classroom title isPublished duration folder createdAt');
+  } else {
+    recordingsQuery = recordingsQuery.populate('uploadedBy', 'fullName');
+  }
+  const recordings = await recordingsQuery.sort({ createdAt: -1 }).lean();
 
   if (studentId) {
     recordings.forEach(r => {
@@ -213,15 +222,23 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     await manualPopulate(recordings, 'viewStats.student', 'fullName');
   }
 
-  const announcements = await ClassroomAnnouncement.find({ classroom: { $in: classroomIds } })
-    .populate('author', 'fullName role avatar')
-    .sort({ createdAt: -1 })
-    .lean();
+  // 4. Announcements
+  let announcementsQuery = ClassroomAnnouncement.find({ classroom: { $in: classroomIds } });
+  if (isList) {
+    announcementsQuery = announcementsQuery.select('_id classroom title createdAt');
+  } else {
+    announcementsQuery = announcementsQuery.populate('author', 'fullName role avatar');
+  }
+  const announcements = await announcementsQuery.sort({ createdAt: -1 }).lean();
 
-  const quizzes = await Quiz.find({ classroom: { $in: classroomIds } })
-    .sort({ createdAt: -1 })
-    .lean();
+  // 5. Quizzes (exclude heavy questions array on list overview)
+  let quizzesQuery = Quiz.find({ classroom: { $in: classroomIds } });
+  if (isList) {
+    quizzesQuery = quizzesQuery.select('_id classroom title status instructions duration');
+  }
+  const quizzes = await quizzesQuery.sort({ createdAt: -1 }).lean();
 
+  // 6. Quiz Attempts
   let quizAttempts = [];
   if (studentId) {
     quizAttempts = await QuizAttempt.find({
@@ -239,7 +256,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     await manualPopulate(quizAttempts, 'student', 'fullName email phone');
   } else {
     quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
-      .select('_id status quiz')
+      .select('_id status quiz classroom')
       .sort({ createdAt: -1 })
       .lean();
   }
@@ -554,7 +571,6 @@ router.get('/my', protect, async (req, res, next) => {
     // Find active classrooms where student is enrolled
     const classrooms = await Classroom.find({
       'students.student': req.user._id,
-      'students.status': 'active',
       status: 'active'
     })
       .populate('program')
@@ -571,7 +587,7 @@ router.get('/my', protect, async (req, res, next) => {
     });
 
     await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { studentId: req.user._id }) };
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { studentId: req.user._id, isList: true }) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {
