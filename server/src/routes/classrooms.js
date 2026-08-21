@@ -182,7 +182,8 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
   return isArray ? items : items[0];
 };
 
-const attachClassroomDetails = async (classrooms) => {
+const attachClassroomDetails = async (classrooms, options = {}) => {
+  const studentId = options.studentId ? options.studentId.toString() : null;
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
   const classroomIds = list.map((classroom) => classroom._id);
@@ -200,7 +201,16 @@ const attachClassroomDetails = async (classrooms) => {
     .populate('uploadedBy', 'fullName')
     .sort({ createdAt: -1 })
     .lean();
-  await manualPopulate(recordings, 'viewStats.student', 'fullName');
+
+  if (studentId) {
+    recordings.forEach(r => {
+      if (Array.isArray(r.viewStats)) {
+        r.viewStats = r.viewStats.filter(v => v.student && v.student.toString() === studentId);
+      }
+    });
+  } else {
+    await manualPopulate(recordings, 'viewStats.student', 'fullName');
+  }
 
   const announcements = await ClassroomAnnouncement.find({ classroom: { $in: classroomIds } })
     .populate('author', 'fullName role avatar')
@@ -211,12 +221,22 @@ const attachClassroomDetails = async (classrooms) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  const quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
-    .sort({ createdAt: -1 })
-    .lean();
-
-  // Manual populate student details in quizAttempts
-  await manualPopulate(quizAttempts, 'student', 'fullName email phone');
+  let quizAttempts = [];
+  if (studentId) {
+    quizAttempts = await QuizAttempt.find({
+      classroom: { $in: classroomIds },
+      student: studentId
+    })
+      .select('-answers -questionOrder')
+      .sort({ createdAt: -1 })
+      .lean();
+    await manualPopulate(quizAttempts, 'student', 'fullName email phone');
+  } else {
+    quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
+      .sort({ createdAt: -1 })
+      .lean();
+    await manualPopulate(quizAttempts, 'student', 'fullName email phone');
+  }
 
   const meetingsByClassroom = meetings.reduce((acc, meeting) => {
     if (meeting.classroom) {
@@ -545,7 +565,7 @@ router.get('/my', protect, async (req, res, next) => {
     });
 
     await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    const result = { success: true, classrooms: await attachClassroomDetails(classrooms) };
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { studentId: req.user._id }) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {
@@ -556,6 +576,7 @@ router.get('/my', protect, async (req, res, next) => {
 // GET /:id → Get classroom details + stats
 router.get('/:id', protect, async (req, res, next) => {
   try {
+    const isStudent = req.user.role === 'student';
     const cacheKey = `detail_${req.params.id}_${req.user._id.toString()}`;
     const cached = getCachedData(cacheKey);
     if (cached) {
@@ -573,14 +594,24 @@ router.get('/:id', protect, async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Classroom not found' });
     }
 
-    await manualPopulate(classroom, 'students.student', 'fullName email phone avatar role isVerified isActive');
-
     // Verify student is enrolled or user is admin/assigned faculty
     if (!verifyClassroomAccess(classroom, req.user, false)) {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    const result = { success: true, classroom: await attachClassroomDetails(classroom) };
+    // For student, filter students array to avoid serializing 200+ other users
+    if (isStudent && Array.isArray(classroom.students)) {
+      classroom.students = classroom.students.filter(
+        s => s.student && s.student.toString() === req.user._id.toString()
+      );
+    }
+
+    await manualPopulate(classroom, 'students.student', 'fullName email phone avatar role isVerified isActive');
+
+    const result = {
+      success: true,
+      classroom: await attachClassroomDetails(classroom, isStudent ? { studentId: req.user._id } : {})
+    };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {
