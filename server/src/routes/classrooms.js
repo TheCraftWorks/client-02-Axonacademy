@@ -184,6 +184,7 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
 
 const attachClassroomDetails = async (classrooms, options = {}) => {
   const studentId = options.studentId ? options.studentId.toString() : null;
+  const isList = options.isList === true;
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
   const classroomIds = list.map((classroom) => classroom._id);
@@ -208,7 +209,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
         r.viewStats = r.viewStats.filter(v => v.student && v.student.toString() === studentId);
       }
     });
-  } else {
+  } else if (!isList) {
     await manualPopulate(recordings, 'viewStats.student', 'fullName');
   }
 
@@ -231,11 +232,16 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
       .sort({ createdAt: -1 })
       .lean();
     await manualPopulate(quizAttempts, 'student', 'fullName email phone');
-  } else {
+  } else if (!isList) {
     quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
       .sort({ createdAt: -1 })
       .lean();
     await manualPopulate(quizAttempts, 'student', 'fullName email phone');
+  } else {
+    quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
+      .select('_id status quiz')
+      .sort({ createdAt: -1 })
+      .lean();
   }
 
   const meetingsByClassroom = meetings.reduce((acc, meeting) => {
@@ -821,12 +827,11 @@ router.get('/', async (req, res, next) => {
     const classrooms = await Classroom.find(filter)
       .populate('program')
       .populate('batch')
-      .populate('instructors', 'fullName')
+      .populate('instructors', 'fullName email avatar')
       .sort({ createdAt: -1 })
       .lean();
 
-    await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    const result = { success: true, classrooms: await attachClassroomDetails(classrooms) };
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { isList: true }) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {

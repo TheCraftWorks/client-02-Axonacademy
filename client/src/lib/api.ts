@@ -52,44 +52,80 @@ function normalizeBackendClassroom(raw: any) {
     return status || 'scheduled';
   };
 
-  const computeStudentMetrics = (studentId: string) => {
-    const meetings = Array.isArray(raw.meetings) ? raw.meetings : [];
-    const countableMeetings = meetings.filter((m: any) => ['live', 'ended'].includes(normalizeMeetingStatus(m.status)));
-    const attendedMeetings = countableMeetings.filter((m: any) =>
-      Array.isArray(m.attendees) && m.attendees.some((a: any) => {
+  // Pre-index metrics for O(1) student lookups
+  const meetings = Array.isArray(raw.meetings) ? raw.meetings : [];
+  const countableMeetings = meetings.filter((m: any) => ['live', 'ended'].includes(normalizeMeetingStatus(m.status)));
+  const attendedCountMap = new Map<string, number>();
+  countableMeetings.forEach((m: any) => {
+    if (Array.isArray(m.attendees)) {
+      const seenInThisMeeting = new Set<string>();
+      m.attendees.forEach((a: any) => {
         const attendeeId = String(a.student?._id || a.student || a);
-        return attendeeId === studentId && (a.joinedAt || (a.duration ?? 0) > 0);
-      })
-    );
+        if (attendeeId && !seenInThisMeeting.has(attendeeId) && (a.joinedAt || (a.duration ?? 0) > 0)) {
+          seenInThisMeeting.add(attendeeId);
+          attendedCountMap.set(attendeeId, (attendedCountMap.get(attendeeId) || 0) + 1);
+        }
+      });
+    }
+  });
+
+  const recordings = Array.isArray(raw.recordings) ? raw.recordings : [];
+  const publishedRecordings = recordings.filter((r: any) => r.isPublished);
+  const recordingWatchedMap = new Map<string, number>();
+  publishedRecordings.forEach((r: any) => {
+    const duration = Number(r.duration || 0);
+    if (duration > 0 && Array.isArray(r.viewStats)) {
+      r.viewStats.forEach((v: any) => {
+        const sId = String(v.student?._id || v.student || '');
+        if (sId) {
+          const pct = Math.min(100, Math.round(((v.totalWatchedSec || 0) / duration) * 100));
+          recordingWatchedMap.set(sId, (recordingWatchedMap.get(sId) || 0) + pct);
+        }
+      });
+    }
+  });
+
+  const quizzes = Array.isArray(raw.quizzes) ? raw.quizzes : [];
+  const publishedQuizzes = quizzes.filter((q: any) => ['published', 'closed'].includes(q.status));
+  const quizScoresMap = new Map<string, { totalPct: number; count: number; quizIds: Set<string> }>();
+  publishedQuizzes.forEach((q: any) => {
+    const qId = String(q._id || q.id || '');
+    if (Array.isArray(q.attempts)) {
+      q.attempts.forEach((a: any) => {
+        if (a.status === 'submitted') {
+          const sId = String(a.student?._id || a.student || '');
+          if (sId) {
+            let entry = quizScoresMap.get(sId);
+            if (!entry) {
+              entry = { totalPct: 0, count: 0, quizIds: new Set() };
+              quizScoresMap.set(sId, entry);
+            }
+            entry.totalPct += (a.score?.percentage || 0);
+            entry.count += 1;
+            if (qId) entry.quizIds.add(qId);
+          }
+        }
+      });
+    }
+  });
+
+  const computeStudentMetrics = (studentId: string) => {
+    const attendedCount = attendedCountMap.get(studentId) || 0;
     const attendance = countableMeetings.length
-      ? Math.round((attendedMeetings.length / countableMeetings.length) * 100)
+      ? Math.round((attendedCount / countableMeetings.length) * 100)
       : 0;
 
-    const recordings = Array.isArray(raw.recordings) ? raw.recordings : [];
-    const publishedRecordings = recordings.filter((r: any) => r.isPublished);
-    const recordingPercents = publishedRecordings.map((r: any) => {
-      const stats = Array.isArray(r.viewStats)
-        ? r.viewStats.find((v: any) => String(v.student?._id || v.student) === studentId)
-        : null;
-      const duration = Number(r.duration || 0);
-      return stats && duration > 0 ? Math.min(100, Math.round(((stats.totalWatchedSec || 0) / duration) * 100)) : 0;
-    });
-    const recordingProgress = recordingPercents.length
-      ? Math.round(recordingPercents.reduce((sum: number, pct: number) => sum + pct, 0) / recordingPercents.length)
+    const totalRecPct = recordingWatchedMap.get(studentId) || 0;
+    const recordingProgress = publishedRecordings.length
+      ? Math.round(totalRecPct / publishedRecordings.length)
       : 0;
 
-    const quizzes = Array.isArray(raw.quizzes) ? raw.quizzes : [];
-    const publishedQuizzes = quizzes.filter((q: any) => ['published', 'closed'].includes(q.status));
-    const submittedAttempts = publishedQuizzes.flatMap((q: any) =>
-      Array.isArray(q.attempts)
-        ? q.attempts.filter((a: any) => String(a.student?._id || a.student) === studentId && a.status === 'submitted')
-        : []
-    );
-    const quizAvg = submittedAttempts.length
-      ? Math.round(submittedAttempts.reduce((sum: number, att: any) => sum + (att.score?.percentage || 0), 0) / submittedAttempts.length)
+    const quizEntry = quizScoresMap.get(studentId);
+    const quizAvg = quizEntry && quizEntry.count > 0
+      ? Math.round(quizEntry.totalPct / quizEntry.count)
       : 0;
-    const quizProgress = publishedQuizzes.length
-      ? Math.round((new Set(submittedAttempts.map((att: any) => String(att.quiz?._id || att.quiz))).size / publishedQuizzes.length) * 100)
+    const quizProgress = publishedQuizzes.length && quizEntry
+      ? Math.round((quizEntry.quizIds.size / publishedQuizzes.length) * 100)
       : 0;
 
     const progress = Math.round(
