@@ -19,6 +19,8 @@ import {
   useClassroomStore,
   classroomActions,
   formatDuration,
+  getExamType,
+  formatTime,
   isClassroomStale,
   classroomFetchCache,
   markClassroomFresh,
@@ -1209,7 +1211,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
         status: "submitted",
         startedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
-        answers: fullResult.answers.map((a) => ({
+        answers: fullResult.answers.map((a: any) => ({
           questionId: a.questionId,
           selectedOptions: a.selectedOptions,
           isCorrect: a.isCorrect,
@@ -1251,7 +1253,16 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
     setIsStarting(true);
     try {
       const payload = await startQuizAttempt(quiz.id);
-      setAttemptId(payload.attemptId);
+      if (payload.alreadySubmitted) {
+        toast.info(payload.message || "You have already submitted this quiz.");
+        if (payload.attemptId) {
+          const review = await getQuizAttemptResult(quiz.id, payload.attemptId);
+          setResult(review);
+        }
+        setPhase("result");
+        return;
+      }
+      setAttemptId(payload.attemptId ?? null);
       setExamQuestions(payload.questions || []);
       setAnswers({});
 
