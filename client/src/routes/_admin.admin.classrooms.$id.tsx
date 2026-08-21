@@ -2931,7 +2931,7 @@ function AdminClassroomDetail() {
     [storeClassroom]
   );
 
-  if (isLoading && !classroom) {
+  if (isLoading) {
     return (
       <div className="text-cream text-center py-20">
         <p className="text-cream/60">Loading classroom...</p>

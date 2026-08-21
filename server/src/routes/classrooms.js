@@ -202,7 +202,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
       .lean();
     meetings.forEach(m => {
       if (m.attendees) {
-        m.attendees = m.attendees.filter(a => a.toString() === studentId.toString());
+        m.attendees = m.attendees.filter(a => a.student && a.student.toString() === studentId.toString());
       }
     });
   } else {
@@ -213,9 +213,11 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   }
 
   const meetingsByClassroom = meetings.reduce((acc, meeting) => {
-    const key = meeting.classroom.toString();
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(meeting);
+    if (meeting.classroom) {
+      const key = meeting.classroom.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(meeting);
+    }
     return acc;
   }, {});
 
@@ -289,13 +291,15 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     await manualPopulate(quizAttempts, 'student', 'fullName email phone');
 
     attemptsByQuiz = quizAttempts.reduce((acc, att) => {
-      const key = att.quiz.toString();
-      if (!acc[key]) acc[key] = [];
-      acc[key].push({
-        ...att,
-        id: att._id.toString(),
-        studentName: att.student ? att.student.fullName : 'Student'
-      });
+      if (att.quiz) {
+        const key = att.quiz.toString();
+        if (!acc[key]) acc[key] = [];
+        acc[key].push({
+          ...att,
+          id: att._id.toString(),
+          studentName: att.student ? att.student.fullName : 'Student'
+        });
+      }
       return acc;
     }, {});
   } else {
@@ -311,42 +315,52 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     await manualPopulate(quizAttempts, 'student', 'fullName email phone');
 
     attemptsByQuiz = quizAttempts.reduce((acc, att) => {
-      const key = att.quiz.toString();
-      if (!acc[key]) acc[key] = [];
-      acc[key].push({
-        ...att,
-        id: att._id.toString(),
-        studentName: att.student ? att.student.fullName : 'Student'
-      });
+      if (att.quiz) {
+        const key = att.quiz.toString();
+        if (!acc[key]) acc[key] = [];
+        acc[key].push({
+          ...att,
+          id: att._id.toString(),
+          studentName: att.student ? att.student.fullName : 'Student'
+        });
+      }
       return acc;
     }, {});
   }
 
   const foldersByClassroom = folders.reduce((acc, folder) => {
-    const key = folder.classroom.toString();
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(folder);
+    if (folder.classroom) {
+      const key = folder.classroom.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(folder);
+    }
     return acc;
   }, {});
 
   const recordingsByClassroom = recordings.reduce((acc, rec) => {
-    const key = rec.classroom.toString();
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(rec);
+    if (rec.classroom) {
+      const key = rec.classroom.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(rec);
+    }
     return acc;
   }, {});
 
   const announcementsByClassroom = announcements.reduce((acc, announcement) => {
-    const key = announcement.classroom.toString();
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(announcement);
+    if (announcement.classroom) {
+      const key = announcement.classroom.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(announcement);
+    }
     return acc;
   }, {});
 
   const quizzesByClassroom = quizzes.reduce((acc, q) => {
-    const key = q.classroom.toString();
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(q);
+    if (q.classroom) {
+      const key = q.classroom.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(q);
+    }
     return acc;
   }, {});
 
