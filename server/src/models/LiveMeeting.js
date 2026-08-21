@@ -52,4 +52,6 @@ const liveMeetingSchema = new mongoose.Schema({
   endedAt:    { type: Date }
 }, { timestamps: true });
 
+liveMeetingSchema.index({ classroom: 1, scheduledAt: 1 });
+
 module.exports = mongoose.model('LiveMeeting', liveMeetingSchema);

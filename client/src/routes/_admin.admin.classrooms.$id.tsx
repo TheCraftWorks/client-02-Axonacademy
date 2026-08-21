@@ -14,6 +14,7 @@ import {
   formatDuration,
   uid,
   isClassroomStale,
+  classroomFetchCache,
   markClassroomFresh,
   type Meeting,
   type Quiz,
@@ -2870,8 +2871,8 @@ function AdminClassroomDetail() {
     [classrooms, id]
   );
 
-  // Only show the full-page spinner when we have NOTHING in cache
-  const [isLoading, setIsLoading] = useState(!storeClassroom);
+  // Only show the full-page spinner when we have NOTHING in cache or haven't fetched full details yet
+  const [isLoading, setIsLoading] = useState(!storeClassroom || !classroomFetchCache.has(id));
   const [tab, setTab] = useState<TabKey>("announcements");
 
   const visibleTabs = React.useMemo(() => {
@@ -2903,10 +2904,16 @@ function AdminClassroomDetail() {
 
     const load = async () => {
       try {
-        if (!storeClassroom) setIsLoading(true);
+        const hasFullDetails = classroomFetchCache.has(id);
+        if (storeClassroom && hasFullDetails && !isClassroomStale(id)) {
+          return;
+        }
+        if (!storeClassroom || !hasFullDetails) {
+          setIsLoading(true);
+        }
         await refreshClassroom();
       } catch (err) {
-        if (active && !storeClassroom) {
+        if (active && (!storeClassroom || !classroomFetchCache.has(id))) {
           toast.error(err instanceof Error ? err.message : "Could not load classroom by id");
         }
       } finally {
@@ -2916,7 +2923,7 @@ function AdminClassroomDetail() {
 
     load();
     return () => { active = false; };
-  }, [id]);
+  }, [id, storeClassroom]);
 
   // Merge: prefer store data (kept fresh by background sync) over nothing
   const classroom = React.useMemo(

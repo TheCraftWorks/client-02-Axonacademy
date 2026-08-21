@@ -8,4 +8,6 @@ const classroomAnnouncementSchema = new mongoose.Schema({
   readBy:     [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 }, { timestamps: true });
 
+classroomAnnouncementSchema.index({ classroom: 1, createdAt: -1 });
+
 module.exports = mongoose.model('ClassroomAnnouncement', classroomAnnouncementSchema);
