@@ -182,30 +182,41 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
   return isArray ? items : items[0];
 };
 
-const attachClassroomDetails = async (classrooms, options = {}) => {
-  const studentId = options.studentId || null;
-
+const attachClassroomDetails = async (classrooms) => {
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
   const classroomIds = list.map((classroom) => classroom._id);
 
-  // 1. Fetch meetings
-  let meetings = [];
-  if (studentId) {
-    meetings = await LiveMeeting.find({ classroom: { $in: classroomIds } })
-      .select('_id status classroom attendees scheduledAt duration title description')
-      .lean();
-    meetings.forEach(m => {
-      if (m.attendees) {
-        m.attendees = m.attendees.filter(a => a.student && a.student.toString() === studentId.toString());
-      }
-    });
-  } else {
-    meetings = await LiveMeeting.find({ classroom: { $in: classroomIds } })
-      .populate('createdBy', 'fullName')
-      .sort({ scheduledAt: 1 })
-      .lean();
-  }
+  const meetings = await LiveMeeting.find({ classroom: { $in: classroomIds } })
+    .populate('createdBy', 'fullName')
+    .sort({ scheduledAt: 1 })
+    .lean();
+
+  const folders = await ClassroomFolder.find({ classroom: { $in: classroomIds } })
+    .sort({ order: 1, createdAt: -1 })
+    .lean();
+
+  const recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } })
+    .populate('uploadedBy', 'fullName')
+    .sort({ createdAt: -1 })
+    .lean();
+  await manualPopulate(recordings, 'viewStats.student', 'fullName');
+
+  const announcements = await ClassroomAnnouncement.find({ classroom: { $in: classroomIds } })
+    .populate('author', 'fullName role avatar')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const quizzes = await Quiz.find({ classroom: { $in: classroomIds } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  // Manual populate student details in quizAttempts
+  await manualPopulate(quizAttempts, 'student', 'fullName email phone');
 
   const meetingsByClassroom = meetings.reduce((acc, meeting) => {
     if (meeting.classroom) {
@@ -215,107 +226,6 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     }
     return acc;
   }, {});
-
-  const withMeetings = list.map((classroom) => ({
-    ...classroom,
-    meetings: meetingsByClassroom[classroom._id.toString()] || []
-  }));
-
-  // 2. Fetch folders
-  let folders = [];
-  if (!studentId) {
-    folders = await ClassroomFolder.find({ classroom: { $in: classroomIds } })
-      .sort({ order: 1, createdAt: -1 })
-      .lean();
-  }
-
-  // 3. Fetch recordings
-  let recordings = [];
-  if (studentId) {
-    recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } })
-      .select('_id isPublished classroom duration title description viewStats storageProvider cloudflareKey cloudflareUrl chapters uploadedAt folder')
-      .sort({ createdAt: -1 })
-      .lean();
-    recordings.forEach(r => {
-      if (r.viewStats) {
-        r.viewStats = r.viewStats.filter(v => v.student && v.student.toString() === studentId.toString());
-      }
-    });
-  } else {
-    recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } })
-      .populate('uploadedBy', 'fullName')
-      .sort({ createdAt: -1 })
-      .lean();
-    await manualPopulate(recordings, 'viewStats.student', 'fullName');
-  }
-
-  // 4. Fetch announcements
-  let announcements = [];
-  if (!studentId) {
-    announcements = await ClassroomAnnouncement.find({ classroom: { $in: classroomIds } })
-      .populate('author', 'fullName role avatar')
-      .sort({ createdAt: -1 })
-      .lean();
-  }
-
-  // 5. Fetch quizzes & attempts
-  let quizzes = [];
-  let attemptsByQuiz = {};
-  if (studentId) {
-    quizzes = await Quiz.find({ classroom: { $in: classroomIds } })
-      .select('_id status classroom title instructions duration maxAttempts randomizeQuestions randomizeOptions showLeaderboard negativeMarking negativeMarkValue passPercent availableFrom availableUntil questions')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    const quizAttempts = await QuizAttempt.find({
-      classroom: { $in: classroomIds },
-      student: studentId
-    })
-      .select('-answers -questionOrder')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    await manualPopulate(quizAttempts, 'student', 'fullName email phone');
-
-    attemptsByQuiz = quizAttempts.reduce((acc, att) => {
-      if (att.quiz) {
-        const key = att.quiz.toString();
-        if (!acc[key]) acc[key] = [];
-        acc[key].push({
-          ...att,
-          id: att._id.toString(),
-          studentName: att.student ? att.student.fullName : 'Student'
-        });
-      }
-      return acc;
-    }, {});
-  } else {
-    quizzes = await Quiz.find({ classroom: { $in: classroomIds } })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    // For admin classroom details, we only need the status and quiz ID of quizAttempts
-    // to calculate submission counts on the tab. The actual submissions list report is loaded
-    // dynamically on-demand via the getQuizReport(quizId) API endpoint.
-    // This saves loading all student profiles for every attempt upfront.
-    const quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
-      .select('_id status quiz')
-      .sort({ createdAt: -1 })
-      .lean();
-
-    attemptsByQuiz = quizAttempts.reduce((acc, att) => {
-      if (att.quiz) {
-        const key = att.quiz.toString();
-        if (!acc[key]) acc[key] = [];
-        acc[key].push({
-          ...att,
-          id: att._id.toString(),
-          studentName: 'Student'
-        });
-      }
-      return acc;
-    }, {});
-  }
 
   const foldersByClassroom = folders.reduce((acc, folder) => {
     if (folder.classroom) {
@@ -353,24 +263,34 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     return acc;
   }, {});
 
-  // 6. Fetch pending join requests count (skipped for students)
-  let joinReqCountByClassroom = {};
-  if (!studentId) {
-    const joinRequests = await ClassroomJoinRequest.aggregate([
-      { $match: { classroom: { $in: classroomIds }, status: 'pending' } },
-      { $group: { _id: '$classroom', count: { $sum: 1 } } }
-    ]);
-    joinReqCountByClassroom = joinRequests.reduce((acc, req) => {
-      acc[req._id.toString()] = req.count;
-      return acc;
-    }, {});
-  }
+  const attemptsByQuiz = quizAttempts.reduce((acc, att) => {
+    if (att.quiz) {
+      const key = att.quiz.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push({
+        ...att,
+        id: att._id.toString(),
+        studentName: att.student ? att.student.fullName : 'Student'
+      });
+    }
+    return acc;
+  }, {});
 
-  const withDetails = withMeetings.map((classroom) => {
+  const joinRequests = await ClassroomJoinRequest.aggregate([
+    { $match: { classroom: { $in: classroomIds }, status: 'pending' } },
+    { $group: { _id: '$classroom', count: { $sum: 1 } } }
+  ]);
+  const joinReqCountByClassroom = joinRequests.reduce((acc, req) => {
+    acc[req._id.toString()] = req.count;
+    return acc;
+  }, {});
+
+  const withDetails = list.map((classroom) => {
     const classroomIdStr = classroom._id.toString();
 
     return {
       ...classroom,
+      meetings: meetingsByClassroom[classroomIdStr] || [],
       pendingJoinRequestsCount: joinReqCountByClassroom[classroomIdStr] || 0,
       folders: (foldersByClassroom[classroomIdStr] || []).map(f => ({
         ...f,
@@ -625,7 +545,7 @@ router.get('/my', protect, async (req, res, next) => {
     });
 
     await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { studentId: req.user._id }) };
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {
@@ -660,12 +580,7 @@ router.get('/:id', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    const options = {};
-    if (req.user.role === 'student') {
-      options.studentId = req.user._id;
-    }
-
-    const result = { success: true, classroom: await attachClassroomDetails(classroom, options) };
+    const result = { success: true, classroom: await attachClassroomDetails(classroom) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {

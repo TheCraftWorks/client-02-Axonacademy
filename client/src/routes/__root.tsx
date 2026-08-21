@@ -198,16 +198,20 @@ function RootComponent() {
 
     const rehydrateSession = async () => {
       try {
-        const payload = await getCurrentUser().catch(() => null);
+        // Fast auth check with timeout fail-safe so cold starts never block the screen
+        const authPromise = getCurrentUser().catch(() => null);
+        const timeoutPromise = new Promise<{ user?: any }>((resolve) => setTimeout(() => resolve({}), 4000));
+        const payload = await Promise.race([authPromise, timeoutPromise]);
         if (!isMounted) return;
 
         if (!payload || !payload.user) {
           classroomStore.setState(() => ({ currentUser: null, accessToken: null, classrooms: [] }));
+          setAuthReady(true);
           return;
         }
 
         const backendUser = payload.user;
-        const accessToken = payload.accessToken || null;
+        const accessToken = (payload as any).accessToken || null;
         const role = backendUser.role === "student" ? "student" : backendUser.role;
         const currentUser: User = {
           id: backendUser._id,
@@ -220,7 +224,11 @@ function RootComponent() {
           userId: backendUser.userId
         };
 
-        // Fetch role-appropriate classrooms
+        // Instantly populate user auth so UI shell and layouts render without delay
+        classroomStore.setState((s) => ({ ...s, currentUser, accessToken }));
+        setAuthReady(true);
+
+        // Fetch role-appropriate classrooms in the background asynchronously
         const { getMyClassrooms, getClassrooms } = await import("@/lib/api");
         const classrooms = role === "student"
           ? await getMyClassrooms(true).catch(() => [])
@@ -228,7 +236,7 @@ function RootComponent() {
 
         if (!isMounted) return;
 
-        classroomStore.setState(() => ({ currentUser, accessToken, classrooms }));
+        classroomStore.setState((s) => ({ ...s, classrooms }));
 
         // ── FCM: register push token for students after auth is confirmed ──
         if (role === 'student') {

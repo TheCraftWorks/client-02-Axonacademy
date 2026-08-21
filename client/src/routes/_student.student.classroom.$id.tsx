@@ -1554,7 +1554,7 @@ function StudentClassroomDetail() {
     };
   }, [id]);
 
-  if (isLoading) {
+  if (isLoading || (!cls && isFetching) || (!myInfo && isFetching)) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center py-20 text-center">
         <div className="h-8 w-8 animate-spin rounded-full border-3 border-slate-200 border-t-plum-dark mb-4" />
