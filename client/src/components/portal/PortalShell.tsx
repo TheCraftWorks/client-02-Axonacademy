@@ -37,11 +37,13 @@ export function PortalShell({ variant, brand, nav, user, children }: PortalShell
 
   const handleLogout = async () => {
     try {
+      const { invalidateClientClassroomCache } = await import("@/lib/api");
+      invalidateClientClassroomCache();
       await logoutUser();
     } catch (err) {
       console.error("Logout error:", err);
     } finally {
-      classroomStore.setState(() => ({ currentUser: null, accessToken: null }));
+      classroomStore.setState(() => ({ currentUser: null, accessToken: null, classrooms: [] }));
       navigate({ to: "/" });
     }
   };

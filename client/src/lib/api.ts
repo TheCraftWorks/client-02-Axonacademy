@@ -327,9 +327,7 @@ async function fetchJson(path: string, options: RequestInit = {}) {
 }
 
 export async function loginUser(identifier: string, password: string) {
-  // Server sets HttpOnly cookies (accessToken, refreshToken, session) in the response.
-  // Nothing to store client-side — cookies are sent automatically on every subsequent request.
-  // Supports login by email or userId — send raw identifier, server detects which one it is.
+  invalidateClientClassroomCache();
   return fetchJson('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ identifier, password }),
@@ -348,6 +346,11 @@ export async function resetPassword(identifier: string, otp: string, newPassword
     method: 'POST',
     body: JSON.stringify({ identifier, otp, newPassword }),
   });
+}
+
+export async function logoutUser() {
+  invalidateClientClassroomCache();
+  return fetchJson('/auth/logout', { method: 'POST' });
 }
 
 export async function getCurrentUser() {
@@ -435,33 +438,54 @@ export async function deleteAdminUser(id: string) {
   });
 }
 
-let cachedClassroomsList: { data: any[]; timestamp: number } | null = null;
+// User-aware, isolated client cache
+const cachedClassroomsListMap = new Map<string, { data: any[]; timestamp: number }>();
 const cachedClassroomDetails = new Map<string, { data: any; timestamp: number }>();
 const CLIENT_CACHE_TTL = 30_000;
 
 export function invalidateClientClassroomCache() {
-  cachedClassroomsList = null;
+  cachedClassroomsListMap.clear();
   cachedClassroomDetails.clear();
 }
 
+function getCacheUserKey(): string {
+  const u = classroomStore.getState().currentUser;
+  return u?.id || u?.userId || 'anonymous';
+}
+
 export async function getClassrooms(forceRefresh = false) {
-  if (!forceRefresh && cachedClassroomsList && (Date.now() - cachedClassroomsList.timestamp < CLIENT_CACHE_TTL)) {
-    return cachedClassroomsList.data;
+  const userKey = `admin_${getCacheUserKey()}`;
+  const cached = cachedClassroomsListMap.get(userKey);
+  if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
+    return cached.data;
   }
   const payload = await fetchJson('/classrooms');
   const normalized = payload.classrooms.map(normalizeBackendClassroom);
-  cachedClassroomsList = { data: normalized, timestamp: Date.now() };
+  cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
+  return normalized;
+}
+
+export async function getMyClassrooms(forceRefresh = false) {
+  const userKey = `my_${getCacheUserKey()}`;
+  const cached = cachedClassroomsListMap.get(userKey);
+  if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
+    return cached.data;
+  }
+  const payload = await fetchJson('/classrooms/my');
+  const normalized = payload.classrooms.map(normalizeBackendClassroom);
+  cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
   return normalized;
 }
 
 export async function getClassroomById(id: string, forceRefresh = false) {
-  const cached = cachedClassroomDetails.get(id);
+  const userKey = `${id}_${getCacheUserKey()}`;
+  const cached = cachedClassroomDetails.get(userKey);
   if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
     return cached.data;
   }
   const payload = await fetchJson(`/classrooms/${encodeURIComponent(id)}`);
   const normalized = normalizeBackendClassroom(payload.classroom);
-  cachedClassroomDetails.set(id, { data: normalized, timestamp: Date.now() });
+  cachedClassroomDetails.set(userKey, { data: normalized, timestamp: Date.now() });
   return normalized;
 }
 
@@ -1128,11 +1152,6 @@ export async function archiveClassroom(id: string) {
   return normalizeBackendClassroom(result.classroom);
 }
 
-export async function getMyClassrooms() {
-  const payload = await fetchJson('/classrooms/my');
-  return payload.classrooms.map(normalizeBackendClassroom);
-}
-
 export async function getMyMeetings() {
   return fetchJson('/meetings/my');
 }
@@ -1292,10 +1311,6 @@ export async function reuseClassroomFolder(sourceFolderId: string, targetClassro
 export async function getDetailedProgress(classroomId: string) {
   const payload = await fetchJson(`/enrollments/classroom/${encodeURIComponent(classroomId)}/progress`);
   return payload.stats;
-}
-
-export async function logoutUser() {
-  return fetchJson('/auth/logout', { method: 'POST' });
 }
 
 // ─── Programs (Courses) ───────────────────────────────────────────────────────

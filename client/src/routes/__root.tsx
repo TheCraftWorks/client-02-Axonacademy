@@ -193,17 +193,19 @@ function RootComponent() {
   }, [router]);
 
   useEffect(() => {
-    // On every page load, verify the stored token is still valid with the server.
-    // Also fetch live classrooms.
-    Promise.all([
-      getCurrentUser().catch(() => null),
-      getClassrooms().catch(() => []) // if not logged in, this might fail, default to empty
-    ])
-      .then(([payload, classrooms]) => {
+    // On every page load, verify the stored token and fetch role-appropriate classrooms
+    let isMounted = true;
+
+    const rehydrateSession = async () => {
+      try {
+        const payload = await getCurrentUser().catch(() => null);
+        if (!isMounted) return;
+
         if (!payload || !payload.user) {
-          classroomStore.setState(() => ({ currentUser: null, accessToken: null }));
+          classroomStore.setState(() => ({ currentUser: null, accessToken: null, classrooms: [] }));
           return;
         }
+
         const backendUser = payload.user;
         const accessToken = payload.accessToken || null;
         const role = backendUser.role === "student" ? "student" : backendUser.role;
@@ -217,7 +219,15 @@ function RootComponent() {
           role,
           userId: backendUser.userId
         };
-        
+
+        // Fetch role-appropriate classrooms
+        const { getMyClassrooms, getClassrooms } = await import("@/lib/api");
+        const classrooms = role === "student"
+          ? await getMyClassrooms(true).catch(() => [])
+          : await getClassrooms(true).catch(() => []);
+
+        if (!isMounted) return;
+
         classroomStore.setState(() => ({ currentUser, accessToken, classrooms }));
 
         // ── FCM: register push token for students after auth is confirmed ──
@@ -233,14 +243,21 @@ function RootComponent() {
             );
           }
         }
-      })
-      .catch(() => {
-        // Token invalid or expired — clear stored session
-        classroomStore.setState(() => ({ currentUser: null, accessToken: null }));
-      })
-      .finally(() => {
-        setAuthReady(true);
-      });
+      } catch (err) {
+        if (isMounted) {
+          classroomStore.setState(() => ({ currentUser: null, accessToken: null, classrooms: [] }));
+        }
+      } finally {
+        if (isMounted) {
+          setAuthReady(true);
+        }
+      }
+    };
+
+    rehydrateSession();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // ── Foreground push: show an in-app toast when app is active and visible ──

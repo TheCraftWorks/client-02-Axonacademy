@@ -79,18 +79,51 @@ const TABS: readonly TabConfig[] = [
   { key: "tests", label: "Smart Test", icon: ClipboardList, bg: "bg-[#E0F2FE]", text: "text-[#075985]", border: "border-[#7DD3FC]", iconColor: "#0284C7" },
 ];
 
+// ─── Skeleton Loaders ─────────────────────────────────────────────────────────
+
+function SkeletonCard({ className = "" }: { className?: string }) {
+  return (
+    <div className={`animate-pulse rounded-2xl bg-slate-200/70 border border-slate-100 ${className}`} />
+  );
+}
+
+function TabSkeletonLoader({ type = "cards" }: { type?: "cards" | "grid" | "rows" }) {
+  return (
+    <div className="space-y-3">
+      {type === "grid" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <SkeletonCard className="h-24 w-full" />
+          <SkeletonCard className="h-24 w-full" />
+          <SkeletonCard className="h-24 w-full" />
+        </div>
+      ) : (
+        <>
+          <SkeletonCard className="h-20 w-full" />
+          <SkeletonCard className="h-20 w-full" />
+          <SkeletonCard className="h-20 w-full" />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Announcements Tab ────────────────────────────────────────────────────────
 
-function AnnouncementsTab({ classroomId }: { classroomId: string }) {
+function AnnouncementsTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
   const { classrooms } = useClassroomStore();
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
-  if (!cls) return null;
 
-  const announcements = cls.announcements || [];
+  const announcements = cls?.announcements || [];
+
+  if (isFetching && announcements.length === 0) {
+    return <TabSkeletonLoader type="rows" />;
+  }
+
+  if (!cls) return null;
 
   return (
     <div className="space-y-3">
-      {announcements.length === 0 && (
+      {announcements.length === 0 && !isFetching && (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
           <Megaphone className="h-8 w-8 text-slate-300 mx-auto mb-2" />
           <p className="text-slate-500 text-sm">No announcements yet. Check back later.</p>
@@ -100,7 +133,7 @@ function AnnouncementsTab({ classroomId }: { classroomId: string }) {
         <div key={ann.id} className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex items-start gap-3">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-plum-dark text-cream font-bold text-xs">
-              {ann.author.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+              {(ann.author || 'Admin').split(" ").map((w) => w[0]).join("").slice(0, 2)}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
@@ -136,12 +169,11 @@ function AnnouncementsTab({ classroomId }: { classroomId: string }) {
 
 // ─── Live Classes Tab ─────────────────────────────────────────────────────────
 
-function LiveClassesTab({ classroomId }: { classroomId: string }) {
+function LiveClassesTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
   const { classrooms } = useClassroomStore();
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
-  if (!cls) return null;
 
-  const meetings = cls.meetings || [];
+  const meetings = cls?.meetings || [];
   const upcoming = meetings
     .filter((m) => m.status === "scheduled" || m.status === "live")
     .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
@@ -149,9 +181,15 @@ function LiveClassesTab({ classroomId }: { classroomId: string }) {
     .filter((m) => m.status === "ended")
     .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
 
+  if (isFetching && meetings.length === 0) {
+    return <TabSkeletonLoader type="rows" />;
+  }
+
+  if (!cls) return null;
+
   return (
     <div className="space-y-5">
-      {meetings.length === 0 && (
+      {meetings.length === 0 && !isFetching && (
         <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
           <Video className="h-8 w-8 text-slate-300 mx-auto mb-2" />
           <p className="text-slate-500 text-sm">No live classes scheduled yet.</p>
@@ -932,7 +970,7 @@ function SecurePlayer({
   );
 }
 
-function RecordingsTab({ classroomId }: { classroomId: string }) {
+function RecordingsTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
   const { classrooms, currentUser } = useClassroomStore();
   const CURRENT_STUDENT = { id: currentUser?.id || "", name: currentUser?.name || "" };
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
@@ -941,10 +979,14 @@ function RecordingsTab({ classroomId }: { classroomId: string }) {
   // Navigation State
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
-  if (!cls) return null;
-
-  const publishedRecordings = (cls.recordings || []).filter((r) => r.isPublished);
+  const publishedRecordings = (cls?.recordings || []).filter((r) => r.isPublished);
   const activeRecording = publishedRecordings.find((r) => (r.id || (r as any)._id) === activeRec);
+
+  if (isFetching && publishedRecordings.length === 0) {
+    return <TabSkeletonLoader type="grid" />;
+  }
+
+  if (!cls) return null;
 
   // Compute folder list: only show folders containing at least one published recording
   const folders = (cls.folders || []).filter(folder =>
@@ -953,10 +995,15 @@ function RecordingsTab({ classroomId }: { classroomId: string }) {
 
   const currentFolder = folders.find(f => (f.id || (f as any)._id) === currentFolderId);
 
+  // Root recordings: recordings with no folder or folder not found in folder list
+  const rootRecordings = publishedRecordings.filter(rec =>
+    !rec.folder || !folders.some(f => f.id === rec.folder || (f as any)._id === rec.folder)
+  );
+
   // Filter recordings for the current view
   const visibleRecordings = currentFolderId
     ? publishedRecordings.filter(rec => rec.folder === currentFolderId)
-    : [];
+    : rootRecordings;
 
   return (
     <>
@@ -985,43 +1032,51 @@ function RecordingsTab({ classroomId }: { classroomId: string }) {
 
         {/* Folders list (only at root) */}
         {!currentFolderId && folders.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {folders.map(folder => {
-              const videoCount = publishedRecordings.filter(r => r.folder === folder.id).length;
-              return (
-                <button
-                  key={folder.id}
-                  onClick={() => setCurrentFolderId(folder.id)}
-                  className="flex items-center gap-3 p-4 rounded-2xl border border-slate-200 bg-white hover:border-plum/30 transition-all text-left shadow-sm hover:shadow-md w-full"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-plum/10 text-plum flex items-center justify-center shrink-0">
-                    <LuFolder className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-plum-dark text-sm truncate">{folder.name}</div>
-                    {folder.description && (
-                      <div className="text-xs text-slate-500 truncate mt-0.5">{folder.description}</div>
-                    )}
-                    <div className="text-[10px] text-slate-400 mt-1 font-semibold">{videoCount} videos</div>
-                  </div>
-                </button>
-              );
-            })}
+          <div>
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Folders</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {folders.map(folder => {
+                const videoCount = publishedRecordings.filter(r => r.folder === folder.id || (r as any).folder === (folder as any)._id).length;
+                return (
+                  <button
+                    key={folder.id}
+                    onClick={() => setCurrentFolderId(folder.id)}
+                    className="flex items-center gap-3 p-4 rounded-2xl border border-slate-200 bg-white hover:border-plum/30 transition-all text-left shadow-xs hover:shadow-md w-full"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-plum/10 text-plum flex items-center justify-center shrink-0">
+                      <LuFolder className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-plum-dark text-sm truncate">{folder.name}</div>
+                      {folder.description && (
+                        <div className="text-xs text-slate-500 truncate mt-0.5">{folder.description}</div>
+                      )}
+                      <div className="text-[10px] text-slate-400 mt-1 font-semibold">{videoCount} videos</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {!currentFolderId && folders.length === 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-sm">
+        {/* Empty state when no recordings exist in classroom at all */}
+        {!currentFolderId && folders.length === 0 && publishedRecordings.length === 0 && !isFetching && (
+          <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
             <BookOpen className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-slate-500 text-sm">No folders created yet.</p>
+            <p className="text-slate-500 text-sm">No recordings available in this classroom yet.</p>
           </div>
         )}
 
         {/* Videos list */}
-        {currentFolderId && (
+        {((!currentFolderId && visibleRecordings.length > 0) || currentFolderId) && (
           <div className="space-y-3">
-            {visibleRecordings.length === 0 && (
-              <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-sm">
+            {!currentFolderId && folders.length > 0 && visibleRecordings.length > 0 && (
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider pt-2">Other Recordings</div>
+            )}
+
+            {currentFolderId && visibleRecordings.length === 0 && !isFetching && (
+              <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
                 <BookOpen className="h-8 w-8 text-slate-300 mx-auto mb-2" />
                 <p className="text-slate-500 text-sm">No videos inside this folder.</p>
               </div>
@@ -1031,11 +1086,15 @@ function RecordingsTab({ classroomId }: { classroomId: string }) {
               const recId = rec.id || (rec as any)._id || '';
               const viewStats = rec.viewStats || [];
               const chapters = rec.chapters || [];
-              const myStats = viewStats.find((v) => v.studentId === CURRENT_STUDENT.id);
+              const myStats = viewStats.find((v) =>
+                v.studentId === CURRENT_STUDENT.id ||
+                v.studentId === currentUser?.userId ||
+                (v as any).student === CURRENT_STUDENT.id
+              );
               return (
-                <div key={recId} className="rounded-2xl border border-slate-200 bg-white p-5 hover:border-plum/30 hover:shadow-md transition-all shadow-sm">
+                <div key={recId} className="rounded-2xl border border-slate-200 bg-white p-5 hover:border-plum/30 hover:shadow-md transition-all shadow-xs">
                   <div className="flex items-start gap-4">
-                    <div className="w-20 h-14 rounded-xl bg-linear-to-br from-plum/20 to-plum-dark/10 flex items-center justify-center shrink-0">
+                    <div className="w-20 h-14 rounded-xl bg-gradient-to-br from-plum/20 to-plum-dark/10 flex items-center justify-center shrink-0">
                       <Play className="h-5 w-5 text-plum" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1054,7 +1113,7 @@ function RecordingsTab({ classroomId }: { classroomId: string }) {
                     </div>
                     <button
                       onClick={() => setActiveRec(recId)}
-                      className="rounded-full bg-plum-dark text-cream px-4 py-2 text-xs font-bold flex items-center gap-1.5 shrink-0 hover:bg-plum transition-colors shadow-sm"
+                      className="rounded-full bg-plum-dark text-cream px-4 py-2 text-xs font-bold flex items-center gap-1.5 shrink-0 hover:bg-plum transition-colors shadow-xs"
                     >
                       <Play className="h-3 w-3" /> {myStats ? "Resume" : "Watch"}
                     </button>
@@ -1085,11 +1144,17 @@ type QuizResultReview = {
     correctOptions: string[];
   }>;
 };
-
-function TestsTab({ classroomId }: { classroomId: string }) {
+function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
   const { classrooms, currentUser } = useClassroomStore();
   const CURRENT_STUDENT = { id: currentUser?.id || "", name: currentUser?.name || "" };
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
+
+  const quizzes = (cls?.quizzes || []).filter(q => q.status === "published");
+
+  if (isFetching && quizzes.length === 0) {
+    return <TabSkeletonLoader type="rows" />;
+  }
+
   if (!cls) return null;
 
   const [phase, setPhase] = useState<QuizPhase>("list");
@@ -1120,171 +1185,176 @@ function TestsTab({ classroomId }: { classroomId: string }) {
       const currentAnswers = answersRef.current;
       await saveQuizAnswersBulk(activeQuiz.id, {
         attemptId,
-        answers: examQuestions.map((q) => ({
-          questionId: q.id,
-          selectedOptions: currentAnswers[q.id] || [],
+        answers: Object.entries(currentAnswers).map(([questionId, selectedOptions]) => ({
+          questionId,
+          selectedOptions,
         })),
       });
-      await submitQuizAttempt(activeQuiz.id, attemptId);
-      const review = await getQuizAttemptResult(activeQuiz.id, attemptId);
+
+      const submitRes = await submitQuizAttempt(activeQuiz.id, attemptId);
+      const fullResult = await getQuizAttemptResult(activeQuiz.id, attemptId);
+
+      const review: QuizResultReview = {
+        score: submitRes.score,
+        answers: fullResult.answers,
+      };
+
       setResult(review);
-      toast.success("Quiz submitted successfully!");
-      const refreshed = await getClassroomById(classroomId);
-      classroomActions.updateClassroom(classroomId, refreshed);
       setPhase("result");
+
+      classroomActions.submitQuizAttempt(classroomId, activeQuiz.id, {
+        studentId: CURRENT_STUDENT.id,
+        studentName: CURRENT_STUDENT.name,
+        attemptNo: (activeQuiz.attempts?.length || 0) + 1,
+        status: "submitted",
+        startedAt: new Date().toISOString(),
+        submittedAt: new Date().toISOString(),
+        answers: fullResult.answers.map((a) => ({
+          questionId: a.questionId,
+          selectedOptions: a.selectedOptions,
+          isCorrect: a.isCorrect,
+          marksAwarded: a.marksAwarded,
+        })),
+        score: submitRes.score,
+      });
+
+      const updatedClassroom = await getClassroomById(classroomId);
+      classroomActions.updateClassroom(classroomId, updatedClassroom);
     } catch (err) {
-      submittingQuizRef.current = false;
-      const msg = err instanceof Error ? err.message : "Could not submit quiz";
-      setError(msg);
-      toast.error(msg);
+      setError(err instanceof Error ? err.message : "Failed to submit assessment");
+      toast.error(err instanceof Error ? err.message : "Failed to submit assessment");
     } finally {
       setIsSubmitting(false);
+      submittingQuizRef.current = false;
     }
-  }, [activeQuiz, attemptId, classroomId, examQuestions]);
+  }, [activeQuiz, attemptId, classroomId, CURRENT_STUDENT.id, CURRENT_STUDENT.name]);
 
   useEffect(() => {
-    submitQuizRef.current = () => { void submitQuiz(); };
+    submitQuizRef.current = submitQuiz;
   }, [submitQuiz]);
 
-  // Timer effect
   useEffect(() => {
-    if (phase !== "taking" || !activeQuiz?.duration) return;
-    setTimeLeft(activeQuiz.duration * 60);
-    const t = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(t);
-          submitQuizRef.current();
-          return 0;
-        }
-        return prev - 1;
-      });
+    if (phase !== "taking" || timeLeft === null) return;
+    if (timeLeft <= 0) {
+      submitQuizRef.current();
+      return;
+    }
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
     }, 1000);
-    return () => clearInterval(t);
-  }, [phase, activeQuiz]);
+    return () => clearInterval(timer);
+  }, [phase, timeLeft]);
 
-  const startQuiz = (quiz: Quiz) => {
+  const handleStartExam = async (quiz: Quiz) => {
     setActiveQuiz(quiz);
-    setExamQuestions([]);
-    setAttemptId(null);
-    setAnswers({});
-    setResult(null);
-    setError("");
-    setPhase("intro");
-  };
-
-  const beginTaking = async () => {
-    if (!activeQuiz || isStarting) return;
     setError("");
     setIsStarting(true);
     try {
-      const started = await startQuizAttempt(activeQuiz.id);
-      if (started.alreadySubmitted) {
-        toast.info(started.message || "You have already submitted this quiz.");
-        if (started.attemptId) {
-          const review = await getQuizAttemptResult(activeQuiz.id, started.attemptId);
-          setResult(review);
-        }
-        setPhase("result");
-        return;
-      }
-      setAttemptId(started.attemptId!);
-      setExamQuestions(started.questions);
+      const payload = await startQuizAttempt(quiz.id);
+      setAttemptId(payload.attemptId);
+      setExamQuestions(payload.questions || []);
       setAnswers({});
+
+      if (quiz.duration && quiz.duration > 0) {
+        setTimeLeft(quiz.duration * 60);
+      } else {
+        setTimeLeft(null);
+      }
+
       setPhase("taking");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not start quiz";
-      setError(msg);
-      toast.error(msg);
+      setError(err instanceof Error ? err.message : "Could not start assessment");
+      toast.error(err instanceof Error ? err.message : "Could not start assessment");
     } finally {
       setIsStarting(false);
     }
   };
 
-  const selectAnswer = (qId: string, label: string, isMulti: boolean) => {
+  const handleViewResult = async (quiz: Quiz) => {
+    setActiveQuiz(quiz);
+    setError("");
+    try {
+      const fullResult = await getQuizAttemptResult(quiz.id);
+      setResult({
+        score: fullResult.score,
+        answers: fullResult.answers,
+      });
+      setPhase("result");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load test results");
+    }
+  };
+
+  const toggleOption = (questionId: string, optionLabel: string, type: string) => {
     setAnswers((prev) => {
-      const current = prev[qId] || [];
-      if (isMulti) {
-        return { ...prev, [qId]: current.includes(label) ? current.filter((l) => l !== label) : [...current, label] };
+      const current = prev[questionId] || [];
+      if (type === "msq") {
+        const next = current.includes(optionLabel)
+          ? current.filter((o) => o !== optionLabel)
+          : [...current, optionLabel];
+        return { ...prev, [questionId]: next };
       }
-      return { ...prev, [qId]: [label] };
+      return { ...prev, [questionId]: [optionLabel] };
     });
   };
 
-  const publishedQuizzes = cls.quizzes.filter((q) => q.status === "published");
-
-  // List view
   if (phase === "list") {
+    const publishedQuizzes = (cls.quizzes || []).filter((q) => q.status === "published");
     return (
-      <div className="space-y-3">
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
-          </div>
-        )}
-        {publishedQuizzes.length === 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
+      <div className="space-y-4">
+        {publishedQuizzes.length === 0 && !isFetching && (
+          <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
             <ClipboardList className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-slate-500 text-sm">No tests published yet.</p>
+            <p className="text-slate-500 text-sm">No tests or quizzes available yet.</p>
           </div>
         )}
         {publishedQuizzes.map((q) => {
-          const myAttempts = q.attempts.filter((a) => a.studentId === CURRENT_STUDENT.id && a.status === "submitted");
-          const bestAttempt = myAttempts.sort((a, b) => b.score.percentage - a.score.percentage)[0];
-          const canAttempt = myAttempts.length < q.maxAttempts;
+          const myAttempts = (q.attempts || []).filter(
+            (a) => a.studentId === CURRENT_STUDENT.id || a.studentId === currentUser?.userId
+          );
+          const submittedAttempts = myAttempts.filter((a) => a.status === "submitted");
+          const hasSubmitted = submittedAttempts.length > 0;
+          const bestAttempt = submittedAttempts.sort((a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0))[0];
+          const attemptsLeft = q.maxAttempts - submittedAttempts.length;
+          const canTake = attemptsLeft > 0;
 
           return (
-            <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5 hover:border-sky-300 transition-all shadow-xs">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1">
-                  <h4 className="font-display font-bold text-plum-dark mb-1">{q.title}</h4>
-                  <div className="flex flex-wrap gap-3 text-xs text-slate-400">
-                    <span>{q.questions.length} questions</span>
-                    <span>{q.questions.reduce((s, x) => s + x.marks, 0)} marks</span>
-                    {q.duration && <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {q.duration} min</span>}
-                    <span>Pass: {q.passPercent}%</span>
-                    <span>Attempts: {myAttempts.length}/{q.maxAttempts}</span>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <h4 className="font-display font-bold text-plum-dark text-base">{q.title}</h4>
+                    <span className="bg-sky-50 text-sky-700 text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-sky-200">
+                      {getExamType(q.questions || [])}
+                    </span>
                   </div>
-                  {(q.availableFrom || q.availableUntil) && (
-                    <div className="text-xs text-[#0284C7] font-medium mt-2 bg-[#F0F9FF] rounded-lg px-3 py-1.5 inline-flex flex-wrap items-center gap-x-2 gap-y-1 border border-[#BAE6FD]">
-                      <span className="font-bold text-[#0369A1]">Availability:</span>
-                      {q.availableFrom && <span>Starts: {fmtDate(q.availableFrom)}</span>}
-                      {q.availableUntil && <span>Ends: {fmtDate(q.availableUntil)}</span>}
-                    </div>
-                  )}
-                  {bestAttempt && (
-                    <div className={`mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold ${bestAttempt.score.passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
-                      {bestAttempt.score.passed ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      Best score: {bestAttempt.score.percentage}% — {bestAttempt.score.passed ? "Passed ✓" : "Failed"}
-                    </div>
-                  )}
+                  <p className="text-slate-500 text-xs line-clamp-2">{q.instructions || "No instructions provided."}</p>
+                  <div className="flex items-center gap-4 mt-3 text-xs text-slate-400 flex-wrap">
+                    <span className="flex items-center gap-1 font-mono"><Clock className="h-3 w-3" /> {q.duration ? `${q.duration} min` : "No limit"}</span>
+                    <span>{q.questions?.length || 0} questions</span>
+                    <span>{q.passPercent}% pass score</span>
+                    <span className="font-medium text-slate-600">Attempts: {submittedAttempts.length}/{q.maxAttempts}</span>
+                  </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
-                  {bestAttempt && (
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {hasSubmitted && bestAttempt && (
                     <button
-                      onClick={async () => {
-                        try {
-                          setError("");
-                          const review = await getQuizAttemptResult(q.id, bestAttempt.id);
-                          setActiveQuiz(q);
-                          setResult(review);
-                          setPhase("result");
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : "Could not load quiz review");
-                        }
-                      }}
-                      className="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-5 py-2.5 text-sm font-bold"
+                      onClick={() => void handleViewResult(q)}
+                      className="rounded-full border border-plum-dark text-plum-dark px-4 py-2 text-xs font-bold hover:bg-plum/5 transition-colors"
                     >
-                      Review Answers
+                      View Result ({bestAttempt.score?.percentage}%)
                     </button>
                   )}
-                  <button
-                    onClick={() => startQuiz(q)}
-                    disabled={!canAttempt}
-                    className={`rounded-full px-2 py-2.5 text-sm font-bold ${canAttempt ? "bg-plum-dark text-cream hover:bg-plum" : "bg-slate-100 text-slate-400 cursor-not-allowed"}`}
-                  >
-                    {!canAttempt ? "Completed" : myAttempts.length > 0 ? "Retry" : "Start Quiz"}
-                  </button>
+                  {canTake && (
+                    <button
+                      disabled={isStarting}
+                      onClick={() => void handleStartExam(q)}
+                      className="rounded-full bg-plum-dark text-cream px-5 py-2 text-xs font-bold hover:bg-plum transition-colors shadow-xs disabled:opacity-50"
+                    >
+                      {isStarting ? "Starting..." : hasSubmitted ? "Retake Test" : "Start Test"}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1294,202 +1364,113 @@ function TestsTab({ classroomId }: { classroomId: string }) {
     );
   }
 
-  // Intro view
-  if (phase === "intro" && activeQuiz) {
-    return (
-      <div className="max-w-xl mx-auto">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
-          <div className="grid h-16 w-16 place-items-center rounded-full bg-plum-dark/10 mx-auto mb-4">
-            <ClipboardList className="h-8 w-8 text-plum-dark" />
-          </div>
-          <h2 className="font-display text-2xl font-bold text-plum-dark mb-2">{activeQuiz.title}</h2>
-          <p className="text-slate-600 text-sm mb-6 leading-relaxed">{activeQuiz.instructions}</p>
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            {[
-              { l: "Questions", v: activeQuiz.questions.length },
-              { l: "Total Marks", v: activeQuiz.questions.reduce((s, q) => s + q.marks, 0) },
-              { l: "Pass Mark", v: `${activeQuiz.passPercent}%` },
-            ].map((s) => (
-              <div key={s.l} className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-slate-400">{s.l}</div>
-                <div className="font-display text-xl font-bold text-plum-dark">{s.v}</div>
-              </div>
-            ))}
-          </div>
-          {activeQuiz.duration && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 text-sm text-amber-700 flex items-center gap-2">
-              <Clock className="h-4 w-4 shrink-0" />
-              Time limit: {activeQuiz.duration} minutes. The quiz will auto-submit when time runs out.
-            </div>
-          )}
-          {activeQuiz.negativeMarking && (
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 text-sm text-red-600">
-              ⚠️ Negative marking: −{activeQuiz.negativeMarkValue} marks per wrong answer.
-            </div>
-          )}
-          {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 mb-4 text-sm text-red-600">
-              {error}
-            </div>
-          )}
-          <div className="flex gap-3">
-            <button onClick={() => setPhase("list")} className="flex-1 rounded-full border border-slate-200 text-slate-600 py-3 text-sm font-semibold">Cancel</button>
-            <button onClick={beginTaking} disabled={isStarting} className="flex-1 rounded-full bg-plum-dark text-cream py-3 text-sm font-bold disabled:opacity-50">
-              {isStarting ? "Starting…" : "Start Quiz →"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Taking quiz view
   if (phase === "taking" && activeQuiz) {
-    const answered = Object.keys(answers).length;
-
+    const answeredCount = Object.keys(answers).length;
     return (
-      <div className="space-y-4">
-        {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-            {error}
+      <div className="space-y-6 max-w-3xl mx-auto bg-white p-6 rounded-3xl border border-slate-200 shadow-md">
+        <div className="flex items-center justify-between border-b pb-4">
+          <div>
+            <h3 className="font-display text-lg font-bold text-plum-dark">{activeQuiz.title}</h3>
+            <p className="text-xs text-slate-400">Question {answeredCount} of {examQuestions.length} answered</p>
           </div>
-        )}
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-[#F5F3FF] py-2">
-          <div className="rounded-2xl border border-slate-200 bg-white px-5 py-3 flex items-center justify-between">
-            <span className="text-plum-dark font-semibold text-sm">{activeQuiz.title}</span>
-            <div className="flex items-center gap-4">
-              <span className="text-slate-500 text-xs">{answered}/{examQuestions.length} answered</span>
-              {timeLeft !== null && (
-                <span className={`font-mono text-sm font-bold ${timeLeft < 120 ? "text-red-500" : "text-plum-dark"}`}>
-                  <Clock className="h-3.5 w-3.5 inline mr-1" />
-                  {Math.floor(timeLeft / 60).toString().padStart(2, "0")}:{(timeLeft % 60).toString().padStart(2, "0")}
-                </span>
-              )}
+          {timeLeft !== null && (
+            <div className={`px-4 py-2 rounded-xl font-mono font-bold text-sm ${timeLeft < 300 ? "bg-red-50 text-red-600 border border-red-200 animate-pulse" : "bg-slate-100 text-slate-700"}`}>
+              ⏱ {formatTime(timeLeft)}
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Questions */}
-        {examQuestions.map((q, i) => (
-          <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="flex items-start gap-3 mb-4">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-plum-dark text-cream text-xs font-bold">{i + 1}</span>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-plum-dark font-semibold text-sm">{q.text}</span>
+        {error && <div className="p-3 bg-red-50 text-red-600 text-xs rounded-xl border border-red-200">{error}</div>}
+
+        <div className="space-y-6">
+          {examQuestions.map((q, idx) => {
+            const selected = answers[q.id] || [];
+            return (
+              <div key={q.id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="font-bold text-plum text-sm">{idx + 1}.</span>
+                  <p className="font-semibold text-slate-800 text-sm">{q.text}</p>
                 </div>
-                <div className="text-slate-400 text-xs">
-                  {q.marks} mark{q.marks !== 1 ? "s" : ""} ·{" "}
-                  {q.type === "msq" ? "Select all correct answers" : "Select one answer"}
+                <div className="grid grid-cols-1 gap-2 pl-7">
+                  {q.options.map((opt) => {
+                    const isSel = selected.includes(opt.label);
+                    return (
+                      <button
+                        key={opt.label}
+                        onClick={() => toggleOption(q.id, opt.label, q.type)}
+                        className={`w-full text-left p-3 rounded-xl border text-xs font-medium transition-all flex items-center gap-3 ${
+                          isSel ? "border-plum bg-plum/10 text-plum-dark font-bold shadow-xs" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                      >
+                        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${isSel ? "bg-plum text-white" : "bg-slate-100 text-slate-500"}`}>
+                          {opt.label}
+                        </span>
+                        <span>{opt.text}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              {q.options.map((opt) => {
-                const selected = answers[q.id]?.includes(opt.label);
-                return (
-                  <button
-                    key={opt.label}
-                    onClick={() => selectAnswer(q.id, opt.label, q.type === "msq")}
-                    className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 border text-left transition-colors ${selected ? "border-plum bg-plum/5" : "border-slate-200 hover:border-plum/30 hover:bg-slate-50"}`}
-                  >
-                    <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border text-[10px] font-bold transition-colors ${selected ? "bg-plum-dark border-plum-dark text-cream" : "border-slate-300 text-slate-400"}`}>
-                      {selected ? <Check className="h-3 w-3" /> : opt.label}
-                    </span>
-                    <span className="text-sm text-slate-700">{opt.text}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+            );
+          })}
+        </div>
 
-        {/* Submit */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 flex items-center justify-between">
-          <div className="text-slate-500 text-sm">
-            {answered < examQuestions.length
-              ? `${examQuestions.length - answered} question${examQuestions.length - answered !== 1 ? "s" : ""} unanswered`
-              : "All questions answered ✓"}
-          </div>
+        <div className="flex items-center justify-between border-t pt-4">
           <button
-            onClick={() => void submitQuiz()}
-            disabled={isSubmitting}
-            className="rounded-full bg-plum-dark text-cream px-8 py-3 text-sm font-bold hover:bg-plum transition-colors disabled:opacity-50"
+            onClick={() => setPhase("list")}
+            className="text-slate-400 hover:text-slate-600 text-xs font-semibold"
           >
-            {isSubmitting ? "Submitting…" : "Submit Quiz"}
+            Cancel Assessment
+          </button>
+          <button
+            disabled={isSubmitting}
+            onClick={() => void submitQuiz()}
+            className="rounded-full bg-plum-dark text-cream px-8 py-3 text-sm font-bold shadow-md hover:bg-plum transition-all disabled:opacity-50"
+          >
+            {isSubmitting ? "Submitting..." : "Submit Test"}
           </button>
         </div>
       </div>
     );
   }
 
-  // Result view
-  if (phase === "result" && result && activeQuiz) {
+  if (phase === "result" && result) {
     return (
-      <div className="max-w-xl mx-auto space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
-          <div className={`grid h-20 w-20 place-items-center rounded-full mx-auto mb-4 ${result.score.passed ? "bg-green-100" : "bg-red-100"}`}>
-            {result.score.passed
-              ? <Trophy className="h-10 w-10 text-green-600" />
-              : <X className="h-10 w-10 text-red-500" />}
+      <div className="space-y-6 max-w-3xl mx-auto bg-white p-6 rounded-3xl border border-slate-200 shadow-md">
+        <div className="text-center py-4 border-b">
+          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-3 ${result.score.passed ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"}`}>
+            <Trophy className="w-8 h-8" />
           </div>
-          <h2 className="font-display text-3xl font-bold text-plum-dark mb-1">{result.score.percentage}%</h2>
-          <p className={`text-lg font-semibold mb-2 ${result.score.passed ? "text-green-600" : "text-red-500"}`}>
-            {result.score.passed ? "🎉 Congratulations! You Passed!" : "Keep trying — you can do this!"}
-          </p>
-          <p className="text-slate-500 text-sm mb-6">
-            {result.score.rawMarks} / {result.score.totalMarks} marks · Pass mark: {activeQuiz.passPercent}%
-          </p>
-          <button onClick={() => setPhase("list")} className="rounded-full bg-plum-dark text-cream px-8 py-3 text-sm font-bold">
+          <h3 className="font-display text-2xl font-bold text-plum-dark">
+            {result.score.passed ? "Congratulations! Passed" : "Keep Practicing"}
+          </h3>
+          <p className="text-slate-500 text-sm mt-1">Score: {result.score.percentage}% ({result.score.rawMarks} / {result.score.totalMarks} marks)</p>
+          <button
+            onClick={() => setPhase("list")}
+            className="mt-4 rounded-full bg-plum-dark text-cream px-6 py-2 text-xs font-bold"
+          >
             ← Back to Tests
           </button>
         </div>
 
-        {/* Answer review */}
-        <div className="space-y-3">
-          <h3 className="font-display font-bold text-plum-dark">Answer Review</h3>
-          {result.answers.map((myAns, i) => {
-            const quizQ = activeQuiz.questions.find(q => q.id === myAns.questionId)
-              || activeQuiz.questions.find(q => q.text === myAns.questionText)
-              || activeQuiz.questions[i];
+        <div className="space-y-4">
+          <h4 className="font-bold text-slate-700 text-sm">Detailed Question Review</h4>
+          {result.answers.map((ans, idx) => {
+            const myAns = result.answers[idx];
             return (
-              <div key={myAns.questionId} className={`rounded-2xl border p-5 ${myAns.isCorrect ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-                <div className="flex items-start gap-2 mb-3">
-                  <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${myAns.isCorrect ? "bg-green-500 text-white" : "bg-red-500 text-white"}`}>
-                    {myAns.isCorrect ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+              <div key={idx} className={`p-4 rounded-2xl border ${myAns.isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-red-200 bg-red-50/30"}`}>
+                <div className="flex items-start gap-2 text-xs font-semibold mb-2">
+                  <span className={myAns.isCorrect ? "text-emerald-600 font-bold" : "text-red-600 font-bold"}>
+                    Q{idx + 1}. {myAns.isCorrect ? "Correct ✓" : "Incorrect ✗"}
                   </span>
-                  <p className="text-slate-800 text-sm font-semibold flex-1">Q{i + 1}. {myAns.questionText || quizQ?.text || ""}</p>
-                  <span className="text-xs font-mono text-slate-500 shrink-0">{myAns.marksAwarded} marks</span>
+                  <span className="text-slate-700 font-normal">{myAns.questionText}</span>
                 </div>
-                {quizQ && quizQ.options.length > 0 && (
-                  <div className="ml-8 space-y-1.5 mb-3">
-                    {quizQ.options.map((opt) => {
-                      const isSelected = myAns.selectedOptions.includes(opt.label);
-                      const isCorrectOpt = myAns.correctOptions.includes(opt.label);
-                      let optClass = "border-slate-200 bg-white text-slate-600";
-                      if (isCorrectOpt && isSelected) optClass = "border-green-500 bg-green-100 text-green-800 font-semibold";
-                      else if (isCorrectOpt) optClass = "border-green-400 bg-green-50 text-green-700 font-semibold";
-                      else if (isSelected) optClass = "border-red-400 bg-red-100 text-red-700";
-                      let badge: React.ReactNode = null;
-                      if (isCorrectOpt && isSelected) badge = <span className="ml-auto text-green-600 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">✓ Your answer (Correct)</span>;
-                      else if (isCorrectOpt) badge = <span className="ml-auto text-green-600 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">✓ Correct Answer</span>;
-                      else if (isSelected) badge = <span className="ml-auto text-red-500 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">✗ Your answer (Wrong)</span>;
-                      return (
-                        <div key={opt.label} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${optClass}`}>
-                          <span className={`h-5 w-5 shrink-0 grid place-items-center rounded-full text-[10px] font-bold border ${isCorrectOpt ? "bg-green-500 border-green-500 text-white"
-                              : isSelected ? "bg-red-400 border-red-400 text-white"
-                                : "border-slate-300 text-slate-400"
-                            }`}>
-                            {isCorrectOpt ? <Check className="h-3 w-3" /> : isSelected ? <X className="h-3 w-3" /> : opt.label}
-                          </span>
-                          <span>{opt.text}</span>
-                          {badge}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                <div className="text-xs text-slate-600 ml-8 space-y-1">
+                  <div>Your answer: <span className="font-bold">{myAns.selectedOptions.join(", ") || "None"}</span></div>
+                  {!myAns.isCorrect && (
+                    <div className="text-emerald-700 font-semibold">Correct answer: {myAns.correctOptions.join(", ")}</div>
+                  )}
+                </div>
                 {myAns.explanation && (
                   <p className="text-xs text-slate-500 ml-8 mt-1 italic">💡 {myAns.explanation}</p>
                 )}
@@ -1513,11 +1494,19 @@ function StudentClassroomDetail() {
   const { classrooms, currentUser } = useClassroomStore();
   const CURRENT_STUDENT = { id: currentUser?.id || "", name: currentUser?.name || "" };
   const [tab, setTab] = useState<TabKey>("live");
+
   const [isLoading, setIsLoading] = useState(!classrooms.some((c) => c.id === id || (c as any)._id === id));
+  const [isFetching, setIsFetching] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const cls = classrooms.find((c) => c.id === id || (c as any)._id === id);
-  const myInfo = cls?.students?.find((s) => s.id === CURRENT_STUDENT.id);
+
+  // Flexible student enrollment check (match ID, userId, or Email)
+  const myInfo = cls?.students?.find((s) =>
+    s.id === currentUser?.id ||
+    s.id === currentUser?.userId ||
+    (s.email && currentUser?.email && s.email.toLowerCase() === currentUser.email.toLowerCase())
+  );
 
   React.useEffect(() => {
     let active = true;
@@ -1525,10 +1514,12 @@ function StudentClassroomDetail() {
       try {
         setLoadError(null);
         const hasCached = classrooms.some((c) => c.id === id || (c as any)._id === id);
-        if (hasCached && !isClassroomStale(id)) return;
         if (!hasCached) setIsLoading(true);
+        setIsFetching(true);
+
         const refreshed = await getClassroomById(id);
         if (!active) return;
+
         if (classrooms.some((c) => c.id === id || (c as any)._id === id)) {
           classroomActions.updateClassroom(id, refreshed);
         } else {
@@ -1540,19 +1531,23 @@ function StudentClassroomDetail() {
           setLoadError(err instanceof Error ? err.message : "Could not load classroom");
         }
       } finally {
-        if (active) setIsLoading(false);
+        if (active) {
+          setIsLoading(false);
+          setIsFetching(false);
+        }
       }
     };
     load();
     return () => {
       active = false;
     };
-  }, [id, cls]);
+  }, [id]);
 
   if (isLoading) {
     return (
-      <div className="text-center py-20">
-        <p className="text-slate-500 text-sm">Loading classroom...</p>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center py-20 text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-3 border-slate-200 border-t-plum-dark mb-4" />
+        <p className="text-slate-500 text-sm font-medium">Loading classroom details...</p>
       </div>
     );
   }
@@ -1568,7 +1563,7 @@ function StudentClassroomDetail() {
     );
   }
 
-  if (!cls || !myInfo || myInfo.status !== "active") {
+  if (!cls || (!myInfo && currentUser?.role === "student") || (myInfo && myInfo.status !== "active")) {
     return (
       <div className="text-center py-20">
         <Lock className="h-12 w-12 text-slate-300 mx-auto mb-3" />
@@ -1649,10 +1644,10 @@ function StudentClassroomDetail() {
           const classroomId = cls.id || (cls as any)._id || '';
           return (
             <>
-              {tab === "announcements" && <AnnouncementsTab classroomId={classroomId} />}
-              {tab === "live" && <LiveClassesTab classroomId={classroomId} />}
-              {tab === "recordings" && <RecordingsTab classroomId={classroomId} />}
-              {tab === "tests" && <TestsTab classroomId={classroomId} />}
+              {tab === "announcements" && <AnnouncementsTab classroomId={classroomId} isFetching={isFetching} />}
+              {tab === "live" && <LiveClassesTab classroomId={classroomId} isFetching={isFetching} />}
+              {tab === "recordings" && <RecordingsTab classroomId={classroomId} isFetching={isFetching} />}
+              {tab === "tests" && <TestsTab classroomId={classroomId} isFetching={isFetching} />}
             </>
           );
         })()}
