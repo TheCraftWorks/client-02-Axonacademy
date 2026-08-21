@@ -183,7 +183,6 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
 };
 
 const attachClassroomDetails = async (classrooms, options = {}) => {
-  const isList = options.isList || false;
   const studentId = options.studentId || null;
 
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
@@ -192,11 +191,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
 
   // 1. Fetch meetings
   let meetings = [];
-  if (isList) {
-    meetings = await LiveMeeting.find({ classroom: { $in: classroomIds } })
-      .select('_id status classroom')
-      .lean();
-  } else if (studentId) {
+  if (studentId) {
     meetings = await LiveMeeting.find({ classroom: { $in: classroomIds } })
       .select('_id status classroom attendees scheduledAt duration title description')
       .lean();
@@ -226,9 +221,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     meetings: meetingsByClassroom[classroom._id.toString()] || []
   }));
 
-  // 2. Fetch folders (skipped on lists)
+  // 2. Fetch folders
   let folders = [];
-  if (!isList && !studentId) {
+  if (!studentId) {
     folders = await ClassroomFolder.find({ classroom: { $in: classroomIds } })
       .sort({ order: 1, createdAt: -1 })
       .lean();
@@ -236,11 +231,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
 
   // 3. Fetch recordings
   let recordings = [];
-  if (isList) {
-    recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } })
-      .select('_id isPublished classroom')
-      .lean();
-  } else if (studentId) {
+  if (studentId) {
     recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } })
       .select('_id isPublished classroom duration title description viewStats storageProvider cloudflareKey cloudflareUrl chapters uploadedAt folder')
       .sort({ createdAt: -1 })
@@ -258,9 +249,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     await manualPopulate(recordings, 'viewStats.student', 'fullName');
   }
 
-  // 4. Fetch announcements (skipped on lists)
+  // 4. Fetch announcements
   let announcements = [];
-  if (!isList && !studentId) {
+  if (!studentId) {
     announcements = await ClassroomAnnouncement.find({ classroom: { $in: classroomIds } })
       .populate('author', 'fullName role avatar')
       .sort({ createdAt: -1 })
@@ -270,11 +261,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   // 5. Fetch quizzes & attempts
   let quizzes = [];
   let attemptsByQuiz = {};
-  if (isList) {
-    quizzes = await Quiz.find({ classroom: { $in: classroomIds } })
-      .select('_id status classroom')
-      .lean();
-  } else if (studentId) {
+  if (studentId) {
     quizzes = await Quiz.find({ classroom: { $in: classroomIds } })
       .select('_id status classroom title instructions duration maxAttempts randomizeQuestions randomizeOptions showLeaderboard negativeMarking negativeMarkValue passPercent availableFrom availableUntil questions')
       .sort({ createdAt: -1 })
@@ -893,7 +880,7 @@ router.get('/', async (req, res, next) => {
       .lean();
 
     await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
-    const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { isList: true }) };
+    const result = { success: true, classrooms: await attachClassroomDetails(classrooms) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {

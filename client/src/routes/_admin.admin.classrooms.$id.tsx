@@ -2871,8 +2871,8 @@ function AdminClassroomDetail() {
     [classrooms, id]
   );
 
-  // Only show the full-page spinner when we have NOTHING in cache or haven't fetched full details yet
-  const [isLoading, setIsLoading] = useState(!storeClassroom || !classroomFetchCache.has(id));
+  // Only show the full-page spinner when we have NOTHING in cache
+  const [isLoading, setIsLoading] = useState(!storeClassroom);
   const [tab, setTab] = useState<TabKey>("announcements");
 
   const visibleTabs = React.useMemo(() => {
@@ -2904,16 +2904,11 @@ function AdminClassroomDetail() {
 
     const load = async () => {
       try {
-        const hasFullDetails = classroomFetchCache.has(id);
-        if (storeClassroom && hasFullDetails && !isClassroomStale(id)) {
-          return;
-        }
-        if (!storeClassroom || !hasFullDetails) {
-          setIsLoading(true);
-        }
+        if (!isClassroomStale(id)) return;
+        if (!storeClassroom) setIsLoading(true);
         await refreshClassroom();
       } catch (err) {
-        if (active && (!storeClassroom || !classroomFetchCache.has(id))) {
+        if (active && !storeClassroom) {
           toast.error(err instanceof Error ? err.message : "Could not load classroom by id");
         }
       } finally {
@@ -2931,7 +2926,7 @@ function AdminClassroomDetail() {
     [storeClassroom]
   );
 
-  if (isLoading) {
+  if (isLoading && !classroom) {
     return (
       <div className="text-cream text-center py-20">
         <p className="text-cream/60">Loading classroom...</p>

@@ -1513,9 +1513,7 @@ function StudentClassroomDetail() {
   const { classrooms, currentUser } = useClassroomStore();
   const CURRENT_STUDENT = { id: currentUser?.id || "", name: currentUser?.name || "" };
   const [tab, setTab] = useState<TabKey>("live");
-  const [isLoading, setIsLoading] = useState(
-    !classrooms.some((c) => c.id === id || (c as any)._id === id) || !classroomFetchCache.has(id)
-  );
+  const [isLoading, setIsLoading] = useState(!classrooms.some((c) => c.id === id || (c as any)._id === id));
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const cls = classrooms.find((c) => c.id === id || (c as any)._id === id);
@@ -1527,9 +1525,8 @@ function StudentClassroomDetail() {
       try {
         setLoadError(null);
         const hasCached = classrooms.some((c) => c.id === id || (c as any)._id === id);
-        const hasFullDetails = classroomFetchCache.has(id);
-        if (hasCached && hasFullDetails && !isClassroomStale(id)) return;
-        if (!hasCached || !hasFullDetails) setIsLoading(true);
+        if (hasCached && !isClassroomStale(id)) return;
+        if (!hasCached) setIsLoading(true);
         const refreshed = await getClassroomById(id);
         if (!active) return;
         if (classrooms.some((c) => c.id === id || (c as any)._id === id)) {
@@ -1539,7 +1536,7 @@ function StudentClassroomDetail() {
         }
         markClassroomFresh(id);
       } catch (err) {
-        if (active && (!classrooms.some((c) => c.id === id) || !classroomFetchCache.has(id))) {
+        if (active && !classrooms.some((c) => c.id === id)) {
           setLoadError(err instanceof Error ? err.message : "Could not load classroom");
         }
       } finally {
