@@ -307,12 +307,14 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // For admin classroom details, we only need the status and quiz ID of quizAttempts
+    // to calculate submission counts on the tab. The actual submissions list report is loaded
+    // dynamically on-demand via the getQuizReport(quizId) API endpoint.
+    // This saves loading all student profiles for every attempt upfront.
     const quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
-      .select('-answers -questionOrder')
+      .select('_id status quiz')
       .sort({ createdAt: -1 })
       .lean();
-
-    await manualPopulate(quizAttempts, 'student', 'fullName email phone');
 
     attemptsByQuiz = quizAttempts.reduce((acc, att) => {
       if (att.quiz) {
@@ -321,7 +323,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
         acc[key].push({
           ...att,
           id: att._id.toString(),
-          studentName: att.student ? att.student.fullName : 'Student'
+          studentName: 'Student'
         });
       }
       return acc;
@@ -671,7 +673,12 @@ router.get('/:id', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    const result = { success: true, classroom: await attachClassroomDetails(classroom) };
+    const options = {};
+    if (req.user.role === 'student') {
+      options.studentId = req.user._id;
+    }
+
+    const result = { success: true, classroom: await attachClassroomDetails(classroom, options) };
     setCachedData(cacheKey, result);
     res.json(result);
   } catch (error) {
