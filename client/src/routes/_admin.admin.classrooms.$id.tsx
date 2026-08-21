@@ -2596,7 +2596,7 @@ function StudentsTab({ classroom, refreshClassroom }: { classroom: Classroom; re
         if (!active) return;
         setMongoStudents(students);
       } catch (err) {
-        if (active) toast.error(err instanceof Error ? err.message : "Could not load students from MongoDB");
+        if (active) toast.error(err instanceof Error ? err.message : "Could not load students");
       }
     };
     loadStudents();
@@ -2686,7 +2686,7 @@ function StudentsTab({ classroom, refreshClassroom }: { classroom: Classroom; re
 
       {isAdmin && showAdd && notEnrolled.length === 0 && (
         <DarkCard className="text-center py-8">
-          <p className="text-cream/50 text-sm">No available MongoDB students to add.</p>
+          <p className="text-cream/50 text-sm">No available students to add.</p>
         </DarkCard>
       )}
 

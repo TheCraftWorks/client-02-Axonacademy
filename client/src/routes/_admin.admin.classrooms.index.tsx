@@ -734,7 +734,12 @@ function AdminClassrooms() {
         </div>
       )}
 
-      {loadingBackend && <p className="text-sm text-cream/60">Loading classrooms from MongoDB…</p>}
+      {loadingBackend && (
+        <div className="flex items-center gap-2 rounded-xl border border-cream/10 bg-[#1A0F33]/60 px-4 py-2 text-xs text-cream/70 w-fit">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-lime" />
+          <span>Updating classrooms...</span>
+        </div>
+      )}
       {backendError && <p className="text-sm text-red-400">Error loading classrooms: {backendError}</p>}
 
       <div className="flex items-end justify-between flex-wrap gap-3">
