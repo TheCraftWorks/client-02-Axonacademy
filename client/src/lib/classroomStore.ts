@@ -288,9 +288,23 @@ function createStore(initial: StoreState) {
     getState: () => state,
     setState: (updater: (s: StoreState) => Partial<StoreState>) => {
       const patch = updater(state);
-      // No localStorage persistence — session lives in MongoDB + HttpOnly cookies.
-      // currentUser is in-memory only; rehydrated on boot via GET /auth/me.
+      
+      // Auto-clear accessToken when logging out or if currentUser is null
+      if ('currentUser' in patch && !patch.currentUser) {
+        patch.accessToken = null;
+      }
+
       state = { ...state, ...patch };
+
+      // Sync accessToken with localStorage for persistent sessions in WebView/APK environment
+      if (typeof window !== 'undefined' && 'accessToken' in patch) {
+        if (patch.accessToken) {
+          localStorage.setItem('accessToken', patch.accessToken);
+        } else {
+          localStorage.removeItem('accessToken');
+        }
+      }
+
       listeners.forEach((l) => l());
     },
     subscribe: (listener: Listener) => {
@@ -300,12 +314,19 @@ function createStore(initial: StoreState) {
   };
 }
 
+const getSavedToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('accessToken') || null;
+  }
+  return null;
+};
+
 export const classroomStore = createStore({
   classrooms: INITIAL_CLASSROOMS,
   users: INITIAL_USERS,
   courses: INITIAL_COURSES,
   currentUser: null, // always null at boot; __root.tsx rehydrates via GET /auth/me (cookie)
-  accessToken: null,
+  accessToken: getSavedToken(),
   threads: INITIAL_THREADS,
   payments: INITIAL_PAYMENTS,
 });
