@@ -6,7 +6,7 @@ import {
   Play, Check, X, Clock, Calendar, ChevronRight,
   Trophy, Radio, Lock, ShieldAlert, Download,
   DollarSign, FileText, MessageSquare, HelpCircle, LifeBuoy,
-  Pause, RotateCcw, RotateCw, Settings, Gauge
+  Pause, RotateCcw, RotateCw, Settings, Gauge, Loader2
 } from "lucide-react";
 import {
   LuArrowLeft, LuMegaphone, LuVideo, LuBookOpen, LuClipboardList,
@@ -1166,7 +1166,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [result, setResult] = useState<QuizResultReview | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
+  const [startingQuizId, setStartingQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const answersRef = useRef(answers);
@@ -1177,6 +1177,24 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
   }, [answers]);
 
   const submittingQuizRef = useRef(false);
+
+  const formatQuizDate = (iso?: string) => {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return "";
+    }
+  };
 
   const submitQuiz = useCallback(async () => {
     if (!activeQuiz || !attemptId || submittingQuizRef.current) return;
@@ -1250,7 +1268,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
   const handleStartExam = async (quiz: Quiz) => {
     setActiveQuiz(quiz);
     setError("");
-    setIsStarting(true);
+    setStartingQuizId(quiz.id);
     try {
       const payload = await startQuizAttempt(quiz.id);
       if (payload.alreadySubmitted) {
@@ -1277,7 +1295,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
       setError(err instanceof Error ? err.message : "Could not start assessment");
       toast.error(err instanceof Error ? err.message : "Could not start assessment");
     } finally {
-      setIsStarting(false);
+      setStartingQuizId(null);
     }
   };
 
@@ -1327,7 +1345,15 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
           const hasSubmitted = submittedAttempts.length > 0;
           const bestAttempt = submittedAttempts.sort((a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0))[0];
           const attemptsLeft = q.maxAttempts - submittedAttempts.length;
-          const canTake = attemptsLeft > 0;
+          const hasAttemptsLeft = attemptsLeft > 0;
+
+          const now = Date.now();
+          const startTime = q.availableFrom ? new Date(q.availableFrom).getTime() : null;
+          const endTime = q.availableUntil ? new Date(q.availableUntil).getTime() : null;
+          const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
+          const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
+          const canTake = hasAttemptsLeft && !isNotStarted && !isExpired;
+          const isThisStarting = startingQuizId === q.id;
 
           return (
             <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5 hover:border-sky-300 transition-all shadow-xs">
@@ -1340,6 +1366,25 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
                     </span>
                   </div>
                   <p className="text-slate-500 text-xs line-clamp-2">{q.instructions || "No instructions provided."}</p>
+
+                  {(q.availableFrom || q.availableUntil) && (
+                    <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
+                      {isNotStarted ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 border border-amber-200">
+                          <Calendar className="h-3 w-3" /> Starts: {formatQuizDate(q.availableFrom)}
+                        </span>
+                      ) : isExpired ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 border border-red-200">
+                          <Calendar className="h-3 w-3" /> Closed: {formatQuizDate(q.availableUntil)} (Deadline Reached)
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700 border border-sky-200">
+                          <Calendar className="h-3 w-3" /> {q.availableUntil ? `Deadline: ${formatQuizDate(q.availableUntil)}` : `Started: ${formatQuizDate(q.availableFrom)}`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-4 mt-3 text-xs text-slate-400 flex-wrap">
                     <span className="flex items-center gap-1 font-mono"><Clock className="h-3 w-3" /> {q.duration ? `${q.duration} min` : "No limit"}</span>
                     <span>{q.questions?.length || 0} questions</span>
@@ -1357,13 +1402,24 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
                       View Result ({bestAttempt.score?.percentage}%)
                     </button>
                   )}
+                  {isNotStarted && (
+                    <span className="rounded-full bg-slate-100 text-slate-400 px-4 py-2 text-xs font-bold border border-slate-200 cursor-not-allowed">
+                      Starts Soon
+                    </span>
+                  )}
+                  {isExpired && !hasSubmitted && (
+                    <span className="rounded-full bg-red-50 text-red-500 px-4 py-2 text-xs font-bold border border-red-200 cursor-not-allowed">
+                      Deadline Passed
+                    </span>
+                  )}
                   {canTake && (
                     <button
-                      disabled={isStarting}
+                      disabled={!!startingQuizId}
                       onClick={() => void handleStartExam(q)}
-                      className="rounded-full bg-plum-dark text-cream px-5 py-2 text-xs font-bold hover:bg-plum transition-colors shadow-xs disabled:opacity-50"
+                      className="rounded-full bg-plum-dark text-cream px-5 py-2 text-xs font-bold hover:bg-plum transition-colors shadow-xs disabled:opacity-50 inline-flex items-center gap-1.5"
                     >
-                      {isStarting ? "Starting..." : hasSubmitted ? "Retake Test" : "Start Test"}
+                      {isThisStarting && <Loader2 className="h-3 w-3 animate-spin text-lime" />}
+                      <span>{isThisStarting ? "Starting..." : hasSubmitted ? "Retake Test" : "Start Test"}</span>
                     </button>
                   )}
                 </div>

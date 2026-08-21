@@ -407,7 +407,12 @@ function Exams() {
 
   const canAttempt = (q: typeof allQuizzes[0]) => {
     const prevAttempts = q.attempts.filter(a => a.studentId === studentId);
-    return prevAttempts.length < q.maxAttempts;
+    const now = Date.now();
+    const startTime = q.availableFrom ? new Date(q.availableFrom).getTime() : null;
+    const endTime = q.availableUntil ? new Date(q.availableUntil).getTime() : null;
+    const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
+    const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
+    return prevAttempts.length < q.maxAttempts && !isNotStarted && !isExpired;
   };
 
   return (
@@ -449,43 +454,69 @@ function Exams() {
           <h3 className="font-display font-bold text-lg" style={{color:'#0B1F3A'}}>Upcoming Exams</h3>
         </div>
         <div className="space-y-3">
-          {upcomingQuizzes.map(e => (
-            <div key={e.id} className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-border p-4">
-              <div className="grid h-12 w-12 place-items-center rounded-xl shrink-0" style={{background:'#0B1F3A'}}>
-                <ClipboardList className="h-5 w-5" style={{color:'#F4B400'}} />
-              </div>
-              <div className="flex-1">
-                <div className="font-semibold" style={{color:'#0B1F3A'}}>{e.title}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {e.duration ? `${e.duration} min timer` : "No limit"}
-                  {e.questions.length ? ` · ${e.questions.length} questions` : ""}
-                  {` · Pass: ${e.passPercent}%`}
+          {upcomingQuizzes.map(e => {
+            const now = Date.now();
+            const startTime = e.availableFrom ? new Date(e.availableFrom).getTime() : null;
+            const endTime = e.availableUntil ? new Date(e.availableUntil).getTime() : null;
+            const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
+            const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
+
+            return (
+              <div key={e.id} className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-border p-4">
+                <div className="grid h-12 w-12 place-items-center rounded-xl shrink-0" style={{background:'#0B1F3A'}}>
+                  <ClipboardList className="h-5 w-5" style={{color:'#F4B400'}} />
                 </div>
-                {(e.availableFrom || e.availableUntil) && (
-                  <div className="text-[11px] text-[#0284C7] font-medium mt-1.5 bg-[#F0F9FF] rounded-lg px-2.5 py-1 inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 border border-[#BAE6FD] max-w-max">
-                    <span className="font-bold text-[#0369A1]">Available:</span>
-                    {e.availableFrom && <span>Starts: {fmtDate(e.availableFrom)}</span>}
-                    {e.availableUntil && <span>Ends: {fmtDate(e.availableUntil)}</span>}
+                <div className="flex-1">
+                  <div className="font-semibold" style={{color:'#0B1F3A'}}>{e.title}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {e.duration ? `${e.duration} min timer` : "No limit"}
+                    {e.questions.length ? ` · ${e.questions.length} questions` : ""}
+                    {` · Pass: ${e.passPercent}%`}
                   </div>
-                )}
-                <div className="text-[10px] uppercase tracking-widest mt-1.5" style={{color:'rgba(11,31,58,0.5)'}}>{e.classroomName}</div>
+                  {(e.availableFrom || e.availableUntil) && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      {isNotStarted ? (
+                        <div className="text-[11px] text-amber-700 font-medium bg-amber-50 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 border border-amber-200">
+                          <Clock className="h-3 w-3" />
+                          <span>Starts: {fmtDate(e.availableFrom)}</span>
+                        </div>
+                      ) : isExpired ? (
+                        <div className="text-[11px] text-red-700 font-medium bg-red-50 rounded-lg px-2.5 py-1 inline-flex items-center gap-1 border border-red-200">
+                          <Clock className="h-3 w-3" />
+                          <span>Closed: {fmtDate(e.availableUntil)} (Deadline Reached)</span>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-[#0284C7] font-medium bg-[#F0F9FF] rounded-lg px-2.5 py-1 inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 border border-[#BAE6FD]">
+                          <span className="font-bold text-[#0369A1]">Available:</span>
+                          {e.availableFrom && <span>Starts: {fmtDate(e.availableFrom)}</span>}
+                          {e.availableUntil && <span>Ends: {fmtDate(e.availableUntil)}</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="text-[10px] uppercase tracking-widest mt-1.5" style={{color:'rgba(11,31,58,0.5)'}}>{e.classroomName}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-full font-bold" style={{background:'rgba(244,180,0,0.15)',color:'#B8870A'}}>Pending</span>
+                  {isNotStarted ? (
+                    <span className="text-xs text-muted-foreground rounded-full border border-border px-4 py-2">Starts Soon</span>
+                  ) : isExpired ? (
+                    <span className="text-xs text-red-600 rounded-full border border-red-200 bg-red-50 px-4 py-2 font-medium">Deadline Passed</span>
+                  ) : canAttempt(e) ? (
+                    <button
+                      onClick={() => setActiveQuiz({ quiz: e, classroomId: e.classroomId })}
+                      className="rounded-full text-white text-xs font-semibold px-4 py-2 transition-all hover:brightness-110 active:scale-95"
+                      style={{background:'#0B1F3A'}}
+                    >
+                      Start Exam
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground rounded-full border border-border px-4 py-2">Max attempts reached</span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-full font-bold" style={{background:'rgba(244,180,0,0.15)',color:'#B8870A'}}>Pending</span>
-                {canAttempt(e) ? (
-                  <button
-                    onClick={() => setActiveQuiz({ quiz: e, classroomId: e.classroomId })}
-                    className="rounded-full text-white text-xs font-semibold px-4 py-2 transition-all hover:brightness-110 active:scale-95"
-                    style={{background:'#0B1F3A'}}
-                  >
-                    Start Exam
-                  </button>
-                ) : (
-                  <span className="text-xs text-muted-foreground rounded-full border border-border px-4 py-2">Max attempts reached</span>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {upcomingQuizzes.length === 0 && <p className="text-sm text-muted-foreground">No upcoming exams. 🎉</p>}
         </div>
       </Card>
