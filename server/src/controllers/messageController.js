@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Message = require('../models/Message');
 const User = require('../models/User');
 
@@ -27,8 +28,8 @@ const sendMessage = async (req, res) => {
       message
     });
 
-    await newMessage.populate('senderId', 'fullName email role');
-    await newMessage.populate('receiverId', 'fullName email role');
+    await newMessage.populate('senderId', 'fullName email role avatar');
+    await newMessage.populate('receiverId', 'fullName email role avatar');
 
     res.status(201).json({
       success: true,
@@ -55,9 +56,10 @@ const getConversation = async (req, res) => {
         { senderId: userId, receiverId: currentUserId }
       ]
     })
-      .populate('senderId', 'fullName email role')
-      .populate('receiverId', 'fullName email role')
-      .sort({ createdAt: 1 });
+      .populate('senderId', 'fullName email role avatar')
+      .populate('receiverId', 'fullName email role avatar')
+      .sort({ createdAt: 1 })
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -81,11 +83,11 @@ const getChatUsers = async (req, res) => {
 
     let targetRole;
     if (userRole === 'student') {
-      targetRole = ['faculty', 'admin'];
+      targetRole = ['faculty', 'admin', 'superadmin'];
     } else if (userRole === 'faculty') {
-      targetRole = ['student', 'admin'];
-    } else if (userRole === 'admin') {
-      targetRole = ['student', 'faculty'];
+      targetRole = ['student', 'admin', 'superadmin'];
+    } else if (userRole === 'admin' || userRole === 'superadmin') {
+      targetRole = ['student', 'faculty', 'admin', 'superadmin', 'accounts', 'receptionist'];
     } else {
       return res.status(200).json({
         success: true,
@@ -93,40 +95,75 @@ const getChatUsers = async (req, res) => {
       });
     }
 
+    const currentUserIdObj = new mongoose.Types.ObjectId(currentUserId);
+
+    // 1. Fetch eligible users fast with lean()
     const users = await User.find({
-      _id: { $ne: currentUserId },
+      _id: { $ne: currentUserIdObj },
       role: { $in: targetRole },
       isActive: true
-    }).select('fullName email role avatar');
+    })
+      .select('fullName email role avatar')
+      .lean();
 
-    const chatUsersWithLastMessage = await Promise.all(
-      users.map(async (user) => {
-        const lastMessage = await Message.findOne({
+    // 2. Perform a single aggregation to get the latest message for every conversation partner
+    const lastMessages = await Message.aggregate([
+      {
+        $match: {
           $or: [
-            { senderId: currentUserId, receiverId: user._id },
-            { senderId: user._id, receiverId: currentUserId }
+            { senderId: currentUserIdObj },
+            { receiverId: currentUserIdObj }
           ]
-        })
-          .sort({ createdAt: -1 })
-          .populate('senderId', 'fullName')
-          .populate('receiverId', 'fullName');
+        }
+      },
+      {
+        $sort: { createdAt: -1 }
+      },
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $eq: ['$senderId', currentUserIdObj] },
+              '$receiverId',
+              '$senderId'
+            ]
+          },
+          lastMessage: { $first: '$message' },
+          lastMessageTime: { $first: '$createdAt' }
+        }
+      }
+    ]);
 
-        return {
-          _id: user._id,
-          fullName: user.fullName,
-          email: user.email,
-          role: user.role,
-          avatar: user.avatar,
-          lastMessage: lastMessage ? lastMessage.message : '',
-          lastMessageTime: lastMessage ? lastMessage.createdAt : null
-        };
-      })
-    );
+    const messageMap = new Map();
+    for (const item of lastMessages) {
+      if (item._id) {
+        messageMap.set(item._id.toString(), {
+          lastMessage: item.lastMessage,
+          lastMessageTime: item.lastMessageTime
+        });
+      }
+    }
+
+    const chatUsersWithLastMessage = users.map((user) => {
+      const msgInfo = messageMap.get(user._id.toString());
+      return {
+        _id: user._id,
+        fullName: user.fullName || 'User',
+        email: user.email || '',
+        role: user.role,
+        avatar: user.avatar || null,
+        lastMessage: msgInfo ? msgInfo.lastMessage : '',
+        lastMessageTime: msgInfo ? msgInfo.lastMessageTime : null
+      };
+    });
 
     chatUsersWithLastMessage.sort((a, b) => {
-      if (!a.lastMessageTime) return 1;
-      if (!b.lastMessageTime) return -1;
-      return b.lastMessageTime - a.lastMessageTime;
+      if (a.lastMessageTime && b.lastMessageTime) {
+        return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+      }
+      if (a.lastMessageTime) return -1;
+      if (b.lastMessageTime) return 1;
+      return (a.fullName || '').localeCompare(b.fullName || '');
     });
 
     res.status(200).json({
