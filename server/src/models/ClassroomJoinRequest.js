@@ -9,4 +9,6 @@ const classroomJoinRequestSchema = new mongoose.Schema({
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
 }, { timestamps: true });
 
+classroomJoinRequestSchema.index({ classroom: 1, status: 1 });
+
 module.exports = mongoose.model('ClassroomJoinRequest', classroomJoinRequestSchema);

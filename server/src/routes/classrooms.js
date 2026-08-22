@@ -189,38 +189,28 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   if (list.length === 0) return classrooms;
   const classroomIds = list.map((classroom) => classroom._id);
 
-  // 1. Live Meetings
+  // 1. Live Meetings (exclude large attendees & waitingRoom arrays on overview)
   let meetingsQuery = LiveMeeting.find({ classroom: { $in: classroomIds } });
   if (isList) {
     meetingsQuery = meetingsQuery.select('_id classroom title status scheduledAt duration');
   } else {
-    meetingsQuery = meetingsQuery.populate('createdBy', 'fullName');
+    meetingsQuery = meetingsQuery.select('-attendees -waitingRoom').populate('createdBy', 'fullName');
   }
-  const meetings = await meetingsQuery.sort({ scheduledAt: 1 }).lean();
+  meetingsQuery = meetingsQuery.sort({ scheduledAt: 1 }).lean();
 
   // 2. Folders
-  const folders = await ClassroomFolder.find({ classroom: { $in: classroomIds } })
+  const foldersQuery = ClassroomFolder.find({ classroom: { $in: classroomIds } })
     .sort({ order: 1, createdAt: -1 })
     .lean();
 
-  // 3. Recordings (exclude heavy viewStats/transcripts on list overview to prevent 45MB BSON overhead)
+  // 3. Recordings (exclude heavy transcripts and session history)
   let recordingsQuery = ClassroomRecording.find({ classroom: { $in: classroomIds } });
   if (isList) {
     recordingsQuery = recordingsQuery.select('_id classroom title isPublished duration folder createdAt');
   } else {
-    recordingsQuery = recordingsQuery.populate('uploadedBy', 'fullName');
+    recordingsQuery = recordingsQuery.select('-transcript -viewStats.sessions').populate('uploadedBy', 'fullName');
   }
-  const recordings = await recordingsQuery.sort({ createdAt: -1 }).lean();
-
-  if (studentId) {
-    recordings.forEach(r => {
-      if (Array.isArray(r.viewStats)) {
-        r.viewStats = r.viewStats.filter(v => v.student && v.student.toString() === studentId);
-      }
-    });
-  } else if (!isList) {
-    await manualPopulate(recordings, 'viewStats.student', 'fullName');
-  }
+  recordingsQuery = recordingsQuery.sort({ createdAt: -1 }).lean();
 
   // 4. Announcements
   let announcementsQuery = ClassroomAnnouncement.find({ classroom: { $in: classroomIds } });
@@ -229,36 +219,70 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   } else {
     announcementsQuery = announcementsQuery.populate('author', 'fullName role avatar');
   }
-  const announcements = await announcementsQuery.sort({ createdAt: -1 }).lean();
+  announcementsQuery = announcementsQuery.sort({ createdAt: -1 }).lean();
 
-  // 5. Quizzes (exclude heavy questions array on list overview)
+  // 5. Quizzes (exclude heavy question explanations & answer keys on overview)
   let quizzesQuery = Quiz.find({ classroom: { $in: classroomIds } });
   if (isList) {
     quizzesQuery = quizzesQuery.select('_id classroom title status instructions duration');
+  } else {
+    quizzesQuery = quizzesQuery.select('-questions.explanation -questions.options.isCorrect');
   }
-  const quizzes = await quizzesQuery.sort({ createdAt: -1 }).lean();
+  quizzesQuery = quizzesQuery.sort({ createdAt: -1 }).lean();
 
   // 6. Quiz Attempts
-  let quizAttempts = [];
+  let quizAttemptsQuery;
   if (studentId) {
-    quizAttempts = await QuizAttempt.find({
+    quizAttemptsQuery = QuizAttempt.find({
       classroom: { $in: classroomIds },
       student: studentId
     })
       .select('-answers -questionOrder')
       .sort({ createdAt: -1 })
       .lean();
-    await manualPopulate(quizAttempts, 'student', 'fullName email phone');
   } else if (!isList) {
-    quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
+    quizAttemptsQuery = QuizAttempt.find({ classroom: { $in: classroomIds } })
+      .select('-answers -questionOrder')
       .sort({ createdAt: -1 })
       .lean();
-    await manualPopulate(quizAttempts, 'student', 'fullName email phone');
   } else {
-    quizAttempts = await QuizAttempt.find({ classroom: { $in: classroomIds } })
+    quizAttemptsQuery = QuizAttempt.find({ classroom: { $in: classroomIds } })
       .select('_id status quiz classroom')
       .sort({ createdAt: -1 })
       .lean();
+  }
+
+  // 7. Join Requests aggregate count
+  const joinRequestsQuery = ClassroomJoinRequest.aggregate([
+    { $match: { classroom: { $in: classroomIds }, status: 'pending' } },
+    { $group: { _id: '$classroom', count: { $sum: 1 } } }
+  ]);
+
+  // Execute all 7 queries concurrently in parallel
+  const [
+    meetings,
+    folders,
+    recordings,
+    announcements,
+    quizzes,
+    quizAttempts,
+    joinRequests
+  ] = await Promise.all([
+    meetingsQuery,
+    foldersQuery,
+    recordingsQuery,
+    announcementsQuery,
+    quizzesQuery,
+    quizAttemptsQuery,
+    joinRequestsQuery
+  ]);
+
+  if (studentId) {
+    recordings.forEach(r => {
+      if (Array.isArray(r.viewStats)) {
+        r.viewStats = r.viewStats.filter(v => v.student && v.student.toString() === studentId);
+      }
+    });
   }
 
   const meetingsByClassroom = meetings.reduce((acc, meeting) => {
@@ -319,10 +343,6 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     return acc;
   }, {});
 
-  const joinRequests = await ClassroomJoinRequest.aggregate([
-    { $match: { classroom: { $in: classroomIds }, status: 'pending' } },
-    { $group: { _id: '$classroom', count: { $sum: 1 } } }
-  ]);
   const joinReqCountByClassroom = joinRequests.reduce((acc, req) => {
     acc[req._id.toString()] = req.count;
     return acc;

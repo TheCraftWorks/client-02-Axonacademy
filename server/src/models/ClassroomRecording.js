@@ -69,5 +69,6 @@ const classroomRecordingSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 classroomRecordingSchema.index({ classroom: 1 });
+classroomRecordingSchema.index({ classroom: 1, createdAt: -1 });
 
 module.exports = mongoose.model('ClassroomRecording', classroomRecordingSchema);
