@@ -44,16 +44,22 @@ export const Route = createFileRoute("/_student/student/classroom/$id")({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function timeAgo(iso: string) {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+function timeAgo(iso?: string) {
+  if (!iso) return "recently";
+  const d = new Date(iso).getTime();
+  if (isNaN(d)) return "recently";
+  const diff = (Date.now() - d) / 1000;
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", {
+function fmtDate(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-IN", {
     weekday: "short", day: "2-digit", month: "short",
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
@@ -126,45 +132,50 @@ function AnnouncementsTab({ classroomId, isFetching }: { classroomId: string; is
   return (
     <div className="space-y-3">
       {announcements.length === 0 && !isFetching && (
-        <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center">
+        <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
           <Megaphone className="h-8 w-8 text-slate-300 mx-auto mb-2" />
           <p className="text-slate-500 text-sm">No announcements yet. Check back later.</p>
         </div>
       )}
-      {announcements.map((ann) => (
-        <div key={ann.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="flex items-start gap-3">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-plum-dark text-cream font-bold text-xs">
-              {(ann.author || 'Admin').split(" ").map((w) => w[0]).join("").slice(0, 2)}
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-plum-dark text-sm font-semibold">{ann.author}</span>
-                <span className="text-slate-400 text-xs">{timeAgo(ann.createdAt)}</span>
+      {announcements.map((ann) => {
+        const authorName = typeof ann.author === 'object' && ann.author !== null
+          ? ((ann.author as any).fullName || (ann.author as any).name || 'Admin')
+          : (ann.author || 'Admin');
+        return (
+          <div key={ann.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-plum-dark text-cream font-bold text-xs">
+                {authorName.split(" ").map((w: string) => w[0]).join("").slice(0, 2)}
               </div>
-              <p className="text-slate-700 text-sm leading-relaxed">{ann.content}</p>
-              {ann.attachments && ann.attachments.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {ann.attachments.map((at: any, i: number) => {
-                    return (
-                      <a
-                        key={i}
-                        href={at.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-plum-dark transition-colors"
-                      >
-                        <Download className="h-3.5 w-3.5 text-plum-dark" />
-                        {"Attachment"}
-                      </a>
-                    );
-                  })}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-plum-dark text-sm font-semibold">{authorName}</span>
+                  <span className="text-slate-400 text-xs">{timeAgo(ann.createdAt)}</span>
                 </div>
-              )}
+                <p className="text-slate-700 text-sm leading-relaxed">{ann.content}</p>
+                {ann.attachments && ann.attachments.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {ann.attachments.map((at: any, i: number) => {
+                      return (
+                        <a
+                          key={i}
+                          href={at.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-plum-dark transition-colors"
+                        >
+                          <Download className="h-3.5 w-3.5 text-plum-dark" />
+                          {at.name || "View Attachment"}
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

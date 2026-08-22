@@ -120,14 +120,44 @@ const TABS: readonly TabConfig[] = [
   { key: "requests", label: "Join Requests", icon: LuUserPlus, bg: "bg-[#F5F3FF]", text: "text-[#5B21B6]", border: "border-[#DDD6FE]", iconColor: "#7C3AED" },
 ];
 
+// ─── Skeleton Loaders ─────────────────────────────────────────────────────────
+
+function DarkSkeletonCard({ className = "" }: { className?: string }) {
+  return (
+    <div className={`animate-pulse rounded-2xl bg-cream/5 border border-cream/10 ${className}`} />
+  );
+}
+
+function DarkTabSkeletonLoader({ type = "rows" }: { type?: "rows" | "grid" | "cards" }) {
+  return (
+    <div className="space-y-3">
+      {type === "grid" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <DarkSkeletonCard className="h-24 w-full" />
+          <DarkSkeletonCard className="h-24 w-full" />
+          <DarkSkeletonCard className="h-24 w-full" />
+        </div>
+      ) : (
+        <>
+          <DarkSkeletonCard className="h-20 w-full" />
+          <DarkSkeletonCard className="h-20 w-full" />
+          <DarkSkeletonCard className="h-20 w-full" />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Announcements Tab ────────────────────────────────────────────────────────
 
-function AnnouncementsTab({ classroom, refreshClassroom }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom> }) {
+function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom>; isFetching?: boolean }) {
   const cls = classroom;
   const [text, setText] = useState("");
   const [isPosting, setIsPosting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [driveLink, setDriveLink] = useState("");
+
+  const announcements = cls.announcements || [];
 
   const handlePost = async () => {
     if (!text.trim() || isPosting) return;
@@ -213,64 +243,73 @@ function AnnouncementsTab({ classroom, refreshClassroom }: { classroom: Classroo
       </DarkCard>
 
       {/* Feed */}
-      <div className="space-y-3">
-        {cls.announcements.length === 0 && (
-          <DarkCard className="text-center py-10">
-            <LuMegaphone className="h-8 w-8 text-cream/20 mx-auto mb-2" />
-            <p className="text-cream/50 text-sm">No announcements yet.</p>
-          </DarkCard>
-        )}
-        {cls.announcements.map((ann) => (
-          <DarkCard key={ann.id}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3 flex-1">
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lime text-plum-dark font-bold text-xs">
-                  {ann.author.split(" ").map((w) => w[0]).join("").slice(0, 2)}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-cream text-sm font-semibold">{ann.author}</span>
-                    <span className="text-cream/50 text-xs">{timeAgo(ann.createdAt)}</span>
-                  </div>
-                  <p className="text-cream/80 text-sm leading-relaxed">{ann.content}</p>
-                  {ann.attachments && ann.attachments.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {ann.attachments.map((at: any, i: number) => (
-                        <a
-                          key={i}
-                          href={at.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-2 bg-cream/5 border border-cream/10 rounded-lg px-3 py-2 text-xs font-semibold text-cream/70 hover:bg-cream/10 hover:text-lime transition-all"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
-                          {"View PDF"}
-                        </a>
-                      ))}
+      {isFetching && announcements.length === 0 ? (
+        <DarkTabSkeletonLoader type="rows" />
+      ) : (
+        <div className="space-y-3">
+          {announcements.length === 0 && !isFetching && (
+            <DarkCard className="text-center py-10">
+              <LuMegaphone className="h-8 w-8 text-cream/20 mx-auto mb-2" />
+              <p className="text-cream/50 text-sm">No announcements yet.</p>
+            </DarkCard>
+          )}
+          {announcements.map((ann) => {
+            const authorName = typeof ann.author === 'object' && ann.author !== null
+              ? ((ann.author as any).fullName || (ann.author as any).name || 'Admin')
+              : (ann.author || 'Admin');
+            return (
+              <DarkCard key={ann.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lime text-plum-dark font-bold text-xs">
+                      {authorName.split(" ").map((w: string) => w[0]).join("").slice(0, 2)}
                     </div>
-                  )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-cream text-sm font-semibold">{authorName}</span>
+                        <span className="text-cream/50 text-xs">{timeAgo(ann.createdAt)}</span>
+                      </div>
+                      <p className="text-cream/80 text-sm leading-relaxed">{ann.content}</p>
+                      {ann.attachments && ann.attachments.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {ann.attachments.map((at: any, i: number) => (
+                            <a
+                              key={i}
+                              href={at.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 bg-cream/5 border border-cream/10 rounded-lg px-3 py-2 text-xs font-semibold text-cream/70 hover:bg-cream/10 hover:text-lime transition-all"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                              {at.name || "View Attachment"}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(ann.id)}
+                    disabled={deletingId === ann.id}
+                    className="text-cream/30 hover:text-red-400 transition-colors shrink-0 disabled:opacity-40"
+                  >
+                    <LuTrash2 className="h-4 w-4" />
+                  </button>
                 </div>
-              </div>
-              <button
-                onClick={() => handleDelete(ann.id)}
-                disabled={deletingId === ann.id}
-                className="text-cream/30 hover:text-red-400 transition-colors shrink-0 disabled:opacity-40"
-              >
-                <LuTrash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </DarkCard>
-        ))}
-      </div>
+              </DarkCard>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Live Classes Tab ─────────────────────────────────────────────────────────
 
-function LiveClassesTab({ classroomId, refreshClassroom }: { classroomId: string; refreshClassroom: () => Promise<Classroom> }) {
+function LiveClassesTab({ classroomId, refreshClassroom, isFetching }: { classroomId: string; refreshClassroom: () => Promise<Classroom>; isFetching?: boolean }) {
   const { classrooms } = useClassroomStore();
-  const cls = classrooms.find((c) => c.id === classroomId)!;
+  const cls = classrooms.find((c) => c.id === classroomId);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", scheduledAt: "", duration: 60 });
@@ -327,7 +366,7 @@ function LiveClassesTab({ classroomId, refreshClassroom }: { classroomId: string
     if (!form.title || !form.scheduledAt) return;
     setSaving(true);
     createMeeting({
-      classroom: cls.code || classroomId,
+      classroom: cls?.code || classroomId,
       title: form.title,
       description: form.description,
       scheduledAt: new Date(form.scheduledAt).toISOString(),
@@ -348,8 +387,9 @@ function LiveClassesTab({ classroomId, refreshClassroom }: { classroomId: string
       .finally(() => setSaving(false));
   };
 
-  const upcoming = cls.meetings.filter((m) => m.status !== "ended" && m.status !== "cancelled");
-  const past = cls.meetings.filter((m) => m.status === "ended" || m.status === "cancelled");
+  const meetings = cls?.meetings || [];
+  const upcoming = meetings.filter((m) => m.status !== "ended" && m.status !== "cancelled");
+  const past = meetings.filter((m) => m.status === "ended" || m.status === "cancelled");
 
   return (
     <div className="space-y-5">
@@ -414,124 +454,130 @@ function LiveClassesTab({ classroomId, refreshClassroom }: { classroomId: string
       )}
 
       {/* Upcoming/Live meetings */}
-      {upcoming.length > 0 && (
-        <div>
-          <h3 className="text-xs uppercase tracking-widest text-cream/60 mb-3">Upcoming & Live</h3>
-          <div className="space-y-3">
-            {upcoming.map((m) => (
-              <DarkCard key={m.id} className="flex items-center gap-4">
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-lime/10 text-lime">
-                  {m.status === "live" ? <LuRadio className="h-5 w-5 animate-pulse" /> : <LuCalendar className="h-5 w-5" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-cream text-sm truncate">{m.title}</span>
-                    <MeetingStatusBadge status={m.status} />
-                  </div>
-                  <div className="text-cream/60 text-xs mt-0.5 flex items-center gap-3">
-                    <span className="flex items-center gap-1"><LuCalendar className="h-3 w-3" /> {fmtShortDate(m.scheduledAt)}</span>
-                    <span className="flex items-center gap-1"><LuClock className="h-3 w-3" /> {fmtTime(m.scheduledAt)}</span>
-                    <span>{m.duration} min</span>
-                    <span>{m.attendees.length} joined</span>
-                  </div>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  {m.status === "scheduled" && (
-                    <button
-                      onClick={() => void handleStartMeeting(m.id)}
-                      disabled={startingMeetingId === m.id}
-                      className="rounded-full bg-lime text-plum-dark px-4 py-2 text-xs font-bold flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {startingMeetingId === m.id ? (
+      {isFetching && meetings.length === 0 ? (
+        <DarkTabSkeletonLoader type="rows" />
+      ) : (
+        <>
+          {upcoming.length > 0 && (
+            <div>
+              <h3 className="text-xs uppercase tracking-widest text-cream/60 mb-3">Upcoming & Live</h3>
+              <div className="space-y-3">
+                {upcoming.map((m) => (
+                  <DarkCard key={m.id} className="flex items-center gap-4">
+                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-lime/10 text-lime">
+                      {m.status === "live" ? <LuRadio className="h-5 w-5 animate-pulse" /> : <LuCalendar className="h-5 w-5" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-cream text-sm truncate">{m.title}</span>
+                        <MeetingStatusBadge status={m.status} />
+                      </div>
+                      <div className="text-cream/60 text-xs mt-0.5 flex items-center gap-3">
+                        <span className="flex items-center gap-1"><LuCalendar className="h-3 w-3" /> {fmtShortDate(m.scheduledAt)}</span>
+                        <span className="flex items-center gap-1"><LuClock className="h-3 w-3" /> {fmtTime(m.scheduledAt)}</span>
+                        <span>{m.duration} min</span>
+                        <span>{(m.attendees || []).length} joined</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {m.status === "scheduled" && (
+                        <button
+                          onClick={() => void handleStartMeeting(m.id)}
+                          disabled={startingMeetingId === m.id}
+                          className="rounded-full bg-lime text-plum-dark px-4 py-2 text-xs font-bold flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {startingMeetingId === m.id ? (
+                            <>
+                              <svg
+                                className="h-3.5 w-3.5 animate-spin"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                              >
+                                <circle
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  opacity="0.25"
+                                />
+                                <path
+                                  d="M22 12a10 10 0 00-10-10"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                              Starting...
+                            </>
+                          ) : (
+                            <>
+                              <LuPlay className="h-3 w-3" />
+                              Start
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {m.status === "live" && (
                         <>
-                          <svg
-                            className="h-3.5 w-3.5 animate-spin"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                          >
-                            <circle
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="3"
-                              opacity="0.25"
-                            />
-                            <path
-                              d="M22 12a10 10 0 00-10-10"
-                              stroke="currentColor"
-                              strokeWidth="3"
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                          Starting...
-                        </>
-                      ) : (
-                        <>
-                          <LuPlay className="h-3 w-3" />
-                          Start
+                          <Link to="/live/$roomId" params={{ roomId: m.roomId }}
+                            className="rounded-full bg-red-500/20 text-red-300 px-4 py-2 text-xs font-bold flex items-center gap-1">
+                            <LuRadio className="h-3 w-3" /> Join Class
+                          </Link>
+                          <button onClick={() => void handleEndMeeting(m.id)}
+                            className="rounded-full bg-cream/10 text-cream/70 px-3 py-2 text-xs">
+                            End
+                          </button>
                         </>
                       )}
-                    </button>
-                  )}
-                  {m.status === "live" && (
-                    <>
-                      <Link to="/live/$roomId" params={{ roomId: m.roomId }}
-                        className="rounded-full bg-red-500/20 text-red-300 px-4 py-2 text-xs font-bold flex items-center gap-1">
-                        <LuRadio className="h-3 w-3" /> Join Class
-                      </Link>
-                      <button onClick={() => void handleEndMeeting(m.id)}
-                        className="rounded-full bg-cream/10 text-cream/70 px-3 py-2 text-xs">
-                        End
+                      <button onClick={() => void handleDeleteMeeting(m.id)}
+                        disabled={deletingMeetingId === m.id}
+                        className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-2 text-xs disabled:opacity-50">
+                        <LuTrash2 className="h-3.5 w-3.5" />
                       </button>
-                    </>
-                  )}
-                  <button onClick={() => void handleDeleteMeeting(m.id)}
-                    disabled={deletingMeetingId === m.id}
-                    className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-2 text-xs disabled:opacity-50">
-                    <LuTrash2 className="h-3.5 w-3.5" />
-                  </button>
+                    </div>
+                  </DarkCard>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Past */}
+          {past.length > 0 && (
+            <div>
+              <h3 className="text-xs uppercase tracking-widest text-cream/60 mb-3">Past Sessions</h3>
+              <DarkCard className="p-0 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-162.5 text-sm">
+                    <thead className="bg-cream/5">
+                      <tr className="text-left text-[10px] uppercase tracking-widest text-cream/60">
+                        <th className="p-4">Class</th><th>Date</th><th>Duration</th><th>Attendees</th><th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {past.map((m) => (
+                        <tr key={m.id} className="border-t border-cream/10">
+                          <td className="p-4 font-semibold text-cream">{m.title}</td>
+                          <td className="text-cream/70 text-xs">{fmtDate(m.scheduledAt)}</td>
+                          <td className="font-mono text-cream/60 text-xs">{m.duration}m</td>
+                          <td className="font-mono text-cream/80">{(m.attendees || []).length}</td>
+                          <td><MeetingStatusBadge status={m.status} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </DarkCard>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Past */}
-      {past.length > 0 && (
-        <div>
-          <h3 className="text-xs uppercase tracking-widest text-cream/60 mb-3">Past Sessions</h3>
-          <DarkCard className="p-0 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-162.5 text-sm">
-                <thead className="bg-cream/5">
-                  <tr className="text-left text-[10px] uppercase tracking-widest text-cream/60">
-                    <th className="p-4">Class</th><th>Date</th><th>Duration</th><th>Attendees</th><th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {past.map((m) => (
-                    <tr key={m.id} className="border-t border-cream/10">
-                      <td className="p-4 font-semibold text-cream">{m.title}</td>
-                      <td className="text-cream/70 text-xs">{fmtDate(m.scheduledAt)}</td>
-                      <td className="font-mono text-cream/60 text-xs">{m.duration}m</td>
-                      <td className="font-mono text-cream/80">{m.attendees.length}</td>
-                      <td><MeetingStatusBadge status={m.status} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
-          </DarkCard>
-        </div>
-      )}
+          )}
 
-      {cls.meetings.length === 0 && (
-        <DarkCard className="text-center py-12">
-          <LuVideo className="h-8 w-8 text-cream/20 mx-auto mb-2" />
-          <p className="text-cream/50 text-sm">No classes scheduled yet.</p>
-        </DarkCard>
+          {meetings.length === 0 && !showForm && (
+            <DarkCard className="text-center py-12">
+              <LuVideo className="h-8 w-8 text-cream/20 mx-auto mb-2" />
+              <p className="text-cream/50 text-sm">No classes scheduled yet.</p>
+            </DarkCard>
+          )}
+        </>
       )}
     </div>
   );
@@ -2873,6 +2919,7 @@ function AdminClassroomDetail() {
 
   // Only show the full-page spinner when we have NOTHING in cache
   const [isLoading, setIsLoading] = useState(!storeClassroom);
+  const [isFetching, setIsFetching] = useState(false);
   const [tab, setTab] = useState<TabKey>("announcements");
 
   const visibleTabs = React.useMemo(() => {
@@ -2889,14 +2936,19 @@ function AdminClassroomDetail() {
   }, [currentUser, tab]);
 
   const refreshClassroom = React.useCallback(async () => {
-    const refreshed = await getClassroomById(id);
-    if (storeClassroom) {
-      classroomActions.updateClassroom(id, refreshed);
-    } else {
-      classroomActions.addClassroom(refreshed);
+    setIsFetching(true);
+    try {
+      const refreshed = await getClassroomById(id);
+      if (storeClassroom) {
+        classroomActions.updateClassroom(id, refreshed);
+      } else {
+        classroomActions.addClassroom(refreshed);
+      }
+      markClassroomFresh(id);
+      return refreshed;
+    } finally {
+      setIsFetching(false);
     }
-    markClassroomFresh(id);
-    return refreshed;
   }, [id, storeClassroom]);
 
   React.useEffect(() => {
@@ -2906,19 +2958,23 @@ function AdminClassroomDetail() {
       try {
         if (!isClassroomStale(id)) return;
         if (!storeClassroom) setIsLoading(true);
+        setIsFetching(true);
         await refreshClassroom();
       } catch (err) {
         if (active && !storeClassroom) {
           toast.error(err instanceof Error ? err.message : "Could not load classroom by id");
         }
       } finally {
-        if (active) setIsLoading(false);
+        if (active) {
+          setIsLoading(false);
+          setIsFetching(false);
+        }
       }
     };
 
     load();
     return () => { active = false; };
-  }, [id, storeClassroom]);
+  }, [id, storeClassroom, refreshClassroom]);
 
   // Merge: prefer store data (kept fresh by background sync) over nothing
   const classroom = React.useMemo(
@@ -2960,7 +3016,7 @@ function AdminClassroomDetail() {
           <div className="flex items-center gap-4 mt-1 flex-wrap">
             <span className="font-mono text-[11px] text-cream/50">{classroom.code}</span>
             <span className="text-cream/60 text-xs">·</span>
-            <span className="text-cream/60 text-xs">{classroom.students.filter((s) => s.status === "active").length} / {classroom.maxStudents} students</span>
+            <span className="text-cream/60 text-xs">{(classroom.students || []).filter((s) => s.status === "active").length} / {classroom.maxStudents} students</span>
             <span className="text-cream/60 text-xs">·</span>
             <span className="text-cream/60 text-xs">{classroom.program}</span>
             {classroom.instructors && classroom.instructors.length > 0 && (
@@ -3024,8 +3080,8 @@ ${window.location.origin}/classroom-join/${classroom.id}`;
 
       {/* Tab content area */}
       <div className="border-t border-cream/10 pt-6">
-        {tab === "announcements" && <AnnouncementsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
-        {tab === "live" && <LiveClassesTab classroomId={classroom.id} refreshClassroom={refreshClassroom} />}
+        {tab === "announcements" && <AnnouncementsTab classroom={classroom} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
+        {tab === "live" && <LiveClassesTab classroomId={classroom.id} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "recordings" && <RecordingsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
         {tab === "tests" && <TestsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
         {tab === "students" && <StudentsTab classroom={classroom} refreshClassroom={refreshClassroom} />}

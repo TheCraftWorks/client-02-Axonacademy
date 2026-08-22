@@ -215,7 +215,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   // 4. Announcements
   let announcementsQuery = ClassroomAnnouncement.find({ classroom: { $in: classroomIds } });
   if (isList) {
-    announcementsQuery = announcementsQuery.select('_id classroom title createdAt');
+    announcementsQuery = announcementsQuery.select('_id classroom content attachments createdAt author');
   } else {
     announcementsQuery = announcementsQuery.populate('author', 'fullName role avatar');
   }
@@ -353,7 +353,14 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
 
     return {
       ...classroom,
-      meetings: meetingsByClassroom[classroomIdStr] || [],
+      meetings: (meetingsByClassroom[classroomIdStr] || []).map(m => ({
+        ...m,
+        id: m._id.toString(),
+        attendees: Array.isArray(m.attendees) ? m.attendees : [],
+        createdBy: typeof m.createdBy === 'object' && m.createdBy !== null
+          ? (m.createdBy.fullName || m.createdBy.name || 'Admin')
+          : (m.createdBy || 'Admin')
+      })),
       pendingJoinRequestsCount: joinReqCountByClassroom[classroomIdStr] || 0,
       folders: (foldersByClassroom[classroomIdStr] || []).map(f => ({
         ...f,
@@ -365,7 +372,10 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
       })),
       announcements: (announcementsByClassroom[classroomIdStr] || []).map(announcement => ({
         ...announcement,
-        id: announcement._id.toString()
+        id: announcement._id.toString(),
+        author: typeof announcement.author === 'object' && announcement.author !== null
+          ? (announcement.author.fullName || announcement.author.name || 'Admin')
+          : (announcement.author || 'Admin')
       })),
       quizzes: (quizzesByClassroom[classroomIdStr] || []).map(q => ({
         ...q,
