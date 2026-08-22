@@ -2626,7 +2626,7 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
 
 // ─── Students Tab ─────────────────────────────────────────────────────────────
 
-function StudentsTab({ classroom, refreshClassroom }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom> }) {
+function StudentsTab({ classroom, refreshClassroom, isFetching }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom>; isFetching?: boolean }) {
   const { users, currentUser } = useClassroomStore();
   const isAdmin = currentUser?.role === "admin" || currentUser?.role === "superadmin";
   const cls = classroom;
@@ -2693,13 +2693,24 @@ function StudentsTab({ classroom, refreshClassroom }: { classroom: Classroom; re
     }
   };
 
+  const enrolledStudents = (cls.students || []).map((s) => {
+    const mongoUser = mongoStudents.find((m) => m.id === s.id);
+    const displayName = (s.name && s.name !== 'Student') ? s.name : (mongoUser?.name || s.name || 'Student');
+    const displayEmail = s.email || mongoUser?.email || '';
+    return {
+      ...s,
+      name: displayName,
+      email: displayEmail,
+    };
+  });
+
   const studentsOnly = mongoStudents.length > 0 ? mongoStudents : users.filter((u) => u.role === "student");
-  const notEnrolled = studentsOnly.filter((s) => !cls.students.find((cs) => cs.id === s.id));
+  const notEnrolled = studentsOnly.filter((s) => !enrolledStudents.find((cs) => cs.id === s.id));
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-cream/60 text-sm">{cls.students.length} enrolled · {cls.students.filter((s) => s.status === "active").length} active</p>
+        <p className="text-cream/60 text-sm">{enrolledStudents.length} enrolled · {enrolledStudents.filter((s) => s.status === "active").length} active</p>
         {isAdmin && (
           <button onClick={() => setShowAdd(!showAdd)} className="inline-flex items-center gap-2 rounded-full bg-lime text-plum-dark px-5 py-2.5 text-sm font-bold">
             <LuPlus className="h-4 w-4" /> Add Student
@@ -2736,65 +2747,69 @@ function StudentsTab({ classroom, refreshClassroom }: { classroom: Classroom; re
         </DarkCard>
       )}
 
-      <DarkCard className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-175 text-sm">
-            <thead className="bg-cream/5">
-              <tr className="text-[10px] uppercase tracking-widest text-cream/60 text-left">
-                <th className="p-4">Student</th>
-                <th>Progress</th>
-                <th>Attendance</th>
-                <th>Quiz Avg</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {cls.students.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center text-cream/50">No students enrolled yet.</td></tr>
-              )}
-              {cls.students.map((s) => (
-                <tr key={s.id} className="border-t border-cream/10 hover:bg-cream/5">
-                  <td className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="grid h-9 w-9 place-items-center rounded-full bg-lime text-plum-dark text-xs font-bold shrink-0">
-                        {s.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-cream">{s.name}</div>
-                        <div className="text-[11px] text-cream/60 font-mono">{s.enrollmentId}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2 w-28">
-                      <div className="flex-1 h-1.5 bg-cream/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-lime rounded-full" style={{ width: `${s.progress}%` }} />
-                      </div>
-                      <span className="text-xs font-mono text-cream/70">{s.progress}%</span>
-                    </div>
-                  </td>
-                  <td className="font-mono text-cream/80 text-sm">{s.attendance}%</td>
-                  <td className="font-mono text-cream/80 text-sm">{s.quizAvg}%</td>
-                  <td>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${s.status === "active" ? "bg-lime/20 text-lime" : s.status === "held" ? "bg-yellow-500/20 text-yellow-300" : "bg-red-500/20 text-red-300"}`}>
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="pr-4">
-                    <select value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as "active" | "held" | "removed")}
-                      className="bg-[#1A0F33] border border-cream/10 rounded-lg px-2 py-1 text-cream/70 text-xs outline-none">
-                      <option value="active">Active</option>
-                      <option value="held">Hold</option>
-                      <option value="removed">Remove</option>
-                    </select>
-                  </td>
+      {isFetching && enrolledStudents.length === 0 ? (
+        <DarkTabSkeletonLoader type="rows" />
+      ) : (
+        <DarkCard className="p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-175 text-sm">
+              <thead className="bg-cream/5">
+                <tr className="text-[10px] uppercase tracking-widest text-cream/60 text-left">
+                  <th className="p-4">Student</th>
+                  <th>Progress</th>
+                  <th>Attendance</th>
+                  <th>Quiz Avg</th>
+                  <th>Status</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </DarkCard>
+              </thead>
+              <tbody>
+                {enrolledStudents.length === 0 && (
+                  <tr><td colSpan={6} className="p-8 text-center text-cream/50">No students enrolled yet.</td></tr>
+                )}
+                {enrolledStudents.map((s) => (
+                  <tr key={s.id} className="border-t border-cream/10 hover:bg-cream/5">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="grid h-9 w-9 place-items-center rounded-full bg-lime text-plum-dark text-xs font-bold shrink-0">
+                          {s.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-cream">{s.name}</div>
+                          <div className="text-[11px] text-cream/60 font-mono">{s.email || s.enrollmentId}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2 w-28">
+                        <div className="flex-1 h-1.5 bg-cream/10 rounded-full overflow-hidden">
+                          <div className="h-full bg-lime rounded-full" style={{ width: `${s.progress}%` }} />
+                        </div>
+                        <span className="text-xs font-mono text-cream/70">{s.progress}%</span>
+                      </div>
+                    </td>
+                    <td className="font-mono text-cream/80 text-sm">{s.attendance}%</td>
+                    <td className="font-mono text-cream/80 text-sm">{s.quizAvg}%</td>
+                    <td>
+                      <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${s.status === "active" ? "bg-lime/20 text-lime" : s.status === "held" ? "bg-yellow-500/20 text-yellow-300" : "bg-red-500/20 text-red-300"}`}>
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="pr-4">
+                      <select value={s.status} onChange={(e) => handleStatusChange(s.id, e.target.value as "active" | "held" | "removed")}
+                        className="bg-[#1A0F33] border border-cream/10 rounded-lg px-2 py-1 text-cream/70 text-xs outline-none">
+                        <option value="active">Active</option>
+                        <option value="held">Hold</option>
+                        <option value="removed">Remove</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DarkCard>
+      )}
     </div>
   );
 }
@@ -3084,7 +3099,7 @@ ${window.location.origin}/classroom-join/${classroom.id}`;
         {tab === "live" && <LiveClassesTab classroomId={classroom.id} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "recordings" && <RecordingsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
         {tab === "tests" && <TestsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
-        {tab === "students" && <StudentsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
+        {tab === "students" && <StudentsTab classroom={classroom} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "requests" && <JoinRequestsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
       </div>
     </div>

@@ -203,6 +203,7 @@ function StudentDetail({ studentId, onRefresh }: { studentId: string; onRefresh:
 
 function AdminStudents() {
   const { classrooms, courses, users, currentUser } = useClassroomStore();
+  const [isLoading, setIsLoading] = useState(true);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [mongoStudents, setMongoStudents] = useState<Array<{ id: string; name: string; email: string; phone?: string; isActive?: boolean }>>([]);
   const [search, setSearch] = useState("");
@@ -215,9 +216,10 @@ function AdminStudents() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const refreshData = async () => {
+    setIsLoading(true);
     try {
       const [data, students] = await Promise.all([
-        apiGetClassrooms(),
+        apiGetClassrooms(true),
         getAdminUsers("student"),
       ]);
       classroomActions.setClassrooms(data);
@@ -225,6 +227,8 @@ function AdminStudents() {
       setBackendError(null);
     } catch (err) {
       setBackendError(err instanceof Error ? err.message : "Could not load students");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -256,16 +260,16 @@ function AdminStudents() {
 
   const enrollments = useMemo(() => {
     const classroomEnrollments = classrooms.flatMap(c =>
-      c.students.map(s => {
-        const watchedRecs = c.recordings.filter(r => r.isPublished && r.viewStats.some(v => v.studentId === s.id && v.watchedPercent > 0)).length;
-        const watchedHours = c.recordings.reduce((sum, r) => {
-          const vs = r.viewStats.find(v => v.studentId === s.id);
+      (c.students || []).map(s => {
+        const watchedRecs = (c.recordings || []).filter(r => r.isPublished && (r.viewStats || []).some(v => v.studentId === s.id && v.watchedPercent > 0)).length;
+        const watchedHours = (c.recordings || []).reduce((sum, r) => {
+          const vs = (r.viewStats || []).find(v => v.studentId === s.id);
           return sum + (vs?.totalWatchedSec || 0);
         }, 0) / 3600;
 
-        const liveAttended = c.meetings.filter(m => Array.isArray(m.attendees) && m.attendees.some((a: any) => String(a?.student?._id || a?.student || a) === s.id)).length;
+        const liveAttended = (c.meetings || []).filter(m => Array.isArray(m.attendees) && m.attendees.some((a: any) => String(a?.student?._id || a?.student || a) === s.id)).length;
 
-        const quizAttempts = c.quizzes.flatMap(q => q.attempts.filter(a => a.studentId === s.id));
+        const quizAttempts = (c.quizzes || []).flatMap(q => (q.attempts || []).filter(a => a.studentId === s.id));
         const quizAvg = quizAttempts.length > 0
           ? Math.round(quizAttempts.reduce((sum, a) => sum + (a.score?.percentage || 0), 0) / quizAttempts.length)
           : 0;
@@ -276,7 +280,7 @@ function AdminStudents() {
           batch: c.name.split("—")[1]?.trim() || "N/A",
           classroomId: c.id,
           classroomName: c.name,
-          totalPubRecs: c.recordings.filter(r => r.isPublished).length,
+          totalPubRecs: (c.recordings || []).filter(r => r.isPublished).length,
           watchedRecs,
           watchedHours,
           liveAttended,
@@ -312,11 +316,15 @@ function AdminStudents() {
     }> = {};
 
     classroomEnrollments.forEach(item => {
+      const userFromMongo = mongoStudents.find(m => m.id === item.id);
+      const studentName = (item.name && item.name !== 'Student') ? item.name : (userFromMongo?.name || item.name || 'Student');
+      const studentEmail = item.email || userFromMongo?.email || '';
+
       if (!studentMap[item.id]) {
         studentMap[item.id] = {
           id: item.id,
-          name: item.name,
-          email: item.email,
+          name: studentName,
+          email: studentEmail,
           enrollmentId: item.enrollmentId,
           addedAt: item.addedAt,
           status: "active",
@@ -565,7 +573,32 @@ function AdminStudents() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-cream/50">No students found.</td></tr>}
+              {isLoading && filtered.length === 0 && (
+                <>
+                  {[1, 2, 3, 4].map(idx => (
+                    <tr key={idx} className="border-t border-cream/10 animate-pulse">
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 rounded-full bg-cream/10" />
+                          <div className="space-y-1.5 flex-1">
+                            <div className="h-3.5 w-28 bg-cream/10 rounded" />
+                            <div className="h-2.5 w-20 bg-cream/5 rounded" />
+                          </div>
+                        </div>
+                      </td>
+                      <td><div className="h-3 w-24 bg-cream/10 rounded" /></td>
+                      <td><div className="h-3 w-16 bg-cream/10 rounded" /></td>
+                      <td><div className="h-3 w-12 bg-cream/10 rounded" /></td>
+                      <td><div className="h-3 w-12 bg-cream/10 rounded" /></td>
+                      <td><div className="h-3 w-12 bg-cream/10 rounded" /></td>
+                      <td><div className="h-3 w-12 bg-cream/10 rounded" /></td>
+                      <td><div className="h-5 w-14 bg-cream/10 rounded" /></td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </>
+              )}
+              {!isLoading && filtered.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-cream/50">No students found.</td></tr>}
               {filtered.map(s => (
                 <React.Fragment key={s.id}>
                   <tr className={`border-t border-cream/10 hover:bg-cream/5 cursor-pointer ${expandedId === s.id ? "bg-cream/5" : ""}`}
@@ -576,7 +609,7 @@ function AdminStudents() {
                         <div>
                           <div className="font-semibold">{s.name}</div>
                           <div className="text-[11px] text-cream/60 font-mono">
-                            {Array.from(new Set(s.courses.map(c => c.enrollmentId).filter(Boolean))).join(" / ") || " "}
+                            {s.email || Array.from(new Set(s.courses.map(c => c.enrollmentId).filter(Boolean))).join(" / ") || " "}
                           </div>
                         </div>
                       </div>

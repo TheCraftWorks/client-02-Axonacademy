@@ -128,7 +128,7 @@ const attachMeetingsToClassrooms = async (classrooms) => {
   return Array.isArray(classrooms) ? withMeetings : withMeetings[0];
 };
 
-const manualPopulate = async (list, path, select = 'fullName email phone', filterDeleted = true) => {
+const manualPopulate = async (list, path, select = 'fullName email phone', filterDeleted = false) => {
   const isArray = Array.isArray(list);
   const items = isArray ? list : [list];
   if (items.length === 0) return list;
@@ -136,15 +136,19 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
   const pathParts = path.split('.');
   const ids = new Set();
   items.forEach(item => {
+    if (!item) return;
     if (pathParts.length === 1) {
-      const val = item[pathParts[0]];
-      if (val && mongoose.Types.ObjectId.isValid(val)) ids.add(val.toString());
+      const rawVal = item[pathParts[0]];
+      const val = rawVal?._id ? rawVal._id.toString() : (typeof rawVal === 'string' ? rawVal : rawVal?.toString());
+      if (val && mongoose.Types.ObjectId.isValid(val)) ids.add(val);
     } else if (pathParts.length === 2) {
       const array = item[pathParts[0]];
       if (Array.isArray(array)) {
         array.forEach(sub => {
-          const val = sub[pathParts[1]];
-          if (val && mongoose.Types.ObjectId.isValid(val)) ids.add(val.toString());
+          if (!sub) return;
+          const rawVal = sub[pathParts[1]];
+          const val = rawVal?._id ? rawVal._id.toString() : (typeof rawVal === 'string' ? rawVal : rawVal?.toString());
+          if (val && mongoose.Types.ObjectId.isValid(val)) ids.add(val);
         });
       }
     }
@@ -157,21 +161,28 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
   const userMap = users.reduce((acc, u) => { acc[u._id.toString()] = u; return acc; }, {});
 
   items.forEach(item => {
+    if (!item) return;
     if (pathParts.length === 1) {
-      const val = item[pathParts[0]]?.toString();
-      item[pathParts[0]] = (val && userMap[val]) ? userMap[val] : null;
+      const rawVal = item[pathParts[0]];
+      const val = rawVal?._id ? rawVal._id.toString() : (typeof rawVal === 'string' ? rawVal : rawVal?.toString());
+      if (val && userMap[val]) {
+        item[pathParts[0]] = userMap[val];
+      } else if (rawVal && typeof rawVal === 'object' && rawVal.fullName) {
+        item[pathParts[0]] = rawVal;
+      }
     } else if (pathParts.length === 2) {
       const array = item[pathParts[0]];
       if (Array.isArray(array)) {
-        const originalLength = array.length;
         const populated = array.map(sub => {
-          const val = sub[pathParts[1]]?.toString();
-          const user = (val && userMap[val]) ? userMap[val] : null;
+          if (!sub) return sub;
+          const rawVal = sub[pathParts[1]];
+          const val = rawVal?._id ? rawVal._id.toString() : (typeof rawVal === 'string' ? rawVal : rawVal?.toString());
+          const user = (val && userMap[val]) ? userMap[val] : (rawVal && typeof rawVal === 'object' && rawVal.fullName ? rawVal : rawVal);
           return { ...sub, [pathParts[1]]: user };
         });
 
         if (filterDeleted) {
-          item[pathParts[0]] = populated.filter(sub => sub[pathParts[1]] !== null);
+          item[pathParts[0]] = populated.filter(sub => sub[pathParts[1]] !== null && sub[pathParts[1]] !== undefined);
         } else {
           item[pathParts[0]] = populated;
         }
@@ -187,6 +198,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   const isList = options.isList === true;
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
+
+  // Ensure students.student is populated across classrooms
+  await manualPopulate(list, 'students.student', 'fullName email phone avatar role isVerified isActive', false);
   const classroomIds = list.map((classroom) => classroom._id);
 
   // 1. Live Meetings (exclude large attendees & waitingRoom arrays on overview)

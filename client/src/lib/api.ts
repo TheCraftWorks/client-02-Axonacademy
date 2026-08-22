@@ -151,16 +151,18 @@ function normalizeBackendClassroom(raw: any) {
     students: Array.isArray(raw.students)
       ? raw.students.map((s: any) => ({
         ...(() => {
-          const id = String(s.student?._id || s.student || `student-${Date.now()}`);
+          const studentObj = typeof s.student === 'object' && s.student !== null ? s.student : (typeof s === 'object' && s !== null ? s : {});
+          const id = String(studentObj._id || studentObj.id || (typeof s.student === 'string' ? s.student : '') || s._id || s.id || `student-${Date.now()}`);
           const metrics = computeStudentMetrics(id);
+          const studentName = studentObj.fullName || studentObj.name || (studentObj.email ? studentObj.email.split('@')[0] : '') || s.name || s.fullName || '';
           return {
             id,
-            name: s.student?.fullName || s.student?.email || 'Student',
-            email: s.student?.email || '',
-            enrollmentId: s.enrollmentId || '',
-            progress: metrics.progress,
-            attendance: metrics.attendance,
-            quizAvg: metrics.quizAvg,
+            name: studentName || 'Student',
+            email: studentObj.email || s.email || '',
+            enrollmentId: s.enrollmentId || (id && id.length >= 4 && !id.startsWith('student-') ? `STU-${id.slice(-4).toUpperCase()}` : `STU-${Date.now().toString().slice(-4)}`),
+            progress: typeof s.progress === 'number' ? s.progress : metrics.progress,
+            attendance: typeof s.attendance === 'number' ? s.attendance : metrics.attendance,
+            quizAvg: typeof s.quizAvg === 'number' ? s.quizAvg : metrics.quizAvg,
             status: s.status || 'active',
             addedAt: s.addedAt ? new Date(s.addedAt).toISOString() : new Date().toISOString(),
             certificateUrl: s.certificateUrl || undefined,
