@@ -276,7 +276,7 @@ function Dashboard() {
                   <div className="text-[10px] uppercase tracking-widest font-semibold" style={{color: '#2D9CDB'}}>{a.classroomName}</div>
                   <div className="text-[9px] text-muted-foreground">{timeAgoDate(a.createdAt)}</div>
                 </div>
-                <div className="text-sm font-semibold line-clamp-2" style={{color: '#0B1F3A'}}>{a.content}</div>
+                <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-words" style={{color: '#0B1F3A'}}>{a.content}</div>
                 {a.attachments && a.attachments.length > 0 && (
                   <div className="mt-2 flex gap-1.5">
                   {a.attachments.map((at: any, i: number) => (

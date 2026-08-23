@@ -265,11 +265,11 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                       {authorName.split(" ").map((w: string) => w[0]).join("").slice(0, 2)}
                     </div>
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-cream text-sm font-semibold">{authorName}</span>
                         <span className="text-cream/50 text-xs">{timeAgo(ann.createdAt)}</span>
                       </div>
-                      <p className="text-cream/80 text-sm leading-relaxed">{ann.content}</p>
+                      <div className="text-cream/80 text-sm leading-relaxed whitespace-pre-wrap break-words">{ann.content}</div>
                       {ann.attachments && ann.attachments.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {ann.attachments.map((at: any, i: number) => (
