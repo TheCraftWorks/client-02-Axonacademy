@@ -717,6 +717,11 @@ export async function getQuizAttemptResult(quizId: string, attemptId?: string) {
       questionText: ans.questionText || '',
       explanation: ans.explanation || '',
       correctOptions: ans.correctOptions || [],
+      options: Array.isArray(ans.options) ? ans.options.map((o: any) => ({
+        label: o.label || '',
+        text: o.text || '',
+        isCorrect: !!o.isCorrect,
+      })) : [],
     })) : [],
   };
 }

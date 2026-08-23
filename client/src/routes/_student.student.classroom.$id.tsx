@@ -1155,6 +1155,7 @@ type QuizResultReview = {
     questionText: string;
     explanation: string;
     correctOptions: string[];
+    options?: Array<{ label: string; text: string; isCorrect?: boolean }>;
   }>;
 };
 function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
@@ -1531,26 +1532,152 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
           </button>
         </div>
 
-        <div className="space-y-4">
-          <h4 className="font-bold text-slate-700 text-sm">Detailed Question Review</h4>
-          {result.answers.map((ans, idx) => {
-            const myAns = result.answers[idx];
+        <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <h4 className="font-display font-bold text-slate-800 text-base">Detailed Question Review</h4>
+            <span className="text-xs font-semibold text-slate-500">
+              {result.answers.filter((a) => a.isCorrect).length} of {result.answers.length} Correct
+            </span>
+          </div>
+
+          {result.answers.map((myAns, idx) => {
+            const qOptions = (myAns.options && myAns.options.length > 0)
+              ? myAns.options
+              : (activeQuiz?.questions?.find((q) => q.id === myAns.questionId || q.text === myAns.questionText)?.options || []);
+
+            const selectedLabels = myAns.selectedOptions || [];
+            const correctLabels = myAns.correctOptions || [];
+
             return (
-              <div key={idx} className={`p-4 rounded-2xl border ${myAns.isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-red-200 bg-red-50/30"}`}>
-                <div className="flex items-start gap-2 text-xs font-semibold mb-2">
-                  <span className={myAns.isCorrect ? "text-emerald-600 font-bold" : "text-red-600 font-bold"}>
-                    Q{idx + 1}. {myAns.isCorrect ? "Correct ✓" : "Incorrect ✗"}
+              <div
+                key={myAns.questionId || idx}
+                className={`p-5 rounded-2xl border transition-all ${
+                  myAns.isCorrect ? "border-emerald-200 bg-emerald-50/20" : "border-red-200 bg-red-50/20"
+                }`}
+              >
+                {/* 1. Question Header */}
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-2.5">
+                    <span
+                      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                        myAns.isCorrect ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <div>
+                      <p className="text-slate-900 text-sm font-semibold leading-relaxed">
+                        {myAns.questionText || `Question ${idx + 1}`}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider shrink-0 ${
+                      myAns.isCorrect
+                        ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                        : "bg-red-100 text-red-800 border border-red-300"
+                    }`}
+                  >
+                    {myAns.isCorrect ? "Correct ✓" : "Wrong ✗"}
                   </span>
-                  <span className="text-slate-700 font-normal">{myAns.questionText}</span>
                 </div>
-                <div className="text-xs text-slate-600 ml-8 space-y-1">
-                  <div>Your answer: <span className="font-bold">{myAns.selectedOptions.join(", ") || "None"}</span></div>
+
+                {/* 2. All 4 Options */}
+                {qOptions && qOptions.length > 0 && (
+                  <div className="space-y-2 mb-3 pl-8">
+                    {qOptions.map((opt) => {
+                      const isSelected = selectedLabels.includes(opt.label);
+                      const isCorrectOpt = correctLabels.includes(opt.label) || !!opt.isCorrect;
+
+                      let optCardStyle = "border-slate-200 bg-white text-slate-700";
+                      let badgeNode: React.ReactNode = null;
+                      let circleStyle = "border-slate-300 bg-slate-100 text-slate-600";
+
+                      if (isCorrectOpt && isSelected) {
+                        optCardStyle = "border-emerald-500 bg-emerald-50 text-emerald-900 font-semibold shadow-xs";
+                        circleStyle = "bg-emerald-600 text-white border-emerald-600";
+                        badgeNode = (
+                          <span className="ml-auto text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded text-[11px] font-bold">
+                            ✓ Your Option (Correct)
+                          </span>
+                        );
+                      } else if (isSelected && !isCorrectOpt) {
+                        optCardStyle = "border-red-400 bg-red-50 text-red-900 font-semibold shadow-xs";
+                        circleStyle = "bg-red-500 text-white border-red-500";
+                        badgeNode = (
+                          <span className="ml-auto text-red-700 bg-red-100/80 px-2 py-0.5 rounded text-[11px] font-bold">
+                            ✗ Your Option (Wrong)
+                          </span>
+                        );
+                      } else if (isCorrectOpt) {
+                        optCardStyle = "border-emerald-400 bg-emerald-50/60 text-emerald-800 font-medium";
+                        circleStyle = "bg-emerald-500 text-white border-emerald-500";
+                        badgeNode = (
+                          <span className="ml-auto text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded text-[11px] font-bold">
+                            ✓ Correct Option
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={opt.label}
+                          className={`flex items-center gap-3 rounded-xl border p-3 text-xs transition-all ${optCardStyle}`}
+                        >
+                          <span
+                            className={`h-6 w-6 shrink-0 grid place-items-center rounded-full text-[11px] font-bold border ${circleStyle}`}
+                          >
+                            {opt.label}
+                          </span>
+                          <span className="flex-1">{opt.text}</span>
+                          {badgeNode}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 3. Your Option vs Correct Option Summary */}
+                <div className="ml-8 mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center gap-3 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 font-medium">Your Option:</span>
+                    <span
+                      className={`font-bold px-2 py-0.5 rounded ${
+                        myAns.isCorrect
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          : "bg-red-100 text-red-800 border border-red-200"
+                      }`}
+                    >
+                      {selectedLabels.join(", ") || "None"}
+                    </span>
+                  </div>
+
                   {!myAns.isCorrect && (
-                    <div className="text-emerald-700 font-semibold">Correct answer: {myAns.correctOptions.join(", ")}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500 font-medium">Correct Option:</span>
+                      <span className="font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        {correctLabels.join(", ") || "None"}
+                      </span>
+                    </div>
                   )}
+
+                  <div className="ml-auto">
+                    <span
+                      className={`font-bold text-xs ${
+                        myAns.isCorrect ? "text-emerald-600" : "text-red-500"
+                      }`}
+                    >
+                      {myAns.isCorrect ? "Score: +1 mark" : "Score: 0 marks"}
+                    </span>
+                  </div>
                 </div>
+
+                {/* 4. Description / Explanation */}
                 {myAns.explanation && (
-                  <p className="text-xs text-slate-500 ml-8 mt-1 italic">💡 {myAns.explanation}</p>
+                  <div className="ml-8 mt-2.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200/60 text-xs text-amber-900">
+                    <span className="font-bold mr-1.5">💡 Explanation:</span>
+                    <span className="italic">{myAns.explanation}</span>
+                  </div>
                 )}
               </div>
             );
