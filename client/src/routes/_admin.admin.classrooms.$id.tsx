@@ -692,17 +692,31 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
     setUploadPhase('preparing');
 
     try {
-      // Extract video duration in seconds on the client side
+      // Extract video duration in seconds on the client side with a safety timeout
       let calculatedDuration = 0;
       try {
         calculatedDuration = await new Promise<number>((resolve) => {
+          const timeoutId = setTimeout(() => {
+            try {
+              if (video.src) window.URL.revokeObjectURL(video.src);
+            } catch {}
+            resolve(0);
+          }, 2000);
+
           const video = document.createElement('video');
           video.preload = 'metadata';
           video.onloadedmetadata = () => {
-            window.URL.revokeObjectURL(video.src);
+            clearTimeout(timeoutId);
+            try {
+              window.URL.revokeObjectURL(video.src);
+            } catch {}
             resolve(Math.round(video.duration) || 0);
           };
           video.onerror = () => {
+            clearTimeout(timeoutId);
+            try {
+              window.URL.revokeObjectURL(video.src);
+            } catch {}
             resolve(0);
           };
           video.src = URL.createObjectURL(uploadFile);

@@ -1706,7 +1706,10 @@ export async function uploadLibraryRecordingToCloudflare({
     });
 
     const presignData = await presignRes.json().catch(() => ({}));
-    if (!presignRes.ok) throw new Error(presignData.message || 'Failed to get upload URL');
+    if (!presignRes.ok) {
+      if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+      throw new Error(presignData.message || 'Failed to get upload URL');
+    }
 
     const { uploadUrl, objectKey, publicUrl } = presignData as any;
 
@@ -1725,7 +1728,7 @@ export async function uploadLibraryRecordingToCloudflare({
           reject(new Error(`R2 upload failed: HTTP ${xhr.status}`));
         }
       });
-      xhr.addEventListener('error', () => reject(new Error('Network error')));
+      xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
       xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
       xhr.send(file);
     });
@@ -1737,7 +1740,10 @@ export async function uploadLibraryRecordingToCloudflare({
       body: JSON.stringify({ folderId, title, description, duration, objectKey, publicUrl }),
     });
     const saveData = await saveRes.json().catch(() => ({}));
-    if (!saveRes.ok) throw new Error(saveData.message || 'Failed to save recording metadata');
+    if (!saveRes.ok) {
+      if (saveRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+      throw new Error(saveData.message || 'Failed to save recording metadata');
+    }
     return saveData;
   }
 
@@ -1749,11 +1755,14 @@ export async function uploadLibraryRecordingToCloudflare({
     body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
   });
   const initiateData = await initiateRes.json().catch(() => ({}));
-  if (!initiateRes.ok) throw new Error(initiateData.message || 'Failed to initiate multipart upload');
+  if (!initiateRes.ok) {
+    if (initiateRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+    throw new Error(initiateData.message || 'Failed to initiate multipart upload');
+  }
 
   const { uploadId, objectKey, publicUrl } = initiateData as any;
   const parts: { ETag: string; PartNumber: number }[] = [];
-  let uploadedBytes = 0;
+  let totalBytesUploadedBeforeCurrentPart = 0;
 
   try {
     for (let i = 0; i < totalParts; i++) {
@@ -1769,34 +1778,26 @@ export async function uploadLibraryRecordingToCloudflare({
         body: JSON.stringify({ objectKey, uploadId, partNumber }),
       });
       const presignData = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok) throw new Error(presignData.message || 'Failed to presign part');
+      if (!presignRes.ok) {
+        if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+        throw new Error(presignData.message || 'Failed to presign part');
+      }
 
-      const etag = await new Promise<string>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', presignData.presignedUrl, true);
-        let lastLoaded = 0;
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const diff = e.loaded - lastLoaded;
-            lastLoaded = e.loaded;
-            uploadedBytes += diff;
-            reportProgress(uploadedBytes, file.size, partNumber, totalParts);
-          }
-        });
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            const returnedEtag = xhr.getResponseHeader('ETag');
-            if (returnedEtag) resolve(returnedEtag.replace(/"/g, ''));
-            else resolve('');
-          } else {
-            reject(new Error(`Part ${partNumber} upload failed: HTTP ${xhr.status}`));
-          }
-        });
-        xhr.addEventListener('error', () => reject(new Error('Network error')));
-        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
-        xhr.send(chunk);
-      });
+      const etag = await uploadPartToR2(
+        presignData.presignedUrl,
+        chunk,
+        partNumber,
+        (partBytesLoaded) => {
+          reportProgress(
+            totalBytesUploadedBeforeCurrentPart + partBytesLoaded,
+            file.size,
+            partNumber,
+            totalParts,
+          );
+        },
+      );
 
+      totalBytesUploadedBeforeCurrentPart += chunk.size;
       parts.push({ ETag: etag, PartNumber: partNumber });
     }
 
@@ -1807,7 +1808,10 @@ export async function uploadLibraryRecordingToCloudflare({
       body: JSON.stringify({ objectKey, uploadId, parts }),
     });
     const completeData = await completeRes.json().catch(() => ({}));
-    if (!completeRes.ok) throw new Error(completeData.message || 'Failed to complete multipart upload');
+    if (!completeRes.ok) {
+      if (completeRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+      throw new Error(completeData.message || 'Failed to complete multipart upload');
+    }
 
     const saveRes = await fetch(`${API_BASE}/recordings/save-recording`, {
       method: 'POST',
@@ -1816,7 +1820,10 @@ export async function uploadLibraryRecordingToCloudflare({
       body: JSON.stringify({ folderId, title, description, duration, objectKey, publicUrl }),
     });
     const saveData = await saveRes.json().catch(() => ({}));
-    if (!saveRes.ok) throw new Error(saveData.message || 'Failed to save recording metadata');
+    if (!saveRes.ok) {
+      if (saveRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+      throw new Error(saveData.message || 'Failed to save recording metadata');
+    }
     return saveData;
 
   } catch (error) {

@@ -39,6 +39,7 @@ router.use('/enrollments', enrollmentRoutes);
 router.use('/lessons', lessonRoutes);
 router.use('/sessions', sessionRoutes);
 router.use('/library-folders', libraryFolderRoutes);
+router.use('/recordings/classroom', classroomRecordingRoutes);
 router.use('/recordings', recordingRoutes);
 router.use('/exams', examRoutes);
 router.use('/attendance', attendanceRoutes);
@@ -55,7 +56,6 @@ router.use('/classes', classesRoutes);
 router.use('/meetings', meetingRoutes);
 router.use('/requests', studentRequestRoutes);
 router.use('/quizzes', quizRoutes);
-router.use('/recordings/classroom', classroomRecordingRoutes);
 router.use('/messages', messageRoutes);
 router.use('/livekit', livekitRoutes);
 
