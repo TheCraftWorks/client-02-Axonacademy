@@ -18,10 +18,20 @@ router.get('/', protect, restrictTo('admin', 'superadmin', 'faculty'), async (re
 router.post('/', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { name, description } = req.body;
-    if (!name) return res.status(400).json({ success: false, message: 'Folder name is required' });
+    const trimmedName = typeof name === 'string' ? name.trim() : '';
+    if (!trimmedName) return res.status(400).json({ success: false, message: 'Folder name is required' });
+
+    // Prevent accidental rapid duplicate creation (within 5 seconds)
+    const existingRecent = await LibraryFolder.findOne({
+      name: { $regex: new RegExp(`^${trimmedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      createdAt: { $gte: new Date(Date.now() - 5000) }
+    });
+    if (existingRecent) {
+      return res.status(200).json({ success: true, folder: existingRecent, duplicatePrevented: true });
+    }
 
     const folder = await LibraryFolder.create({
-      name,
+      name: trimmedName,
       description,
       createdBy: req.user._id
     });

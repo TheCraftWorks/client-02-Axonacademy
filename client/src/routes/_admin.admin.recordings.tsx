@@ -21,6 +21,7 @@ function GlobalRecordingsLibrary() {
   
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadTitle, setUploadTitle] = useState("");
@@ -179,17 +180,28 @@ function GlobalRecordingsLibrary() {
   };
 
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
+    const folderName = newFolderName.trim();
+    if (!folderName || isCreatingFolder) return;
+    setIsCreatingFolder(true);
     try {
-      const res = await api.post("/library-folders", { name: newFolderName }) as any;
+      const res = await api.post("/library-folders", { name: folderName }) as any;
       if (res.success || res.folder) {
+        const createdFolder = res.folder;
+        if (createdFolder) {
+          setFolders((prev) => [
+            createdFolder,
+            ...prev.filter((f) => f._id !== createdFolder._id),
+          ]);
+        }
         toast.success("Folder created");
         setIsFolderModalOpen(false);
         setNewFolderName("");
         fetchFolders();
       }
-    } catch (err) {
-      toast.error("Failed to create folder");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to create folder");
+    } finally {
+      setIsCreatingFolder(false);
     }
   };
 
@@ -224,7 +236,7 @@ function GlobalRecordingsLibrary() {
         console.error("Failed to parse video duration, defaulting to 0:", durationErr);
       }
 
-      await uploadLibraryRecordingToCloudflare({
+      const saveRes = await uploadLibraryRecordingToCloudflare({
         file: uploadFile,
         title: uploadTitle,
         duration: calculatedDuration,
@@ -239,6 +251,13 @@ function GlobalRecordingsLibrary() {
           if (percentage === 100) setUploadPhase('saving');
         },
       });
+
+      if (saveRes?.recording) {
+        setRecordings((prev) => [
+          saveRes.recording,
+          ...prev.filter((r) => r._id !== saveRes.recording._id),
+        ]);
+      }
 
       toast.success("Video uploaded successfully!");
       setIsUploadModalOpen(false);
@@ -258,11 +277,14 @@ function GlobalRecordingsLibrary() {
   };
 
   const handleEditRecording = async () => {
-    if (!editRecId || !editTitle) return;
+    if (!editRecId || !editTitle.trim()) return;
     setIsEditing(true);
     try {
-      const res = await api.put(`/recordings/${editRecId}`, { title: editTitle }) as any;
+      const res = await api.put(`/recordings/${editRecId}`, { title: editTitle.trim() }) as any;
       if (res.success || res.recording) {
+        setRecordings((prev) =>
+          prev.map((r) => (r._id === editRecId ? { ...r, title: editTitle.trim() } : r))
+        );
         toast.success("Title updated");
         setEditRecId(null);
         fetchRecordings();
@@ -275,11 +297,21 @@ function GlobalRecordingsLibrary() {
   };
 
   const handleEditFolder = async () => {
-    if (!editFolderId || !editFolderName.trim()) return;
+    const updatedName = editFolderName.trim();
+    if (!editFolderId || !updatedName) return;
     setIsEditingFolder(true);
     try {
-      const res = await api.put(`/library-folders/${editFolderId}`, { name: editFolderName }) as any;
+      const res = await api.put(`/library-folders/${editFolderId}`, { name: updatedName }) as any;
       if (res.success || res.folder) {
+        const updated = res.folder;
+        setFolders((prev) =>
+          prev.map((f) => (f._id === editFolderId ? (updated || { ...f, name: updatedName }) : f))
+        );
+        if (currentFolder?._id === editFolderId) {
+          setCurrentFolder((prev: any) =>
+            prev ? (updated || { ...prev, name: updatedName }) : null
+          );
+        }
         toast.success("Folder name updated");
         setEditFolderId(null);
         fetchFolders();
@@ -294,23 +326,32 @@ function GlobalRecordingsLibrary() {
   const handleDeleteRecording = async (id: string) => {
     if (!confirm("Are you sure you want to delete this recording?")) return;
     try {
+      setRecordings((prev) => prev.filter((r) => r._id !== id));
       await api.delete(`/recordings/${id}`);
       toast.success("Recording deleted");
       fetchRecordings();
     } catch (err: any) {
-      toast.error("Failed to delete recording");
+      toast.error(err?.message || "Failed to delete recording");
+      fetchRecordings();
     }
   };
 
   const handleDeleteFolder = async (id: string) => {
     if (!confirm("Are you sure you want to delete this folder? All videos inside this folder will be permanently deleted from the database and Cloudflare R2.")) return;
     try {
+      setFolders((prev) => prev.filter((f) => f._id !== id));
+      setRecordings((prev) => prev.filter((r) => r.folder !== id));
+      if (currentFolder?._id === id) {
+        setCurrentFolder(null);
+      }
       await api.delete(`/library-folders/${id}`);
       toast.success("Folder and its videos deleted");
       fetchFolders();
       fetchRecordings();
     } catch (err: any) {
-      toast.error("Failed to delete folder");
+      toast.error(err?.message || "Failed to delete folder");
+      fetchFolders();
+      fetchRecordings();
     }
   };
 
@@ -327,7 +368,7 @@ function GlobalRecordingsLibrary() {
           <p className="text-muted-foreground">Manage centralized video recordings and folders.</p>
         </div>
         <div className="flex gap-3">
-          <Dialog open={isFolderModalOpen} onOpenChange={setIsFolderModalOpen}>
+          <Dialog open={isFolderModalOpen} onOpenChange={(open) => !isCreatingFolder && setIsFolderModalOpen(open)}>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2">
                 <Folder className="w-4 h-4" /> New Folder
@@ -344,12 +385,24 @@ function GlobalRecordingsLibrary() {
                     placeholder="e.g., Sidhha" 
                     value={newFolderName} 
                     onChange={e => setNewFolderName(e.target.value)} 
+                    disabled={isCreatingFolder}
                   />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsFolderModalOpen(false)}>Cancel</Button>
-                <Button onClick={handleCreateFolder}>Create Folder</Button>
+                <Button variant="outline" onClick={() => setIsFolderModalOpen(false)} disabled={isCreatingFolder}>
+                  Cancel
+                </Button>
+                <Button onClick={handleCreateFolder} disabled={isCreatingFolder || !newFolderName.trim()}>
+                  {isCreatingFolder ? (
+                    <>
+                      <RotateCw className="w-4 h-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Folder"
+                  )}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
