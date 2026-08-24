@@ -196,6 +196,7 @@ const manualPopulate = async (list, path, select = 'fullName email phone', filte
 const attachClassroomDetails = async (classrooms, options = {}) => {
   const studentId = options.studentId ? options.studentId.toString() : null;
   const isList = options.isList === true;
+  const isStaff = options.isStaff !== undefined ? options.isStaff : (!studentId);
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
 
@@ -235,11 +236,11 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   }
   announcementsQuery = announcementsQuery.sort({ createdAt: -1 }).lean();
 
-  // 5. Quizzes (exclude heavy question explanations & answer keys on overview)
+  // 5. Quizzes (exclude heavy question explanations & answer keys on overview or for students)
   let quizzesQuery = Quiz.find({ classroom: { $in: classroomIds } });
   if (isList) {
     quizzesQuery = quizzesQuery.select('_id classroom title status instructions duration');
-  } else {
+  } else if (!isStaff) {
     quizzesQuery = quizzesQuery.select('-questions.explanation -questions.options.isCorrect');
   }
   quizzesQuery = quizzesQuery.sort({ createdAt: -1 }).lean();
@@ -676,7 +677,7 @@ router.get('/:id', protect, async (req, res, next) => {
 
     const result = {
       success: true,
-      classroom: await attachClassroomDetails(classroom, isStudent ? { studentId: req.user._id } : {})
+      classroom: await attachClassroomDetails(classroom, isStudent ? { studentId: req.user._id, isStaff: false } : { isStaff: true })
     };
     setCachedData(cacheKey, result);
     res.json(result);

@@ -1663,7 +1663,7 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
   );
 }
 
-function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom> }) {
+function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom>; isFetching?: boolean }) {
   const cls = classroom;
   const classroomId = classroom.id;
   const { classrooms } = useClassroomStore();
@@ -1747,6 +1747,7 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
         const createdQuiz = await createQuiz(classroomId, quizPayload);
         classroomActions.addQuiz(classroomId, createdQuiz);
       }
+      await refreshClassroom();
       setShowBuilder(false);
       setEditingQuizId(null);
       setQuiz({ title: "", instructions: "", duration: null, maxAttempts: 1, randomizeQuestions: true, randomizeOptions: true, showLeaderboard: false, negativeMarking: true, negativeMarkValue: 1, passPercent: 60, availableFrom: "", availableUntil: "", status: "draft", questions: [] });
@@ -2288,6 +2289,31 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
           {quiz.questions.map((q, i) => (
             <QuestionCard key={q.id} q={q} qIdx={i} onChange={(u) => updateQ(i, u)} onRemove={() => setQuiz((qz) => ({ ...qz, questions: qz.questions.filter((_, ci) => ci !== i) }))} />
           ))}
+
+          {isGeneratingPdf && (
+            <div className="space-y-3">
+              {[1, 2].map((i) => (
+                <div key={i} className="rounded-xl bg-cream/3 border border-cream/10 p-4 space-y-3 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-7 w-7 place-items-center rounded-full bg-lime/10 text-lime text-xs font-bold shrink-0">
+                      Q{quiz.questions.length + i}
+                    </span>
+                    <div className="h-7 w-36 bg-cream/10 rounded-lg" />
+                    <div className="h-7 w-20 bg-cream/10 rounded-lg ml-auto" />
+                  </div>
+                  <div className="h-12 bg-cream/5 rounded-xl w-full" />
+                  <div className="space-y-2">
+                    {[1, 2, 3, 4].map((optI) => (
+                      <div key={optI} className="h-9 bg-cream/5 rounded-lg w-full flex items-center px-3 gap-2">
+                        <div className="h-5 w-5 rounded-full bg-cream/10 shrink-0" />
+                        <div className="h-3 bg-cream/10 rounded w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3">
@@ -2350,14 +2376,25 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          {[{ l: "Submitted", v: submitted.length }, { l: "Pass Rate", v: `${passRate}%` }, { l: "Avg Score", v: `${avgScore}%` }].map((s) => (
-            <div key={s.l} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-4 text-center">
-              <div className="text-[10px] uppercase tracking-widest text-cream/60">{s.l}</div>
-              <div className="font-display text-2xl font-bold text-cream mt-1">{s.v}</div>
-            </div>
-          ))}
-        </div>
+        {isLoadingReport ? (
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-4 text-center animate-pulse">
+                <div className="h-3 bg-cream/10 rounded w-16 mx-auto mb-2" />
+                <div className="h-7 bg-cream/15 rounded w-12 mx-auto" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {[{ l: "Submitted", v: submitted.length }, { l: "Pass Rate", v: `${passRate}%` }, { l: "Avg Score", v: `${avgScore}%` }].map((s) => (
+              <div key={s.l} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-4 text-center">
+                <div className="text-[10px] uppercase tracking-widest text-cream/60">{s.l}</div>
+                <div className="font-display text-2xl font-bold text-cream mt-1">{s.v}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="p-0 overflow-hidden">
           <DarkCard className="p-0 overflow-hidden">
@@ -2372,17 +2409,32 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
                 </tr>
               </thead>
               <tbody>
-                {submitted.map((att) => (
-                  <tr key={att.id} className="border-t border-cream/10 hover:bg-cream/5">
-                    <td className="p-4 font-semibold text-cream">{att.studentName}</td>
-                    <td className="font-mono text-cream/80">{att.score.rawMarks}/{att.score.totalMarks}</td>
-                    <td className="font-mono text-cream/80">{att.score.percentage}%</td>
-                    <td><span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${att.score.passed ? "bg-lime/20 text-lime" : "bg-red-500/20 text-red-300"}`}>{att.score.passed ? "Pass" : "Fail"}</span></td>
-                    <td className="text-cream/60 text-xs">{att.submittedAt ? fmtDate(att.submittedAt) : "—"}</td>
-                  </tr>
-                ))}
-                {isLoadingReport && (<tr><td colSpan={5} className="p-6 text-center text-cream/50 text-sm">Loading report…</td></tr>)}
-                {!isLoadingReport && submitted.length === 0 && (<tr><td colSpan={5} className="p-6 text-center text-cream/50 text-sm">No submissions yet.</td></tr>)}
+                {isLoadingReport ? (
+                  <>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <tr key={i} className="border-t border-cream/10 animate-pulse">
+                        <td className="p-4"><div className="h-4 bg-cream/10 rounded w-32" /></td>
+                        <td><div className="h-4 bg-cream/10 rounded w-14" /></td>
+                        <td><div className="h-4 bg-cream/10 rounded w-10" /></td>
+                        <td><div className="h-5 bg-cream/10 rounded w-12" /></td>
+                        <td className="p-4"><div className="h-4 bg-cream/10 rounded w-24" /></td>
+                      </tr>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    {submitted.map((att) => (
+                      <tr key={att.id} className="border-t border-cream/10 hover:bg-cream/5">
+                        <td className="p-4 font-semibold text-cream">{att.studentName}</td>
+                        <td className="font-mono text-cream/80">{att.score.rawMarks}/{att.score.totalMarks}</td>
+                        <td className="font-mono text-cream/80">{att.score.percentage}%</td>
+                        <td><span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${att.score.passed ? "bg-lime/20 text-lime" : "bg-red-500/20 text-red-300"}`}>{att.score.passed ? "Pass" : "Fail"}</span></td>
+                        <td className="text-cream/60 text-xs">{att.submittedAt ? fmtDate(att.submittedAt) : "—"}</td>
+                      </tr>
+                    ))}
+                    {submitted.length === 0 && (<tr><td colSpan={5} className="p-6 text-center text-cream/50 text-sm">No submissions yet.</td></tr>)}
+                  </>
+                )}
               </tbody>
             </table>
           </DarkCard>
@@ -2430,48 +2482,83 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
         </button>
       </div>
 
-      {filteredQuizzes.length === 0 && (
+      {isFetching && filteredQuizzes.length === 0 ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-5 space-y-3 animate-pulse">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex-1 min-w-0 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 bg-cream/15 rounded-md w-48" />
+                    <div className="h-4 bg-cream/10 rounded w-16" />
+                  </div>
+                  <div className="flex flex-wrap gap-4">
+                    <div className="h-3.5 bg-cream/10 rounded w-24" />
+                    <div className="h-3.5 bg-cream/10 rounded w-24" />
+                    <div className="h-3.5 bg-cream/10 rounded w-20" />
+                    <div className="h-3.5 bg-cream/10 rounded w-28" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="h-7 w-20 bg-cream/10 rounded-full" />
+                  <div className="h-7 w-16 bg-cream/10 rounded-full" />
+                  <div className="h-7 w-16 bg-cream/10 rounded-full" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredQuizzes.length === 0 ? (
         <DarkCard className="text-center py-12">
           <LuClipboardList className="h-8 w-8 text-cream/20 mx-auto mb-2" />
           <p className="text-cream/50 text-sm">
             {searchQuery ? "No tests match your search query." : "No quizzes created yet."}
           </p>
         </DarkCard>
-      )}
-
-      <div className="space-y-3">
-        {filteredQuizzes.map((q) => {
-          const subCount = q.attempts.filter((a) => a.status === "submitted").length;
-          return (
-            <DarkCard key={q.id}>
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-semibold text-cream">{q.title}</span>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${q.status === "published" ? "bg-lime/20 text-lime" : q.status === "closed" ? "bg-cream/10 text-cream/60" : "bg-yellow-500/20 text-yellow-300"}`}>
-                      {q.status}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-4 text-xs text-cream/60">
-                    <span>{q.questions.length} questions</span>
-                    <span>{q.questions.reduce((s, x) => s + x.marks, 0)} total marks</span>
-                    {q.duration && <span>{q.duration} min timer</span>}
-                    <span>{subCount} submissions</span>
-                    <span>Pass: {q.passPercent}%</span>
-                  </div>
-                  {(q.availableFrom || q.availableUntil) && (
-                    <div className="text-[11px] text-lime font-medium mt-2 bg-lime/10 rounded-lg px-2.5 py-1 inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 border border-lime/20">
-                      <span className="font-bold text-lime">Availability:</span>
-                      {q.availableFrom && <span>Starts: {fmtDate(q.availableFrom)}</span>}
-                      {q.availableUntil && <span>Ends: {fmtDate(q.availableUntil)}</span>}
+      ) : (
+        <div className="space-y-3">
+          {filteredQuizzes.map((q) => {
+            const subCount = q.attempts.filter((a) => a.status === "submitted").length;
+            const isQListLoading = isFetching && (!q.questions || q.questions.length === 0);
+            return (
+              <DarkCard key={q.id}>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-semibold text-cream">{q.title}</span>
+                      <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${q.status === "published" ? "bg-lime/20 text-lime" : q.status === "closed" ? "bg-cream/10 text-cream/60" : "bg-yellow-500/20 text-yellow-300"}`}>
+                        {q.status}
+                      </span>
                     </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setViewQuizId(q.id)} className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors">
-                    <LuEye className="h-3 w-3" /> Report
-                  </button>
-                  <button
+                    <div className="flex flex-wrap gap-4 text-xs text-cream/60 items-center">
+                      {isQListLoading ? (
+                        <>
+                          <div className="h-3.5 w-20 bg-cream/10 rounded animate-pulse inline-block" />
+                          <div className="h-3.5 w-20 bg-cream/10 rounded animate-pulse inline-block" />
+                        </>
+                      ) : (
+                        <>
+                          <span>{q.questions.length} questions</span>
+                          <span>{q.questions.reduce((s, x) => s + x.marks, 0)} total marks</span>
+                        </>
+                      )}
+                      {q.duration && <span>{q.duration} min timer</span>}
+                      <span>{subCount} submissions</span>
+                      <span>Pass: {q.passPercent}%</span>
+                    </div>
+                    {(q.availableFrom || q.availableUntil) && (
+                      <div className="text-[11px] text-lime font-medium mt-2 bg-lime/10 rounded-lg px-2.5 py-1 inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 border border-lime/20">
+                        <span className="font-bold text-lime">Availability:</span>
+                        {q.availableFrom && <span>Starts: {fmtDate(q.availableFrom)}</span>}
+                        {q.availableUntil && <span>Ends: {fmtDate(q.availableUntil)}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setViewQuizId(q.id)} className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors">
+                      <LuEye className="h-3 w-3" /> Report
+                    </button>
+                    <button
                     onClick={() => {
                       setEditingQuizId(q.id);
                       setQuiz({
@@ -2488,7 +2575,14 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
                         availableFrom: toDatetimeLocal(q.availableFrom),
                         availableUntil: toDatetimeLocal(q.availableUntil),
                         status: q.status || "draft",
-                        questions: q.questions || [],
+                        questions: (q.questions || []).map((quest) => ({
+                          ...quest,
+                          options: (quest.options || []).map((o) => ({
+                            label: o.label,
+                            text: o.text,
+                            isCorrect: Boolean(o.isCorrect),
+                          })),
+                        })),
                       });
                       const hasQuestions = q.questions && q.questions.length > 0;
                       const allSameMarks = hasQuestions && q.questions.every(quest => quest.marks === q.questions[0].marks);
@@ -2556,6 +2650,7 @@ function TestsTab({ classroom, refreshClassroom }: { classroom: Classroom; refre
           );
         })}
       </div>
+      )}
 
       {/* Quiz Reuse / Duplication Modal */}
       {duplicateQuiz && (
@@ -3112,7 +3207,7 @@ ${window.location.origin}/classroom-join/${classroom.id}`;
         {tab === "announcements" && <AnnouncementsTab classroom={classroom} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "live" && <LiveClassesTab classroomId={classroom.id} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "recordings" && <RecordingsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
-        {tab === "tests" && <TestsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
+        {tab === "tests" && <TestsTab classroom={classroom} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "students" && <StudentsTab classroom={classroom} refreshClassroom={refreshClassroom} isFetching={isFetching} />}
         {tab === "requests" && <JoinRequestsTab classroom={classroom} refreshClassroom={refreshClassroom} />}
       </div>

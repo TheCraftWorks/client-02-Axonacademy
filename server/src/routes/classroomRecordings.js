@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const ClassroomRecording = require('../models/ClassroomRecording');
 const ClassroomFolder = require('../models/ClassroomFolder');
 const Classroom = require('../models/Classroom');
+const classroomsRouter = require('./classrooms');
 const VideoPlaybackError = require('../models/VideoPlaybackError');
 const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/auth');
 const {
@@ -517,13 +518,17 @@ router.post('/reuse', protect, restrictTo('admin', 'superadmin', 'faculty'), asy
       })) : [],
       security: { ...sourceRec.security },
       viewStats: [],
-      isPublished: false,
+      isPublished: true,
       version: 1
     });
 
     await Classroom.findByIdAndUpdate(targetClassroomId, {
       $inc: { 'stats.totalRecordings': 1 }
     });
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
 
     res.status(201).json({
       success: true,
@@ -606,6 +611,9 @@ router.post('/folders', protect, restrictTo('admin', 'superadmin', 'faculty'), a
       classroom: classroomId,
       createdBy: req.user._id
     });
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
     res.status(201).json({ success: true, folder });
   } catch (error) {
     next(error);
@@ -624,6 +632,9 @@ router.put('/folders/:id', protect, restrictTo('admin', 'superadmin', 'faculty')
       { new: true }
     );
     if (!folder) return res.status(404).json({ success: false, message: 'Folder not found' });
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
     res.json({ success: true, folder });
   } catch (error) {
     next(error);
@@ -668,6 +679,9 @@ router.delete('/folders/:id', protect, restrictTo('admin', 'superadmin', 'facult
     await ClassroomRecording.deleteMany({ folder: folder._id });
     
     await folder.deleteOne();
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
     res.json({ success: true, message: 'Folder and all videos inside it deleted' });
   } catch (error) {
     next(error);
@@ -777,7 +791,7 @@ router.post('/reuse-folder', protect, restrictTo('admin', 'superadmin', 'faculty
         })) : [],
         security: { ...rec.security },
         viewStats: [],
-        isPublished: false,
+        isPublished: true,
         version: 1
       });
       newRecs.push(newRec);
@@ -786,6 +800,10 @@ router.post('/reuse-folder', protect, restrictTo('admin', 'superadmin', 'faculty
     await Classroom.findByIdAndUpdate(targetClassroomId, {
       $inc: { 'stats.totalRecordings': newRecs.length }
     });
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
 
     res.status(201).json({
       success: true,
@@ -1071,6 +1089,9 @@ router.put('/:id', protect, restrictTo('admin', 'superadmin', 'faculty'), async 
 
     Object.assign(recording, req.body);
     await recording.save();
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
     res.json({ success: true, message: 'Recording updated successfully', recording });
   } catch (error) {
     next(error);
@@ -1096,6 +1117,10 @@ router.put('/:id/publish', protect, restrictTo('admin', 'superadmin', 'faculty')
     recording.notified = true;
     recording.notifiedAt = new Date();
     await recording.save();
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
 
     try {
       const { getIO } = require('../config/socket');
@@ -1132,6 +1157,10 @@ router.delete('/:id', protect, restrictTo('admin', 'superadmin', 'faculty'), asy
     await Classroom.findByIdAndUpdate(recording.classroom, {
       $inc: { 'stats.totalRecordings': -1 }
     });
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
 
     if (recording.cloudflareKey) {
       const LibraryRecording = require('../models/LibraryRecording');

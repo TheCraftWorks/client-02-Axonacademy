@@ -8,6 +8,7 @@ const User = require('../models/User');
 const Quiz = require('../models/Quiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const Classroom = require('../models/Classroom');
+const classroomsRouter = require('./classrooms');
 const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/auth');
 
 const verifyClassroomAccessById = async (classroomId, user, writeRequired = false) => {
@@ -674,6 +675,10 @@ router.post('/', async (req, res, next) => {
       $inc: { 'stats.totalQuizzes': 1 }
     });
 
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
+
     res.status(201).json({ success: true, message: 'Quiz created successfully', quiz });
   } catch (error) {
     next(error);
@@ -716,6 +721,11 @@ router.put('/:id', async (req, res, next) => {
     });
 
     await quiz.save();
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
+
     res.json({ success: true, message: 'Quiz updated successfully', quiz });
   } catch (error) {
     next(error);
@@ -739,6 +749,10 @@ router.delete('/:id', async (req, res, next) => {
       $inc: { 'stats.totalQuizzes': -1 }
     });
 
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
+
     res.json({ success: true, message: 'Quiz deleted successfully' });
   } catch (error) {
     next(error);
@@ -759,6 +773,10 @@ router.put('/:id/publish', async (req, res, next) => {
     quiz.notified = true;
     quiz.notifiedAt = new Date();
     await quiz.save();
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
 
     // Socket alert
     try {
@@ -791,6 +809,11 @@ router.put('/:id/close', async (req, res, next) => {
 
     quiz.status = 'closed';
     await quiz.save();
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
+
     res.json({ success: true, message: 'Quiz submissions closed', quiz });
   } catch (error) {
     next(error);
