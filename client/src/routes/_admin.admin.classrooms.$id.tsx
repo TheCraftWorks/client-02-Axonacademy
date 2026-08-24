@@ -2531,17 +2531,8 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-4 text-xs text-cream/60 items-center">
-                      {isQListLoading ? (
-                        <>
-                          <div className="h-3.5 w-20 bg-cream/10 rounded animate-pulse inline-block" />
-                          <div className="h-3.5 w-20 bg-cream/10 rounded animate-pulse inline-block" />
-                        </>
-                      ) : (
-                        <>
-                          <span>{q.questions.length} questions</span>
-                          <span>{q.questions.reduce((s, x) => s + x.marks, 0)} total marks</span>
-                        </>
-                      )}
+                      <span>{q.questions.length} questions</span>
+                      <span>{q.questions.reduce((s, x) => s + x.marks, 0)} total marks</span>
                       {q.duration && <span>{q.duration} min timer</span>}
                       <span>{subCount} submissions</span>
                       <span>Pass: {q.passPercent}%</span>
@@ -3063,27 +3054,24 @@ function AdminClassroomDetail() {
     setIsFetching(true);
     try {
       const refreshed = await getClassroomById(id);
-      if (storeClassroom) {
-        classroomActions.updateClassroom(id, refreshed);
-      } else {
-        classroomActions.addClassroom(refreshed);
-      }
+      classroomActions.addClassroom(refreshed);
       markClassroomFresh(id);
       return refreshed;
     } finally {
       setIsFetching(false);
     }
-  }, [id, storeClassroom]);
+  }, [id]);
 
   React.useEffect(() => {
     let active = true;
 
     const load = async () => {
       try {
-        if (!isClassroomStale(id)) return;
         if (!storeClassroom) setIsLoading(true);
-        setIsFetching(true);
-        await refreshClassroom();
+        if (isClassroomStale(id) || !storeClassroom) {
+          setIsFetching(true);
+          await refreshClassroom();
+        }
       } catch (err) {
         if (active && !storeClassroom) {
           toast.error(err instanceof Error ? err.message : "Could not load classroom by id");
@@ -3098,7 +3086,7 @@ function AdminClassroomDetail() {
 
     load();
     return () => { active = false; };
-  }, [id, storeClassroom, refreshClassroom]);
+  }, [id, refreshClassroom]);
 
   // Merge: prefer store data (kept fresh by background sync) over nothing
   const classroom = React.useMemo(

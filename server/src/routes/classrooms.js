@@ -236,11 +236,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   }
   announcementsQuery = announcementsQuery.sort({ createdAt: -1 }).lean();
 
-  // 5. Quizzes (exclude heavy question explanations & answer keys on overview or for students)
+  // 5. Quizzes
   let quizzesQuery = Quiz.find({ classroom: { $in: classroomIds } });
-  if (isList) {
-    quizzesQuery = quizzesQuery.select('_id classroom title status instructions duration');
-  } else if (!isStaff) {
+  if (!isStaff) {
     quizzesQuery = quizzesQuery.select('-questions.explanation -questions.options.isCorrect');
   }
   quizzesQuery = quizzesQuery.sort({ createdAt: -1 }).lean();
