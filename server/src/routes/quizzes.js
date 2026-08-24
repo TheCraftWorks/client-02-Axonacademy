@@ -620,6 +620,22 @@ router.get('/:id/leaderboard', protect, async (req, res, next) => {
 router.use(protect);
 router.use(restrictTo('admin', 'superadmin', 'faculty'));
 
+// GET /:id → Admin: get full quiz details including answer keys
+router.get('/:id', async (req, res, next) => {
+  try {
+    const quiz = await Quiz.findById(req.params.id);
+    if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
+
+    if (!(await verifyClassroomAccessById(quiz.classroom, req.user, false))) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
+    }
+
+    res.json({ success: true, quiz });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST / → Admin: create quiz
 router.post('/', async (req, res, next) => {
   try {

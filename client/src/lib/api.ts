@@ -245,7 +245,7 @@ function normalizeBackendClassroom(raw: any) {
           options: Array.isArray(quest.options) ? quest.options.map((o: any) => ({
             label: o.label,
             text: o.text,
-            isCorrect: o.isCorrect || false
+            isCorrect: Boolean(o.isCorrect)
           })) : []
         })) : [],
         attempts: Array.isArray(q.attempts) ? q.attempts.map((att: any) => ({
