@@ -1352,6 +1352,7 @@ export async function updateClassroom(
 }
 
 export async function archiveClassroom(id: string) {
+  invalidateClientClassroomCache();
   const result = await fetchJson(`/classrooms/${encodeURIComponent(id)}/archive`, {
     method: 'PUT',
   });

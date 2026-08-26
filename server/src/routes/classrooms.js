@@ -936,6 +936,7 @@ router.put('/:id/archive', async (req, res, next) => {
       { $set: { status: newStatus } },
       { new: true }
     ).populate('program batch instructors');
+    clearClassroomCache();
     const msg = newStatus === 'archived' ? 'Classroom archived successfully' : 'Classroom restored successfully';
     res.json({ success: true, message: msg, classroom });
   } catch (error) {
@@ -957,6 +958,7 @@ router.delete('/:id', async (req, res, next) => {
     if (!classroom) {
       return res.status(404).json({ success: false, message: 'Classroom not found' });
     }
+    clearClassroomCache();
     res.json({ success: true, message: 'Classroom soft-deleted (archived) successfully' });
   } catch (error) {
     next(error);

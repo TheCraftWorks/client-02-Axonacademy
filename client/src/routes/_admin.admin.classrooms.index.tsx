@@ -691,7 +691,8 @@ function AdminClassrooms() {
         c.name.toLowerCase().includes(search.toLowerCase()) ||
         c.code.toLowerCase().includes(search.toLowerCase()) ||
         c.program.toLowerCase().includes(search.toLowerCase());
-      const matchStatus = filterStatus === "active" || c.status === filterStatus;
+      const currentStatus = c.status || "active";
+      const matchStatus = currentStatus === filterStatus;
       return matchSearch && matchStatus;
     }),
     [sourceClassrooms, search, filterStatus] 
@@ -762,7 +763,7 @@ function AdminClassrooms() {
       <div className="grid gap-4 sm:grid-cols-4">
         {[
           { label: "Total Classrooms", value: sourceClassrooms.length },
-          { label: "Active", value: sourceClassrooms.filter((c) => c.status === "active").length },
+          { label: "Active", value: sourceClassrooms.filter((c) => (c.status || "active") === "active").length },
           { label: "Total Students", value: totalStudents },
           { label: "Published Recordings", value: totalRecordings },
         ].map((s) => (
@@ -783,18 +784,26 @@ function AdminClassrooms() {
             className="bg-transparent outline-none text-sm flex-1 text-cream placeholder:text-cream/40"
           />
         </div>
-        <div className="flex gap-1">
-          {(["active", "archived", "draft"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
-              className={`text-xs font-semibold rounded-full px-3 py-1.5 capitalize transition-colors ${
-                filterStatus === s ? "bg-lime text-plum-dark" : "bg-cream/10 text-cream/70"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
+        <div className="flex gap-1.5">
+          {(["active", "archived", "draft"] as const).map((s) => {
+            const count = sourceClassrooms.filter((c) => (c.status || "active") === s).length;
+            return (
+              <button
+                key={s}
+                onClick={() => setFilterStatus(s)}
+                className={`text-xs font-semibold rounded-full px-3.5 py-1.5 capitalize transition-colors flex items-center gap-1.5 ${
+                  filterStatus === s ? "bg-lime text-plum-dark font-bold shadow-sm" : "bg-cream/10 text-cream/70 hover:bg-cream/20"
+                }`}
+              >
+                <span>{s}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  filterStatus === s ? "bg-plum-dark/20 text-plum-dark font-bold" : "bg-cream/10 text-cream/50"
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
