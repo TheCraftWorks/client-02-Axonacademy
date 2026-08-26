@@ -31,6 +31,8 @@ function GlobalRecordingsLibrary() {
   const [uploadBytes, setUploadBytes] = useState({ loaded: 0, total: 0 });
   const [uploadPhase, setUploadPhase] = useState<'idle' | 'preparing' | 'uploading' | 'saving'>('idle');
   const [uploadPartInfo, setUploadPartInfo] = useState<{ part: number; totalParts: number } | null>(null);
+  const [uploadStatusText, setUploadStatusText] = useState("");
+  const [isUploadRetrying, setIsUploadRetrying] = useState(false);
 
   const [activePlayRec, setActivePlayRec] = useState<any | null>(null);
   const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string>('');
@@ -213,8 +215,10 @@ function GlobalRecordingsLibrary() {
     
     setIsUploading(true);
     setUploadProgress(0);
-    setUploadBytes({ loaded: 0, total: 0 });
+    setUploadBytes({ loaded: 0, total: uploadFile.size });
     setUploadPhase('preparing');
+    setUploadStatusText('Preparing video metadata...');
+    setIsUploadRetrying(false);
     
     try {
       // Extract video duration in seconds on the client side with a safety timeout
@@ -255,14 +259,15 @@ function GlobalRecordingsLibrary() {
         title: uploadTitle,
         duration: calculatedDuration,
         folderId: currentFolder?._id,
-        onProgress: ({ loaded, total, percentage, part, totalParts }) => {
-          setUploadPhase('uploading');
+        onProgress: ({ loaded, total, percentage, part, totalParts, statusText, isRetrying }) => {
+          setUploadPhase(percentage === 100 ? 'saving' : 'uploading');
           setUploadProgress(percentage);
           setUploadBytes({ loaded, total });
+          if (statusText) setUploadStatusText(statusText);
+          setIsUploadRetrying(!!isRetrying);
           if (part != null && totalParts != null) {
             setUploadPartInfo({ part, totalParts });
           }
-          if (percentage === 100) setUploadPhase('saving');
         },
       });
 
@@ -278,15 +283,20 @@ function GlobalRecordingsLibrary() {
       setUploadTitle("");
       setUploadFile(null);
       setUploadPhase('idle');
+      setUploadStatusText("");
+      setIsUploadRetrying(false);
       fetchRecordings();
     } catch (err: any) {
       toast.error(err.message || "Failed to upload video");
       setUploadPhase('idle');
+      setUploadStatusText("");
+      setIsUploadRetrying(false);
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
       setUploadBytes({ loaded: 0, total: 0 });
       setUploadPartInfo(null);
+      setIsUploadRetrying(false);
     }
   };
 
@@ -455,19 +465,27 @@ function GlobalRecordingsLibrary() {
                   {isUploading && (
                     <div className="bg-slate-50 p-4 rounded-xl border space-y-3">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium text-slate-800">
-                          {uploadPhase === 'preparing' && 'Preparing upload...'}
-                          {uploadPhase === 'uploading' && 'Uploading to cloud...'}
-                          {uploadPhase === 'saving' && 'Saving metadata...'}
+                        <span className="font-medium text-slate-800 flex items-center gap-1.5 truncate max-w-[280px]">
+                          {isUploadRetrying ? (
+                            <span className="text-amber-600 animate-pulse font-bold flex items-center gap-1">
+                              ⚠️ {uploadStatusText || 'Retrying part...'}
+                            </span>
+                          ) : (
+                            uploadStatusText || (
+                              uploadPhase === 'preparing' ? 'Preparing upload...' :
+                              uploadPhase === 'saving' ? 'Saving metadata...' :
+                              'Uploading to cloud...'
+                            )
+                          )}
                         </span>
-                        <span className="text-slate-500 font-mono">
+                        <span className="text-slate-500 font-mono text-xs">
                           {formatMB(uploadBytes.loaded)} / {formatMB(uploadBytes.total)}
                         </span>
                       </div>
                       
                       <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-blue-500 transition-all duration-300"
+                          className={`h-full transition-all duration-300 ${isUploadRetrying ? 'bg-amber-500' : 'bg-blue-500'}`}
                           style={{ width: `${uploadProgress}%` }}
                         />
                       </div>
@@ -475,7 +493,9 @@ function GlobalRecordingsLibrary() {
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <span>{uploadProgress}% Complete</span>
                         {uploadPartInfo && (
-                          <span>Part {uploadPartInfo.part} of {uploadPartInfo.totalParts}</span>
+                          <span className="font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            Part {uploadPartInfo.part} of {uploadPartInfo.totalParts} (10 MB chunks)
+                          </span>
                         )}
                       </div>
                     </div>

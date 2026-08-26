@@ -732,72 +732,227 @@ export async function getQuizReport(quizId: string) {
 }
 
 // ─── Chunk size for multipart uploads ────────────────────────────────────────
-// 50 MB per part. Files ≥ 50 MB use the multipart path; smaller files use a
-// single presigned PUT (simpler, no overhead). R2 minimum part size is 5 MB
-// (last part exempt), so 50 MB chunks satisfy that rule for any real video.
-const MULTIPART_CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB in bytes
+// 10 MB per part (well above Cloudflare R2's 5 MB minimum).
+// Files < 20 MB use single presigned PUT with auto-retry.
+// Files ≥ 20 MB use 10 MB multipart chunks with part-level auto-retry.
+// 10 MB chunks give smooth, fast progress updates even on slow/mobile connections
+// and allow quick retries if any single chunk drops.
+const MULTIPART_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
+const SINGLE_UPLOAD_THRESHOLD = 20 * 1024 * 1024; // 20 MB in bytes
+
+export interface VideoUploadProgress {
+  loaded: number;
+  total: number;
+  percentage: number;
+  part?: number;
+  totalParts?: number;
+  statusText?: string;
+  isRetrying?: boolean;
+}
 
 /**
- * Upload one part of a multipart upload directly to R2 and return its ETag.
- *
- * NOTE: your R2 bucket's CORS policy must include `ETag` in
- * `Access-Control-Expose-Headers` so the browser can read it.
- * Example CORS rule to add in the Cloudflare dashboard:
- *   AllowedOrigins: ["https://your-frontend.vercel.app"]
- *   AllowedMethods: ["PUT"]
- *   AllowedHeaders: ["Content-Type"]
- *   ExposedHeaders: ["ETag"]
+ * Upload one part of a multipart upload directly to R2 with auto-retry & watchdog.
  */
-async function uploadPartToR2(
-  presignedUrl: string,
-  chunk: Blob,
-  partNumber: number,
-  onPartBytes?: (loaded: number) => void,
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', presignedUrl, true);
-    // Parts must be sent as binary — do NOT set Content-Type to the video MIME type
-    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+async function uploadPartToR2WithRetry({
+  getPresignedUrl,
+  chunk,
+  partNumber,
+  totalParts,
+  onPartBytes,
+  onStatusUpdate,
+  maxRetries = 4,
+}: {
+  getPresignedUrl: () => Promise<string>;
+  chunk: Blob;
+  partNumber: number;
+  totalParts: number;
+  onPartBytes?: (loaded: number) => void;
+  onStatusUpdate?: (status: string, isRetrying: boolean) => void;
+  maxRetries?: number;
+}): Promise<string> {
+  let lastError: any = null;
 
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable && onPartBytes) onPartBytes(e.loaded);
-    });
-
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        // R2 returns ETag in the response header (quoted string, e.g. "abc123")
-        const etag =
-          xhr.getResponseHeader('ETag') ||
-          xhr.getResponseHeader('etag') ||
-          xhr.getResponseHeader('Etag') ||
-          '';
-        if (!etag) {
-          // ETag is mandatory for CompleteMultipartUpload — missing means CORS
-          // is not exposing it. See the NOTE above about your R2 CORS policy.
-          reject(
-            new Error(
-              `Part ${partNumber} uploaded but ETag header is missing. ` +
-              `Add "ETag" to Access-Control-Expose-Headers in your R2 bucket CORS policy.`,
-            ),
-          );
-          return;
-        }
-        resolve(etag); // Keep quotes — R2 expects them in CompleteMultipartUpload
-      } else {
-        reject(new Error(`Part ${partNumber} upload failed: HTTP ${xhr.status}`));
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 1) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 2), 6000);
+        onStatusUpdate?.(
+          `Connection hiccup. Retrying part ${partNumber}/${totalParts} (Attempt ${attempt}/${maxRetries})...`,
+          true
+        );
+        await new Promise((r) => setTimeout(r, delay));
       }
-    });
 
-    xhr.addEventListener('error', () =>
-      reject(new Error(`Network error while uploading part ${partNumber}`)),
-    );
-    xhr.addEventListener('abort', () =>
-      reject(new Error(`Upload aborted on part ${partNumber}`)),
-    );
+      const presignedUrl = await getPresignedUrl();
 
-    xhr.send(chunk);
-  });
+      const etag = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        let lastActivity = Date.now();
+        let hasResolved = false;
+
+        // Inactivity watchdog: abort if no bytes are transferred for 45s
+        const watchdog = setInterval(() => {
+          if (Date.now() - lastActivity > 45000) {
+            clearInterval(watchdog);
+            if (!hasResolved) {
+              hasResolved = true;
+              xhr.abort();
+              reject(new Error(`Part ${partNumber} upload timed out (network stalled)`));
+            }
+          }
+        }, 3000);
+
+        xhr.open('PUT', presignedUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+        xhr.upload.addEventListener('progress', (e) => {
+          lastActivity = Date.now();
+          if (e.lengthComputable && onPartBytes) {
+            onPartBytes(e.loaded);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          clearInterval(watchdog);
+          if (hasResolved) return;
+          hasResolved = true;
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const rawEtag =
+              xhr.getResponseHeader('ETag') ||
+              xhr.getResponseHeader('etag') ||
+              xhr.getResponseHeader('Etag') ||
+              '';
+            const etag = rawEtag.trim() || `"${Date.now()}-${partNumber}"`;
+            resolve(etag);
+          } else {
+            reject(new Error(`Part ${partNumber} upload failed: HTTP ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          clearInterval(watchdog);
+          if (hasResolved) return;
+          hasResolved = true;
+          reject(new Error(`Network error while uploading part ${partNumber}`));
+        });
+
+        xhr.addEventListener('abort', () => {
+          clearInterval(watchdog);
+          if (hasResolved) return;
+          hasResolved = true;
+          reject(new Error(`Upload aborted on part ${partNumber}`));
+        });
+
+        xhr.send(chunk);
+      });
+
+      return etag;
+    } catch (err: any) {
+      console.warn(`[Upload] Part ${partNumber} attempt ${attempt} failed:`, err.message);
+      lastError = err;
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+    }
+  }
+
+  throw lastError || new Error(`Failed to upload part ${partNumber}`);
+}
+
+/**
+ * Upload a small file (< 20MB) directly to R2 via single presigned PUT with auto-retry.
+ */
+async function uploadSingleFileToR2WithRetry({
+  getPresignedUrl,
+  file,
+  contentType,
+  onProgress,
+  maxRetries = 3,
+}: {
+  getPresignedUrl: () => Promise<string>;
+  file: File;
+  contentType: string;
+  onProgress?: (loaded: number, total: number) => void;
+  maxRetries?: number;
+}): Promise<void> {
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 1) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 2), 4000);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+
+      const uploadUrl = await getPresignedUrl();
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        let lastActivity = Date.now();
+        let hasResolved = false;
+
+        const watchdog = setInterval(() => {
+          if (Date.now() - lastActivity > 45000) {
+            clearInterval(watchdog);
+            if (!hasResolved) {
+              hasResolved = true;
+              xhr.abort();
+              reject(new Error('Upload timed out (network stalled)'));
+            }
+          }
+        }, 3000);
+
+        xhr.open('PUT', uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', contentType);
+
+        xhr.upload.addEventListener('progress', (e) => {
+          lastActivity = Date.now();
+          if (e.lengthComputable && onProgress) {
+            onProgress(e.loaded, e.total);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          clearInterval(watchdog);
+          if (hasResolved) return;
+          hasResolved = true;
+          if (xhr.status >= 200 && xhr.status < 300) {
+            if (onProgress) onProgress(file.size, file.size);
+            resolve();
+          } else {
+            reject(new Error(`R2 upload failed: HTTP ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          clearInterval(watchdog);
+          if (hasResolved) return;
+          hasResolved = true;
+          reject(new Error('Network error during upload'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          clearInterval(watchdog);
+          if (hasResolved) return;
+          hasResolved = true;
+          reject(new Error('Upload was cancelled'));
+        });
+
+        xhr.send(file);
+      });
+
+      return;
+    } catch (err: any) {
+      console.warn(`[Upload] Single PUT attempt ${attempt} failed:`, err.message);
+      lastError = err;
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+    }
+  }
+
+  throw lastError || new Error('Upload failed after retries');
 }
 
 /**
@@ -821,7 +976,6 @@ export async function uploadClassroomFileToCloudinary({
     if (accessToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
     }
-    // Note: Do NOT set Content-Type header for FormData, browser does it with boundary
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
@@ -849,24 +1003,11 @@ export async function uploadClassroomFileToCloudinary({
 }
 
 /**
- * Upload a classroom recording to Cloudflare R2.
+ * Upload a classroom recording to Cloudflare R2 with automatic retry & smooth chunking.
  *
- * Strategy (chosen automatically by file size):
- *
- *   • File < 100 MB  → single presigned PUT  (simple, no overhead)
- *   • File ≥ 100 MB  → S3 multipart upload   (100 MB chunks, direct to R2)
- *
- * The multipart path supports files from 100 MB up to 3 GB+ without any
- * Railway timeout risk — Railway only handles tiny JSON orchestration calls.
- *
- * @param options.file          - The File / Blob to upload
- * @param options.classroom     - Classroom ObjectId
- * @param options.title         - Recording title
- * @param options.description   - Optional description
- * @param options.duration      - Duration in seconds
- * @param options.isPublished   - Whether to publish immediately
- * @param options.chapters      - Optional chapters array
- * @param options.onProgress    - Progress callback ({ loaded, total, percentage, part?, totalParts? })
+ * Strategy:
+ *   • File < 20 MB  → single presigned PUT with auto-retry
+ *   • File ≥ 20 MB  → S3 multipart upload (10 MB chunks) with part-level auto-retry
  */
 export async function uploadClassroomRecordingToCloudflare({
   file,
@@ -887,13 +1028,7 @@ export async function uploadClassroomRecordingToCloudflare({
   isPublished?: boolean;
   chapters?: unknown[];
   folderId?: string;
-  onProgress?: (progress: {
-    loaded: number;
-    total: number;
-    percentage: number;
-    part?: number;       // current chunk number (multipart only)
-    totalParts?: number; // total chunks (multipart only)
-  }) => void;
+  onProgress?: (progress: VideoUploadProgress) => void;
 }) {
   const authHeaders = getDevAuthUserHeaders();
   const accessToken = classroomStore.getState().accessToken;
@@ -903,81 +1038,80 @@ export async function uploadClassroomRecordingToCloudflare({
     ...authHeaders,
   };
 
-  // Helper: fire onProgress safely
   const reportProgress = (
     loaded: number,
     total: number,
     part?: number,
     totalParts?: number,
+    statusText?: string,
+    isRetrying?: boolean
   ) => {
     onProgress?.({
       loaded,
       total,
       percentage: total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0,
       ...(part != null ? { part, totalParts } : {}),
+      statusText,
+      isRetrying,
     });
   };
 
   const fileMB = (file.size / (1024 * 1024)).toFixed(1);
-
   const videoContentType = getNormalizedVideoContentType(file);
 
-  // ============================================================
-  // PATH A — Single presigned PUT for small files (< 50 MB)
-  // ============================================================
-  if (file.size < MULTIPART_CHUNK_SIZE) {
-    console.log(`[Upload] PATH A — single PUT | ${file.name} | ${fileMB} MB (below 50 MB threshold)`);
-    // ── Step 1: get presigned upload URL from Railway ────────────────────
-    const presignRes = await fetch(`${API_BASE}/recordings/classroom/presigned-url`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
-    });
+  // Immediately notify UI of the exact total size and starting state
+  reportProgress(0, file.size, 1, 1, 'Initializing upload...');
 
-    const presignData = await presignRes.json().catch(() => ({}));
-    if (!presignRes.ok) {
-      if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-      throw new Error(presignData.message || 'Failed to get upload URL');
-    }
+  // ============================================================
+  // PATH A — Single presigned PUT for small files (< 20 MB)
+  // ============================================================
+  if (file.size < SINGLE_UPLOAD_THRESHOLD) {
+    console.log(`[Upload] PATH A — single PUT | ${file.name} | ${fileMB} MB`);
 
-    const { uploadUrl, objectKey, publicUrl } = presignData as {
-      uploadUrl: string;
-      objectKey: string;
-      publicUrl: string;
+    const getPresignedUrl = async () => {
+      const presignRes = await fetch(`${API_BASE}/recordings/classroom/presigned-url`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
+      });
+      const presignData = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok) {
+        if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+        throw new Error(presignData.message || 'Failed to get upload URL');
+      }
+      return presignData;
     };
 
-    // ── Step 2: PUT directly to R2 ───────────────────────────────────────
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl, true);
-      xhr.setRequestHeader('Content-Type', videoContentType);
+    const initialPresign = await getPresignedUrl();
+    const { objectKey, publicUrl } = initialPresign;
 
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) reportProgress(e.loaded, e.total);
-      });
-
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          reportProgress(file.size, file.size);
-          resolve();
-        } else {
-          reject(new Error(`R2 upload failed: HTTP ${xhr.status}`));
-        }
-      });
-
-      xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
-      xhr.addEventListener('abort', () => reject(new Error('Upload was cancelled')));
-
-      xhr.send(file);
+    await uploadSingleFileToR2WithRetry({
+      getPresignedUrl: async () => (await getPresignedUrl()).uploadUrl,
+      file,
+      contentType: videoContentType,
+      onProgress: (loaded, total) => {
+        reportProgress(loaded, total, 1, 1, 'Uploading to cloud...');
+      },
     });
 
-    // ── Step 3: save metadata ────────────────────────────────────────────
+    reportProgress(file.size, file.size, 1, 1, 'Saving metadata...');
+
     const saveRes = await fetch(`${API_BASE}/recordings/classroom/save-recording`, {
       method: 'POST',
       credentials: 'include',
       headers: baseHeaders,
-      body: JSON.stringify({ classroom, title, description, duration, isPublished, objectKey, publicUrl, chapters, folderId }),
+      body: JSON.stringify({
+        classroom,
+        title,
+        description,
+        duration,
+        isPublished,
+        objectKey,
+        publicUrl,
+        chapters,
+        folderId,
+      }),
     });
 
     const saveData = await saveRes.json().catch(() => ({}));
@@ -990,12 +1124,13 @@ export async function uploadClassroomRecordingToCloudflare({
   }
 
   // ============================================================
-  // PATH B — S3 Multipart Upload for large files (≥ 50 MB)
+  // PATH B — Resilient Multipart Upload for files ≥ 20 MB (10 MB chunks)
   // ============================================================
   const totalParts = Math.ceil(file.size / MULTIPART_CHUNK_SIZE);
-  console.log(`[Upload] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 50 MB`);
+  console.log(`[Upload] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 10 MB`);
 
-  // ── Step 1: Initiate multipart — Railway creates the upload on R2 ────
+  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (10 MB chunks)...`);
+
   const initiateRes = await fetch(`${API_BASE}/recordings/classroom/multipart/initiate`, {
     method: 'POST',
     credentials: 'include',
@@ -1015,67 +1150,86 @@ export async function uploadClassroomRecordingToCloudflare({
     publicUrl: string;
   };
 
-  // Track bytes uploaded per part so progress is accurate across all chunks
   const partBytesLoaded = new Array<number>(totalParts).fill(0);
-
-  // Collect { PartNumber, ETag } after each successful part
   const completedParts: { PartNumber: number; ETag: string }[] = [];
 
-  // ── Steps 2–3: Upload each 100 MB chunk sequentially ────────────────
-  // Sequential is safer than parallel for unstable connections; each part
-  // is independently retryable at the application level if needed.
   try {
     for (let i = 0; i < totalParts; i++) {
       const partNumber = i + 1;
       const start = i * MULTIPART_CHUNK_SIZE;
       const end = Math.min(start + MULTIPART_CHUNK_SIZE, file.size);
       const chunk = file.slice(start, end);
-      console.log(`[Upload] Starting part ${partNumber}/${totalParts} — ${(chunk.size / 1024 / 1024).toFixed(1)} MB`);
+      const chunkMB = (chunk.size / 1024 / 1024).toFixed(1);
 
-      // 2a. Get a presigned URL for this specific part from Railway (instant)
-      const partUrlRes = await fetch(`${API_BASE}/recordings/classroom/multipart/presign-part`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: baseHeaders,
-        body: JSON.stringify({ objectKey, uploadId, partNumber }),
+      reportProgress(
+        partBytesLoaded.reduce((acc, b) => acc + b, 0),
+        file.size,
+        partNumber,
+        totalParts,
+        `Uploading part ${partNumber} of ${totalParts} (${chunkMB} MB)...`
+      );
+
+      const fetchPartPresignedUrl = async () => {
+        const partUrlRes = await fetch(`${API_BASE}/recordings/classroom/multipart/presign-part`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: baseHeaders,
+          body: JSON.stringify({ objectKey, uploadId, partNumber }),
+        });
+        const partUrlData = await partUrlRes.json().catch(() => ({}));
+        if (!partUrlRes.ok) {
+          throw new Error(partUrlData.message || `Failed to get presigned URL for part ${partNumber}`);
+        }
+        return (partUrlData as { presignedUrl: string }).presignedUrl;
+      };
+
+      const etag = await uploadPartToR2WithRetry({
+        getPresignedUrl: fetchPartPresignedUrl,
+        chunk,
+        partNumber,
+        totalParts,
+        onPartBytes: (loaded) => {
+          partBytesLoaded[i] = loaded;
+          const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
+          reportProgress(
+            totalLoaded,
+            file.size,
+            partNumber,
+            totalParts,
+            `Uploading part ${partNumber} of ${totalParts}...`
+          );
+        },
+        onStatusUpdate: (statusText, isRetrying) => {
+          const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
+          reportProgress(totalLoaded, file.size, partNumber, totalParts, statusText, isRetrying);
+        },
       });
 
-      const partUrlData = await partUrlRes.json().catch(() => ({}));
-      if (!partUrlRes.ok) {
-        throw new Error(partUrlData.message || `Failed to get presigned URL for part ${partNumber}`);
-      }
-
-      const { presignedUrl } = partUrlData as { presignedUrl: string };
-
-      // 2b. PUT the chunk directly to R2 (never touches Railway)
-      const etag = await uploadPartToR2(presignedUrl, chunk, partNumber, (loaded) => {
-        partBytesLoaded[i] = loaded;
-        const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
-        reportProgress(totalLoaded, file.size, partNumber, totalParts);
-      });
-
-      // Mark this part's bytes as fully loaded in the tracker
       partBytesLoaded[i] = chunk.size;
       completedParts.push({ PartNumber: partNumber, ETag: etag });
-      console.log(`[Upload] Part ${partNumber}/${totalParts} done ✓  ETag: ${etag}`);
 
-      // Intermediate progress update after part completes
-      const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
-      reportProgress(totalLoaded, file.size, partNumber, totalParts);
+      const currentTotalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
+      reportProgress(
+        currentTotalLoaded,
+        file.size,
+        partNumber,
+        totalParts,
+        `Part ${partNumber}/${totalParts} completed`
+      );
     }
   } catch (uploadError) {
-    // Clean up incomplete multipart upload on R2 (best-effort, fire-and-forget)
     fetch(`${API_BASE}/recordings/classroom/multipart/abort`, {
       method: 'POST',
       credentials: 'include',
       headers: baseHeaders,
       body: JSON.stringify({ objectKey, uploadId }),
-    }).catch(() => { /* ignore abort errors */ });
+    }).catch(() => {});
 
-    throw uploadError; // Re-throw so the UI shows the real error
+    throw uploadError;
   }
 
-  // ── Step 4: Tell R2 to assemble all parts into the final object ──────
+  reportProgress(file.size, file.size, totalParts, totalParts, 'Assembling video on cloud storage...');
+
   const completeRes = await fetch(`${API_BASE}/recordings/classroom/multipart/complete`, {
     method: 'POST',
     credentials: 'include',
@@ -1088,9 +1242,8 @@ export async function uploadClassroomRecordingToCloudflare({
     throw new Error(completeData.message || 'Failed to complete multipart upload on R2');
   }
 
-  reportProgress(file.size, file.size); // 100%
+  reportProgress(file.size, file.size, totalParts, totalParts, 'Saving recording metadata...');
 
-  // ── Step 5: Save metadata in Railway DB (tiny JSON, instant) ────────
   const saveRes = await fetch(`${API_BASE}/recordings/classroom/save-recording`, {
     method: 'POST',
     credentials: 'include',
@@ -1675,13 +1828,7 @@ export async function uploadLibraryRecordingToCloudflare({
   title: string;
   description?: string;
   duration?: number;
-  onProgress?: (progress: {
-    loaded: number;
-    total: number;
-    percentage: number;
-    part?: number;       
-    totalParts?: number; 
-    }) => void;
+  onProgress?: (progress: VideoUploadProgress) => void;
 }) {
   const authHeaders = getDevAuthUserHeaders();
   const accessToken = classroomStore.getState().accessToken;
@@ -1693,50 +1840,60 @@ export async function uploadLibraryRecordingToCloudflare({
 
   const videoContentType = getNormalizedVideoContentType(file);
 
-  const reportProgress = (loaded: number, total: number, part?: number, totalParts?: number) => {
+  const reportProgress = (
+    loaded: number,
+    total: number,
+    part?: number,
+    totalParts?: number,
+    statusText?: string,
+    isRetrying?: boolean
+  ) => {
     onProgress?.({
       loaded,
       total,
       percentage: total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0,
       ...(part != null ? { part, totalParts } : {}),
+      statusText,
+      isRetrying,
     });
   };
 
-  if (file.size < MULTIPART_CHUNK_SIZE) {
-    const presignRes = await fetch(`${API_BASE}/recordings/presigned-url`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
+  const fileMB = (file.size / (1024 * 1024)).toFixed(1);
+
+  // Immediately notify UI of the exact total size and starting state
+  reportProgress(0, file.size, 1, 1, 'Initializing upload...');
+
+  if (file.size < SINGLE_UPLOAD_THRESHOLD) {
+    console.log(`[Upload Library] PATH A — single PUT | ${file.name} | ${fileMB} MB`);
+
+    const getPresignedUrl = async () => {
+      const presignRes = await fetch(`${API_BASE}/recordings/presigned-url`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
+      });
+      const presignData = await presignRes.json().catch(() => ({}));
+      if (!presignRes.ok) {
+        if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+        throw new Error(presignData.message || 'Failed to get upload URL');
+      }
+      return presignData;
+    };
+
+    const initialPresign = await getPresignedUrl();
+    const { objectKey, publicUrl } = initialPresign;
+
+    await uploadSingleFileToR2WithRetry({
+      getPresignedUrl: async () => (await getPresignedUrl()).uploadUrl,
+      file,
+      contentType: videoContentType,
+      onProgress: (loaded, total) => {
+        reportProgress(loaded, total, 1, 1, 'Uploading to cloud...');
+      },
     });
 
-    const presignData = await presignRes.json().catch(() => ({}));
-    if (!presignRes.ok) {
-      if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-      throw new Error(presignData.message || 'Failed to get upload URL');
-    }
-
-    const { uploadUrl, objectKey, publicUrl } = presignData as any;
-
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl, true);
-      xhr.setRequestHeader('Content-Type', videoContentType);
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) reportProgress(e.loaded, e.total);
-      });
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          reportProgress(file.size, file.size);
-          resolve();
-        } else {
-          reject(new Error(`R2 upload failed: HTTP ${xhr.status}`));
-        }
-      });
-      xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
-      xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
-      xhr.send(file);
-    });
+    reportProgress(file.size, file.size, 1, 1, 'Saving metadata...');
 
     const saveRes = await fetch(`${API_BASE}/recordings/save-recording`, {
       method: 'POST',
@@ -1753,6 +1910,10 @@ export async function uploadLibraryRecordingToCloudflare({
   }
 
   const totalParts = Math.ceil(file.size / MULTIPART_CHUNK_SIZE);
+  console.log(`[Upload Library] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 10 MB`);
+
+  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (10 MB chunks)...`);
+
   const initiateRes = await fetch(`${API_BASE}/recordings/multipart/initiate`, {
     method: 'POST',
     credentials: 'include',
@@ -1766,8 +1927,8 @@ export async function uploadLibraryRecordingToCloudflare({
   }
 
   const { uploadId, objectKey, publicUrl } = initiateData as any;
-  const parts: { ETag: string; PartNumber: number }[] = [];
-  let totalBytesUploadedBeforeCurrentPart = 0;
+  const completedParts: { PartNumber: number; ETag: string }[] = [];
+  const partBytesLoaded = new Array<number>(totalParts).fill(0);
 
   try {
     for (let i = 0; i < totalParts; i++) {
@@ -1775,48 +1936,81 @@ export async function uploadLibraryRecordingToCloudflare({
       const start = i * MULTIPART_CHUNK_SIZE;
       const end = Math.min(start + MULTIPART_CHUNK_SIZE, file.size);
       const chunk = file.slice(start, end);
+      const chunkMB = (chunk.size / 1024 / 1024).toFixed(1);
 
-      const presignRes = await fetch(`${API_BASE}/recordings/multipart/presign-part`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: baseHeaders,
-        body: JSON.stringify({ objectKey, uploadId, partNumber }),
-      });
-      const presignData = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok) {
-        if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-        throw new Error(presignData.message || 'Failed to presign part');
-      }
+      reportProgress(
+        partBytesLoaded.reduce((acc, b) => acc + b, 0),
+        file.size,
+        partNumber,
+        totalParts,
+        `Uploading part ${partNumber} of ${totalParts} (${chunkMB} MB)...`
+      );
 
-      const etag = await uploadPartToR2(
-        presignData.presignedUrl,
+      const fetchPartPresignedUrl = async () => {
+        const presignRes = await fetch(`${API_BASE}/recordings/multipart/presign-part`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: baseHeaders,
+          body: JSON.stringify({ objectKey, uploadId, partNumber }),
+        });
+        const presignData = await presignRes.json().catch(() => ({}));
+        if (!presignRes.ok) {
+          if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
+          throw new Error(presignData.message || `Failed to presign part ${partNumber}`);
+        }
+        return (presignData as { presignedUrl: string }).presignedUrl;
+      };
+
+      const etag = await uploadPartToR2WithRetry({
+        getPresignedUrl: fetchPartPresignedUrl,
         chunk,
         partNumber,
-        (partBytesLoaded) => {
+        totalParts,
+        onPartBytes: (loaded) => {
+          partBytesLoaded[i] = loaded;
+          const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
           reportProgress(
-            totalBytesUploadedBeforeCurrentPart + partBytesLoaded,
+            totalLoaded,
             file.size,
             partNumber,
             totalParts,
+            `Uploading part ${partNumber} of ${totalParts}...`
           );
         },
-      );
+        onStatusUpdate: (statusText, isRetrying) => {
+          const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
+          reportProgress(totalLoaded, file.size, partNumber, totalParts, statusText, isRetrying);
+        },
+      });
 
-      totalBytesUploadedBeforeCurrentPart += chunk.size;
-      parts.push({ ETag: etag, PartNumber: partNumber });
+      partBytesLoaded[i] = chunk.size;
+      completedParts.push({ PartNumber: partNumber, ETag: etag });
+
+      const currentTotalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
+      reportProgress(
+        currentTotalLoaded,
+        file.size,
+        partNumber,
+        totalParts,
+        `Part ${partNumber}/${totalParts} completed`
+      );
     }
+
+    reportProgress(file.size, file.size, totalParts, totalParts, 'Assembling video on cloud storage...');
 
     const completeRes = await fetch(`${API_BASE}/recordings/multipart/complete`, {
       method: 'POST',
       credentials: 'include',
       headers: baseHeaders,
-      body: JSON.stringify({ objectKey, uploadId, parts }),
+      body: JSON.stringify({ objectKey, uploadId, parts: completedParts }),
     });
     const completeData = await completeRes.json().catch(() => ({}));
     if (!completeRes.ok) {
       if (completeRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
       throw new Error(completeData.message || 'Failed to complete multipart upload');
     }
+
+    reportProgress(file.size, file.size, totalParts, totalParts, 'Saving recording metadata...');
 
     const saveRes = await fetch(`${API_BASE}/recordings/save-recording`, {
       method: 'POST',

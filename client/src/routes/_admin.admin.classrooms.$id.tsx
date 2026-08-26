@@ -614,6 +614,8 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
   const [uploadBytes, setUploadBytes] = useState({ loaded: 0, total: 0 });
   const [uploadPhase, setUploadPhase] = useState<'idle' | 'preparing' | 'uploading' | 'saving'>('idle');
   const [uploadPartInfo, setUploadPartInfo] = useState<{ part: number; totalParts: number } | null>(null);
+  const [uploadStatusText, setUploadStatusText] = useState("");
+  const [isUploadRetrying, setIsUploadRetrying] = useState(false);
 
   // Video Edit States
   const [editRecId, setEditRecId] = useState<string | null>(null);
@@ -688,8 +690,10 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
 
     setIsUploading(true);
     setUploadProgress(0);
-    setUploadBytes({ loaded: 0, total: 0 });
+    setUploadBytes({ loaded: 0, total: uploadFile.size });
     setUploadPhase('preparing');
+    setUploadStatusText('Preparing video metadata...');
+    setIsUploadRetrying(false);
 
     try {
       // Extract video duration in seconds on the client side with a safety timeout
@@ -733,14 +737,15 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
         duration: calculatedDuration,
         isPublished: uploadPublished,
         folderId: currentFolderId || undefined,
-        onProgress: ({ loaded, total, percentage, part, totalParts }) => {
-          setUploadPhase('uploading');
+        onProgress: ({ loaded, total, percentage, part, totalParts, statusText, isRetrying }) => {
+          setUploadPhase(percentage === 100 ? 'saving' : 'uploading');
           setUploadProgress(percentage);
           setUploadBytes({ loaded, total });
+          if (statusText) setUploadStatusText(statusText);
+          setIsUploadRetrying(!!isRetrying);
           if (part != null && totalParts != null) {
             setUploadPartInfo({ part, totalParts });
           }
-          if (percentage === 100) setUploadPhase('saving');
         }
       });
 
@@ -751,15 +756,20 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
       setUploadFile(null);
       setUploadPublished(false);
       setUploadPhase('idle');
+      setUploadStatusText("");
+      setIsUploadRetrying(false);
       await refreshClassroom();
     } catch (err: any) {
       toast.error(err.message || "Failed to upload video");
       setUploadPhase('idle');
+      setUploadStatusText("");
+      setIsUploadRetrying(false);
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
       setUploadBytes({ loaded: 0, total: 0 });
       setUploadPartInfo(null);
+      setIsUploadRetrying(false);
     }
   };
 
@@ -1259,27 +1269,37 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
               {isUploading && (
                 <div className="bg-cream/5 p-4 rounded-xl border border-cream/10 space-y-3">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-cream">
-                      {uploadPhase === 'preparing' && 'Preparing upload...'}
-                      {uploadPhase === 'uploading' && 'Uploading to cloud...'}
-                      {uploadPhase === 'saving' && 'Saving metadata...'}
+                    <span className="font-semibold text-cream flex items-center gap-1.5 truncate max-w-[280px]">
+                      {isUploadRetrying ? (
+                        <span className="text-amber-400 animate-pulse font-bold flex items-center gap-1">
+                          ⚠️ {uploadStatusText || 'Retrying part...'}
+                        </span>
+                      ) : (
+                        uploadStatusText || (
+                          uploadPhase === 'preparing' ? 'Preparing upload...' :
+                          uploadPhase === 'saving' ? 'Saving metadata...' :
+                          'Uploading to cloud...'
+                        )
+                      )}
                     </span>
-                    <span className="text-cream/50 font-mono">
+                    <span className="text-cream/70 font-mono text-[11px]">
                       {formatMB(uploadBytes.loaded)} / {formatMB(uploadBytes.total)}
                     </span>
                   </div>
 
                   <div className="h-1.5 bg-cream/10 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-lime transition-all duration-300"
+                      className={`h-full transition-all duration-300 ${isUploadRetrying ? 'bg-amber-400' : 'bg-lime'}`}
                       style={{ width: `${uploadProgress}%` }}
                     />
                   </div>
 
-                  <div className="flex items-center justify-between text-[10px] text-cream/40">
-                    <span>{uploadProgress}% Complete</span>
+                  <div className="flex items-center justify-between text-[10px] text-cream/50">
+                    <span className="font-medium">{uploadProgress}% Complete</span>
                     {uploadPartInfo && (
-                      <span>Part {uploadPartInfo.part} of {uploadPartInfo.totalParts}</span>
+                      <span className="font-mono text-lime/90 bg-lime/10 px-2 py-0.5 rounded">
+                        Part {uploadPartInfo.part} of {uploadPartInfo.totalParts} (10 MB chunks)
+                      </span>
                     )}
                   </div>
                 </div>
