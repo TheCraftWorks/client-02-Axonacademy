@@ -3070,6 +3070,15 @@ function AdminClassroomDetail() {
     }
   }, [currentUser, tab]);
 
+  // Always scroll to top when classroom is opened or when switching tabs
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    const mainEl = document.querySelector("main");
+    if (mainEl) {
+      mainEl.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
+  }, [id, tab]);
+
   const refreshClassroom = React.useCallback(async () => {
     setIsFetching(true);
     try {

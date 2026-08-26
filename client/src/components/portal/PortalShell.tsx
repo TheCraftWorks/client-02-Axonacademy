@@ -34,6 +34,14 @@ export function PortalShell({ variant, brand, nav, user, children }: PortalShell
   const isAdmin = variant === "admin";
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const navigate = useNavigate();
+  const mainRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [currentPath]);
 
   const handleLogout = async () => {
     try {
@@ -126,7 +134,7 @@ export function PortalShell({ variant, brand, nav, user, children }: PortalShell
       )}
 
       {/* ── Main Content ─────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden">
+      <main ref={mainRef} className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden">
         {/* Mobile Header */}
         <div className={`md:hidden flex items-center justify-between h-16 px-4 border-b sticky top-0 z-40 bg-[#0B1F3A] border-white/10`}>
           <div className={`font-display font-bold text-lg ${brandColorClass}`}>{brand}</div>

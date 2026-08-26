@@ -1748,6 +1748,14 @@ function StudentClassroomDetail() {
     };
   }, [id]);
 
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    const mainEl = document.querySelector("main");
+    if (mainEl) {
+      mainEl.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
+  }, [id, tab]);
+
   if (isLoading || (!cls && isFetching) || (!myInfo && isFetching)) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center py-20 text-center">
