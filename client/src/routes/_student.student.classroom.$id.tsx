@@ -1722,7 +1722,7 @@ function StudentClassroomDetail() {
         if (!hasCached) setIsLoading(true);
         setIsFetching(true);
 
-        const refreshed = await getClassroomById(id);
+        const refreshed = await getClassroomById(id, isClassroomStale(id));
         if (!active) return;
 
         if (classrooms.some((c) => c.id === id || (c as any)._id === id)) {

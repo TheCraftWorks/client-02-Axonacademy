@@ -486,6 +486,16 @@ export function invalidateClientClassroomCache() {
   cachedClassroomDetails.clear();
 }
 
+export function invalidateClassroomCacheById(classroomId: string) {
+  if (!classroomId) return;
+  for (const key of cachedClassroomDetails.keys()) {
+    if (key.startsWith(`${classroomId}_`) || key.includes(classroomId)) {
+      cachedClassroomDetails.delete(key);
+    }
+  }
+  cachedClassroomsListMap.clear();
+}
+
 function getCacheUserKey(): string {
   const u = classroomStore.getState().currentUser;
   return u?.id || u?.userId || 'anonymous';
@@ -1442,12 +1452,14 @@ export function getAssetUrl(path: string | null | undefined): string {
 }
 
 export async function publishRecording(recordingId: string) {
+  invalidateClientClassroomCache();
   return fetchJson(`/recordings/classroom/${encodeURIComponent(recordingId)}/publish`, {
     method: 'PUT',
   });
 }
 
 export async function unpublishRecording(recordingId: string) {
+  invalidateClientClassroomCache();
   return fetchJson(`/recordings/classroom/${encodeURIComponent(recordingId)}`, {
     method: 'PUT',
     body: JSON.stringify({ isPublished: false }),
@@ -1455,6 +1467,7 @@ export async function unpublishRecording(recordingId: string) {
 }
 
 export async function deleteRecording(recordingId: string) {
+  invalidateClientClassroomCache();
   return fetchJson(`/recordings/classroom/${encodeURIComponent(recordingId)}`, {
     method: 'DELETE',
   });
@@ -1467,6 +1480,7 @@ export async function reuseClassroomRecording(payload: {
   description?: string;
   folderId?: string;
 }) {
+  invalidateClassroomCacheById(payload.targetClassroomId);
   return fetchJson('/recordings/classroom/reuse', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -1474,6 +1488,7 @@ export async function reuseClassroomRecording(payload: {
 }
 
 export async function createClassroomFolder(classroomId: string, name: string, description?: string) {
+  invalidateClassroomCacheById(classroomId);
   return fetchJson('/recordings/classroom/folders', {
     method: 'POST',
     body: JSON.stringify({ classroomId, name, description }),
@@ -1481,6 +1496,7 @@ export async function createClassroomFolder(classroomId: string, name: string, d
 }
 
 export async function updateClassroomFolder(folderId: string, name: string, description?: string) {
+  invalidateClientClassroomCache();
   return fetchJson(`/recordings/classroom/folders/${encodeURIComponent(folderId)}`, {
     method: 'PUT',
     body: JSON.stringify({ name, description }),
@@ -1488,6 +1504,7 @@ export async function updateClassroomFolder(folderId: string, name: string, desc
 }
 
 export async function deleteClassroomFolder(folderId: string) {
+  invalidateClientClassroomCache();
   return fetchJson(`/recordings/classroom/folders/${encodeURIComponent(folderId)}`, {
     method: 'DELETE',
   });
@@ -1498,6 +1515,7 @@ export async function getClassroomReuseList() {
 }
 
 export async function reuseClassroomFolder(sourceFolderId: string, targetClassroomId: string, selectedRecordingIds?: string[]) {
+  invalidateClassroomCacheById(targetClassroomId);
   return fetchJson('/recordings/classroom/reuse-folder', {
     method: 'POST',
     body: JSON.stringify({ sourceFolderId, targetClassroomId, selectedRecordingIds }),

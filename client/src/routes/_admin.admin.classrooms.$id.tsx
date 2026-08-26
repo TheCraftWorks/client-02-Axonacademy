@@ -3073,7 +3073,7 @@ function AdminClassroomDetail() {
   const refreshClassroom = React.useCallback(async () => {
     setIsFetching(true);
     try {
-      const refreshed = await getClassroomById(id);
+      const refreshed = await getClassroomById(id, true);
       classroomActions.addClassroom(refreshed);
       markClassroomFresh(id);
       return refreshed;
