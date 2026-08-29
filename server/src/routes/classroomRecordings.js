@@ -699,8 +699,10 @@ router.get('/reuse-list', protect, restrictTo('admin', 'superadmin', 'faculty'),
     const classrooms = await Classroom.find(classroomFilter).select('name code program').lean();
     const classroomIds = classrooms.map(c => c._id);
 
-    const folders = await ClassroomFolder.find({ classroom: { $in: classroomIds } }).lean();
-    const recordings = await ClassroomRecording.find({ classroom: { $in: classroomIds } }).lean();
+    const [folders, recordings] = await Promise.all([
+      ClassroomFolder.find({ classroom: { $in: classroomIds } }).select('_id name description classroom order').lean(),
+      ClassroomRecording.find({ classroom: { $in: classroomIds } }).select('_id title folder classroom duration').lean()
+    ]);
 
     res.json({
       success: true,

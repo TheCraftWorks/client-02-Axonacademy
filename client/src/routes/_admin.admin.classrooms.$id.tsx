@@ -4,7 +4,7 @@ import {
   LuArrowLeft, LuMegaphone, LuVideo, LuBookOpen, LuClipboardList,
   LuPlus, LuX, LuTrash2, LuPlay, LuEye, LuEyeOff, LuCheck, LuSend,
   LuCalendar, LuClock, LuRadio, LuUpload, LuUsers, LuCircleDot, LuDownload, LuCopy, LuLink, LuAward, LuShare2, LuUserPlus,
-  LuFolder, LuSearch, LuPrinter
+  LuFolder, LuSearch, LuPrinter, LuRefreshCw
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { DarkCard } from "@/components/portal/PortalShell";
@@ -629,6 +629,8 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
   const [reuseClassrooms, setReuseClassrooms] = useState<any[]>([]);
   const [reuseFolders, setReuseFolders] = useState<any[]>([]);
   const [reuseRecordings, setReuseRecordings] = useState<any[]>([]);
+  const [isLoadingReuseList, setIsLoadingReuseList] = useState(false);
+  const [hasLoadedReuseList, setHasLoadedReuseList] = useState(false);
 
   const [selectedSourceClassroomId, setSelectedSourceClassroomId] = useState<string>("");
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -793,17 +795,28 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
     }
   };
 
-  const openReuseModal = async () => {
+  const fetchReuseList = async (force = false) => {
+    if (isLoadingReuseList) return;
+    setIsLoadingReuseList(true);
     try {
       const res = await getClassroomReuseList() as any;
-      if (res.success) {
+      if (res && res.success) {
         setReuseClassrooms(res.classrooms || []);
         setReuseFolders(res.folders || []);
         setReuseRecordings(res.recordings || []);
-        setShowReuseModal(true);
+        setHasLoadedReuseList(true);
       }
     } catch (err: any) {
       toast.error("Failed to load classrooms for reuse");
+    } finally {
+      setIsLoadingReuseList(false);
+    }
+  };
+
+  const openReuseModal = () => {
+    setShowReuseModal(true);
+    if (!hasLoadedReuseList || reuseClassrooms.length === 0) {
+      fetchReuseList();
     }
   };
 
@@ -857,6 +870,7 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
       setSelectedFolderIds([]);
       setSelectedRecIds([]);
       setSelectedSourceClassroomId("");
+      setHasLoadedReuseList(false);
       await refreshClassroom();
     } catch (err: any) {
       toast.error(err.message || "Failed to reuse files");
@@ -1373,30 +1387,53 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#1A0F33] border border-cream/10 rounded-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-5 py-4 border-b border-cream/10 flex items-center justify-between">
-              <h3 className="font-display font-bold text-cream">Reuse Folders & Videos</h3>
-              <button onClick={() => setShowReuseModal(false)} className="text-cream/50 hover:text-cream" disabled={isReusing}><LuX className="h-4 w-4" /></button>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-bold text-cream">Reuse Folders & Videos</h3>
+                {isLoadingReuseList && (
+                  <div className="w-3.5 h-3.5 border-2 border-lime border-t-transparent rounded-full animate-spin" />
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchReuseList(true)}
+                  disabled={isLoadingReuseList || isReusing}
+                  title="Refresh list"
+                  className="text-cream/50 hover:text-cream text-xs flex items-center gap-1 p-1 rounded hover:bg-cream/5 disabled:opacity-40 transition-colors"
+                >
+                  <LuRefreshCw className={`h-3.5 w-3.5 ${isLoadingReuseList ? 'animate-spin' : ''}`} />
+                </button>
+                <button onClick={() => setShowReuseModal(false)} className="text-cream/50 hover:text-cream" disabled={isReusing}><LuX className="h-4 w-4" /></button>
+              </div>
             </div>
             <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">Select Source Classroom</label>
-                <select
-                  value={selectedSourceClassroomId}
-                  onChange={e => {
-                    setSelectedSourceClassroomId(e.target.value);
-                    setSelectedFolderIds([]);
-                    setSelectedRecIds([]);
-                  }}
-                  disabled={isReusing}
-                  className="w-full bg-[#1A0F33] border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50"
-                >
-                  <option value="">-- Choose a Class --</option>
-                  {reuseClassrooms
-                    .filter(c => c.id !== cls.id)
-                    .map(c => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-                    ))}
-                </select>
-              </div>
+              {isLoadingReuseList && reuseClassrooms.length === 0 ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3">
+                  <div className="w-8 h-8 border-3 border-lime/30 border-t-lime rounded-full animate-spin" />
+                  <p className="text-xs text-cream/70 font-medium">Loading classrooms & recordings...</p>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">Select Source Classroom</label>
+                    <select
+                      value={selectedSourceClassroomId}
+                      onChange={e => {
+                        setSelectedSourceClassroomId(e.target.value);
+                        setSelectedFolderIds([]);
+                        setSelectedRecIds([]);
+                      }}
+                      disabled={isReusing}
+                      className="w-full bg-[#1A0F33] border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50"
+                    >
+                      <option value="">-- Choose a Class --</option>
+                      {reuseClassrooms
+                        .filter(c => c.id !== cls.id)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                        ))}
+                    </select>
+                  </div>
 
               {selectedSourceClassroomId && (
                 <div className="space-y-3">
@@ -1509,7 +1546,15 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
                   })()}
                 </div>
               )}
-            </div>
+
+              {reuseClassrooms.filter(c => c.id !== cls.id).length === 0 && !isLoadingReuseList && (
+                <div className="text-center py-6 text-cream/50 text-xs">
+                  No other active classrooms available to copy from.
+                </div>
+              )}
+            </>
+          )}
+        </div>
             <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
               <button onClick={() => setShowReuseModal(false)} disabled={isReusing} className="flex-1 rounded-full bg-cream/10 text-cream py-2 text-xs font-semibold">Cancel</button>
               <button
