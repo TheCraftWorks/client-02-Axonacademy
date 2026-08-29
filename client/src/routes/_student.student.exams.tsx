@@ -10,6 +10,8 @@ import {
   submitQuizAttempt,
   getQuizAttemptResult,
 } from "@/lib/api";
+import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
+import { QuizQuestionReviewTabs } from "@/components/quiz/QuizQuestionReviewTabs";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 type QuizResultReview = {
@@ -20,8 +22,9 @@ type QuizResultReview = {
     isCorrect: boolean;
     marksAwarded: number;
     questionText: string;
-    explanation: string;
+    explanation?: string;
     correctOptions: string[];
+    isAttempted?: boolean;
     options?: Array<{ label: string; text: string; isCorrect?: boolean }>;
   }>;
 };
@@ -42,6 +45,7 @@ function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [timeLeft, setTimeLeft] = useState((quiz.duration || 0) * 60);
   const [result, setResult] = useState<QuizResultReview | null>(null);
+  const [resultViewTab, setResultViewTab] = useState<"review" | "leaderboard">("review");
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -280,189 +284,91 @@ function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
 
         {/* RESULT */}
         {phase === "result" && result && (
-          <div className="p-8 text-center">
-            <div className="grid h-20 w-20 place-items-center rounded-3xl mx-auto mb-4"
-              style={result.score.passed ? {background:'#F4B400',color:'#0B1F3A'} : {background:'rgba(239,68,68,0.1)',color:'#DC2626'}}>
-              {result.score.passed ? <Trophy className="h-10 w-10" /> : <X className="h-10 w-10" />}
-            </div>
-            <h2 className="font-display text-3xl font-bold" style={{color: result.score.passed ? '#0B1F3A' : '#DC2626'}}>
-              {result.score.passed ? "You Passed! 🎉" : "Not Passed"}
-            </h2>
-            <p className="text-slate-500 text-sm mt-2">{quiz.title}</p>
-
-            <div className="mt-6 grid grid-cols-3 gap-4">
-              {[
-                { l: "Score", v: `${result.score.rawMarks}/${result.score.totalMarks}` },
-                { l: "Percentage", v: `${result.score.percentage}%` },
-                { l: "Grade", v: getGrade(result.score.percentage) },
-              ].map(s => (
-                <div key={s.l} className="rounded-2xl p-4"
-                  style={result.score.passed ? {background:'rgba(244,180,0,0.1)'} : {background:'rgba(239,68,68,0.07)'}}>
-                  <div className="font-display text-2xl font-bold" style={{color: result.score.passed ? '#0B1F3A' : '#DC2626'}}>{s.v}</div>
-                  <div className="text-xs text-slate-500 mt-1">{s.l}</div>
-                </div>
-              ))}
-            </div>
-
-            <p className="mt-4 text-sm font-semibold" style={{color: result.score.passed ? '#10B981' : '#DC2626'}}>
-              {result.score.passed ? `Great work! You scored above the ${quiz.passPercent}% pass mark.` : `You needed ${quiz.passPercent}% to pass. Keep practicing!`}
-            </p>
-
-            {/* Answer review */}
-            {result.answers && result.answers.length > 0 && (
-              <div className="space-y-4 mt-6 text-left pr-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-display font-bold text-base" style={{color:'#0B1F3A'}}>Detailed Answer Review</h3>
-                  <span className="text-xs font-semibold text-slate-500">
-                    {result.answers.filter((a) => a.isCorrect).length} of {result.answers.length} Correct
-                  </span>
-                </div>
-                {result.answers.map((myAns, i) => {
-                  const quizQ = quiz.questions.find(q => q.id === myAns.questionId)
-                    || quiz.questions.find(q => q.text === myAns.questionText)
-                    || quiz.questions[i];
-                  const qOptions = (myAns.options && myAns.options.length > 0) ? myAns.options : (quizQ?.options || []);
-                  const selectedLabels = myAns.selectedOptions || [];
-                  const correctLabels = myAns.correctOptions || [];
-
-                  return (
-                    <div
-                      key={myAns.questionId || i}
-                      className={`rounded-2xl border p-5 transition-all ${
-                        myAns.isCorrect ? "border-emerald-200 bg-emerald-50/30" : "border-red-200 bg-red-50/30"
-                      }`}
-                    >
-                      {/* 1. Question Header */}
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="flex items-start gap-2.5">
-                          <span
-                            className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
-                              myAns.isCorrect ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
-                            }`}
-                          >
-                            {i + 1}
-                          </span>
-                          <div>
-                            <p className="text-slate-900 text-sm font-semibold leading-relaxed">
-                              {myAns.questionText || quizQ?.text || `Question ${i + 1}`}
-                            </p>
-                          </div>
-                        </div>
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider shrink-0 ${
-                            myAns.isCorrect
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : "bg-red-100 text-red-800 border border-red-300"
-                          }`}
-                        >
-                          {myAns.isCorrect ? "Correct ✓" : "Wrong ✗"}
-                        </span>
-                      </div>
-
-                      {/* 2. All 4 Options */}
-                      {qOptions && qOptions.length > 0 && (
-                        <div className="space-y-2 mb-3 pl-8">
-                          {qOptions.map((opt) => {
-                            const isSelected = selectedLabels.includes(opt.label);
-                            const isCorrectOpt = correctLabels.includes(opt.label) || !!opt.isCorrect;
-
-                            let optCardStyle = "border-slate-200 bg-white text-slate-700";
-                            let badgeNode: React.ReactNode = null;
-                            let circleStyle = "border-slate-300 bg-slate-100 text-slate-600";
-
-                            if (isCorrectOpt && isSelected) {
-                              optCardStyle = "border-emerald-500 bg-emerald-50 text-emerald-900 font-semibold shadow-xs";
-                              circleStyle = "bg-emerald-600 text-white border-emerald-600";
-                              badgeNode = (
-                                <span className="ml-auto text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded text-[11px] font-bold">
-                                  ✓ Your Option (Correct)
-                                </span>
-                              );
-                            } else if (isSelected && !isCorrectOpt) {
-                              optCardStyle = "border-red-400 bg-red-50 text-red-900 font-semibold shadow-xs";
-                              circleStyle = "bg-red-500 text-white border-red-500";
-                              badgeNode = (
-                                <span className="ml-auto text-red-700 bg-red-100/80 px-2 py-0.5 rounded text-[11px] font-bold">
-                                  ✗ Your Option (Wrong)
-                                </span>
-                              );
-                            } else if (isCorrectOpt) {
-                              optCardStyle = "border-emerald-400 bg-emerald-50/60 text-emerald-800 font-medium";
-                              circleStyle = "bg-emerald-500 text-white border-emerald-500";
-                              badgeNode = (
-                                <span className="ml-auto text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded text-[11px] font-bold">
-                                  ✓ Correct Option
-                                </span>
-                              );
-                            }
-
-                            return (
-                              <div
-                                key={opt.label}
-                                className={`flex items-center gap-3 rounded-xl border p-3 text-xs transition-all ${optCardStyle}`}
-                              >
-                                <span
-                                  className={`h-6 w-6 shrink-0 grid place-items-center rounded-full text-[11px] font-bold border ${circleStyle}`}
-                                >
-                                  {opt.label}
-                                </span>
-                                <span className="flex-1">{opt.text}</span>
-                                {badgeNode}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* 3. Your Option vs Correct Option Summary Bar */}
-                      <div className="ml-8 mt-3 pt-3 border-t border-slate-200/60 flex flex-wrap items-center gap-3 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-slate-500 font-medium">Your Option:</span>
-                          <span
-                            className={`font-bold px-2 py-0.5 rounded ${
-                              myAns.isCorrect
-                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                                : "bg-red-100 text-red-800 border border-red-200"
-                            }`}
-                          >
-                            {selectedLabels.join(", ") || "None"}
-                          </span>
-                        </div>
-
-                        {!myAns.isCorrect && (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-500 font-medium">Correct Option:</span>
-                            <span className="font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                              {correctLabels.join(", ") || "None"}
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="ml-auto">
-                          <span
-                            className={`font-bold text-xs ${
-                              myAns.isCorrect ? "text-emerald-600" : "text-red-500"
-                            }`}
-                          >
-                            {myAns.isCorrect ? "Score: +1 mark" : "Score: 0 marks"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* 4. Description / Explanation */}
-                      {myAns.explanation && (
-                        <div className="ml-8 mt-2.5 p-3 rounded-xl bg-amber-50/80 border border-amber-200/60 text-xs text-amber-900">
-                          <span className="font-bold mr-1.5">💡 Explanation:</span>
-                          <span className="italic">{myAns.explanation}</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+          <div className="p-6 space-y-6 text-left">
+            {/* Header Result Card */}
+            <div className="bg-slate-50 border border-slate-200/80 p-6 rounded-3xl text-center">
+              <div
+                className="grid h-16 w-16 place-items-center rounded-2xl mx-auto mb-3"
+                style={result.score.passed ? { background: '#F4B400', color: '#0B1F3A' } : { background: 'rgba(239,68,68,0.1)', color: '#DC2626' }}
+              >
+                {result.score.passed ? <Trophy className="h-8 w-8" /> : <X className="h-8 w-8" />}
               </div>
+              <h2 className="font-display text-2xl font-bold" style={{ color: result.score.passed ? '#0B1F3A' : '#DC2626' }}>
+                {result.score.passed ? "You Passed! 🎉" : "Not Passed"}
+              </h2>
+              <p className="text-slate-500 text-xs mt-1">{quiz.title}</p>
+
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                {[
+                  { l: "Score", v: `${result.score.rawMarks}/${result.score.totalMarks}` },
+                  { l: "Percentage", v: `${result.score.percentage}%` },
+                  { l: "Grade", v: getGrade(result.score.percentage) },
+                ].map((s) => (
+                  <div
+                    key={s.l}
+                    className="rounded-2xl p-3 border border-black/5"
+                    style={result.score.passed ? { background: 'rgba(244,180,0,0.1)' } : { background: 'rgba(239,68,68,0.07)' }}
+                  >
+                    <div className="font-display text-xl font-bold" style={{ color: result.score.passed ? '#0B1F3A' : '#DC2626' }}>
+                      {s.v}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{s.l}</div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-3 text-xs font-semibold" style={{ color: result.score.passed ? '#10B981' : '#DC2626' }}>
+                {result.score.passed
+                  ? `Great work! You scored above the ${quiz.passPercent}% pass mark.`
+                  : `You needed ${quiz.passPercent}% to pass. Keep practicing!`}
+              </p>
+
+              {/* Segmented Switcher */}
+              <div className="mt-4 flex items-center justify-center">
+                <div className="bg-white p-1 rounded-2xl inline-flex items-center gap-1 border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setResultViewTab("review")}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      resultViewTab === "review"
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <ClipboardList className="w-3.5 h-3.5" />
+                    <span>Question Review (3 Tabs)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setResultViewTab("leaderboard")}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      resultViewTab === "leaderboard"
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Leaderboard & Top 3</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Tab View */}
+            {resultViewTab === "review" ? (
+              <QuizQuestionReviewTabs answers={result.answers} theme="light" />
+            ) : (
+              <QuizLeaderboard quizId={quiz.id} theme="light" />
             )}
 
-            <button onClick={onClose} className="mt-6 w-full rounded-full py-3 font-bold text-white" style={{background:'#0B1F3A'}}>Close</button>
+            <button
+              onClick={onClose}
+              className="mt-6 w-full rounded-full py-3 font-bold text-white text-xs transition-all hover:opacity-90 shadow-md"
+              style={{ background: '#0B1F3A' }}
+            >
+              Close Window
+            </button>
           </div>
         )}
       </div>

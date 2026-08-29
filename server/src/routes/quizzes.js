@@ -510,10 +510,97 @@ router.post('/:id/attempt/submit', protect, async (req, res, next) => {
   }
 });
 
+// Helper to grade and normalize attempt against current quiz structure
+function gradeAndNormalizeAttempt(att, quiz) {
+  const questionsList = Array.isArray(quiz.questions) ? quiz.questions : [];
+  const calculatedTotalMarks = questionsList.reduce((sum, q) => sum + ((typeof q.marks === 'number' && !isNaN(q.marks)) ? q.marks : 1), 0);
+  const quizTotalMarks = (typeof quiz.totalMarks === 'number' && !isNaN(quiz.totalMarks) && quiz.totalMarks > 0)
+    ? quiz.totalMarks
+    : (calculatedTotalMarks || questionsList.length || 1);
+  const passPercent = (typeof quiz.passPercent === 'number' && !isNaN(quiz.passPercent)) ? quiz.passPercent : 50;
+
+  let correctCount = 0;
+  let wrongCount = 0;
+  let unattemptedCount = 0;
+  let computedRawMarks = 0;
+
+  const detailedAnswers = questionsList.map((q, qIdx) => {
+    const qId = q._id ? q._id.toString() : '';
+    const qMarks = (typeof q.marks === 'number' && !isNaN(q.marks)) ? q.marks : 1;
+    const ans = (att.answers || []).find(a => a.questionId && a.questionId.toString() === qId);
+    const selectedOptions = (ans && Array.isArray(ans.selectedOptions)) ? ans.selectedOptions : [];
+    const isAttempted = selectedOptions.length > 0;
+
+    const correctOptions = Array.isArray(q.options)
+      ? q.options.filter(o => o.isCorrect).map(o => o.label)
+      : [];
+
+    const isCorrect = isAttempted && correctOptions.length > 0 &&
+      selectedOptions.length === correctOptions.length &&
+      selectedOptions.every(opt => correctOptions.includes(opt));
+
+    let marksAwarded = 0;
+    if (!isAttempted) {
+      unattemptedCount++;
+    } else if (isCorrect) {
+      correctCount++;
+      marksAwarded = +qMarks;
+      computedRawMarks += +qMarks;
+    } else {
+      wrongCount++;
+      if (quiz.negativeMarking) {
+        const negValue = (typeof quiz.negativeMarkValue === 'number' && !isNaN(quiz.negativeMarkValue)) ? quiz.negativeMarkValue : 0;
+        marksAwarded = -negValue;
+        computedRawMarks -= negValue;
+      }
+    }
+
+    const timeTakenSec = ans ? (ans.timeTakenSec ?? 0) : 0;
+
+    return {
+      questionId: qId || String(qIdx),
+      questionText: q.text || `Question ${qIdx + 1}`,
+      marks: qMarks,
+      selectedOptions,
+      isAttempted,
+      isCorrect,
+      marksAwarded,
+      timeTakenSec,
+      explanation: q.explanation || '',
+      correctOptions,
+      options: Array.isArray(q.options) ? q.options.map(o => ({
+        label: o.label,
+        text: o.text,
+        isCorrect: !!o.isCorrect
+      })) : []
+    };
+  });
+
+  const finalRawMarks = Math.max(0, computedRawMarks);
+  const percentage = Math.min(100, Math.max(0, Math.round((finalRawMarks / quizTotalMarks) * 100)));
+  const passed = percentage >= passPercent;
+
+  return {
+    correctCount,
+    wrongCount,
+    unattemptedCount,
+    attendedCount: correctCount + wrongCount,
+    totalQuestions: questionsList.length,
+    rawMarks: finalRawMarks,
+    totalMarks: quizTotalMarks,
+    percentage,
+    passed,
+    detailedAnswers
+  };
+}
+
 // GET /:id/attempt/my-result → Student: get my own attempt result
 router.get('/:id/attempt/my-result', protect, async (req, res, next) => {
   try {
     const { attemptId } = req.query;
+    const quiz = await Quiz.findById(req.params.id);
+    if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
+
     let attempt;
     if (attemptId) {
       attempt = await QuizAttempt.findOne({ _id: attemptId, student: req.user._id }).populate('quiz');
@@ -532,30 +619,71 @@ router.get('/:id/attempt/my-result', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    // Join options isCorrect and explanations to results
-    const quiz = attempt.quiz;
-    const answersWithExplanations = attempt.answers.map(ans => {
-      const q = quiz.questions.find(quest => quest._id.toString() === ans.questionId.toString());
-      return {
-        questionId: ans.questionId,
-        selectedOptions: ans.selectedOptions,
-        isCorrect: ans.isCorrect,
-        marksAwarded: ans.marksAwarded,
-        timeTakenSec: ans.timeTakenSec,
-        questionText: q ? q.text : '',
-        explanation: q ? q.explanation : '',
-        correctOptions: q ? q.options.filter(o => o.isCorrect).map(o => o.label) : [],
-        options: q ? q.options.map(o => ({ label: o.label, text: o.text, isCorrect: o.isCorrect })) : []
+    // Compute student's rank among all submitted attempts
+    const allSubmitted = await QuizAttempt.find({ quiz: quiz._id, status: 'submitted' })
+      .select('student answers score totalTimeTakenSec submittedAt')
+      .lean();
+
+    const studentBestMap = new Map();
+    for (const att of allSubmitted) {
+      const sId = att.student.toString();
+      const norm = gradeAndNormalizeAttempt(att, quiz);
+      const enhancedAtt = {
+        ...att,
+        score: {
+          rawMarks: norm.rawMarks,
+          totalMarks: norm.totalMarks,
+          percentage: norm.percentage,
+          passed: norm.passed
+        },
+        correctCount: norm.correctCount,
+        wrongCount: norm.wrongCount,
+        unattemptedCount: norm.unattemptedCount
       };
+
+      if (!studentBestMap.has(sId)) {
+        studentBestMap.set(sId, enhancedAtt);
+      } else {
+        const existing = studentBestMap.get(sId);
+        if (enhancedAtt.score.percentage > existing.score.percentage) {
+          studentBestMap.set(sId, enhancedAtt);
+        }
+      }
+    }
+
+    const rankedStudents = Array.from(studentBestMap.values()).sort((a, b) => {
+      if (b.score.percentage !== a.score.percentage) return b.score.percentage - a.score.percentage;
+      if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
+      if (b.score.rawMarks !== a.score.rawMarks) return b.score.rawMarks - a.score.rawMarks;
+      if ((a.totalTimeTakenSec || 0) !== (b.totalTimeTakenSec || 0)) return (a.totalTimeTakenSec || 0) - (b.totalTimeTakenSec || 0);
+      return new Date(a.submittedAt || 0) - new Date(b.submittedAt || 0);
     });
+
+    const myRankIndex = rankedStudents.findIndex(att => att.student.toString() === req.user._id.toString());
+    const rank = myRankIndex >= 0 ? myRankIndex + 1 : 1;
+    const totalParticipants = rankedStudents.length;
+
+    const myNorm = gradeAndNormalizeAttempt(attempt, quiz);
 
     res.json({
       success: true,
-      score: attempt.score,
-      totalTimeTakenSec: attempt.totalTimeTakenSec,
+      score: {
+        rawMarks: myNorm.rawMarks,
+        totalMarks: myNorm.totalMarks,
+        percentage: myNorm.percentage,
+        passed: myNorm.passed
+      },
+      totalTimeTakenSec: attempt.totalTimeTakenSec || 0,
       submittedAt: attempt.submittedAt,
-      attemptNo: attempt.attemptNo,
-      answers: answersWithExplanations
+      attemptNo: attempt.attemptNo || 1,
+      correctCount: myNorm.correctCount,
+      wrongCount: myNorm.wrongCount,
+      unattemptedCount: myNorm.unattemptedCount,
+      attendedCount: myNorm.attendedCount,
+      totalQuestions: myNorm.totalQuestions,
+      rank,
+      totalParticipants,
+      answers: myNorm.detailedAnswers
     });
   } catch (error) {
     next(error);
@@ -577,40 +705,100 @@ router.get('/:id/leaderboard', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Leaderboard is disabled for this quiz' });
     }
 
-    // Get best attempt per student
-    const attempts = await QuizAttempt.aggregate([
-      { $match: { quiz: quiz._id, status: 'submitted' } },
-      { $sort: { 'score.rawMarks': -1, submittedAt: 1 } },
-      {
-        $group: {
-          _id: '$student',
-          bestAttempt: { $first: '$$ROOT' }
-        }
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'studentInfo'
-        }
-      },
-      { $unwind: '$studentInfo' },
-      {
-        $project: {
-          studentName: '$studentInfo.fullName',
-          avatar: '$studentInfo.avatar',
-          score: '$bestAttempt.score.rawMarks',
-          totalMarks: '$bestAttempt.score.totalMarks',
-          percentage: '$bestAttempt.score.percentage',
-          timeTaken: '$bestAttempt.submittedAt',
-          attemptNo: '$bestAttempt.attemptNo'
-        }
-      },
-      { $sort: { score: -1, percentage: -1 } }
-    ]);
+    // Get all submitted attempts
+    const attempts = await QuizAttempt.find({ quiz: quiz._id, status: 'submitted' })
+      .populate('student', 'fullName email avatar')
+      .lean();
 
-    res.json({ success: true, leaderboard: attempts });
+    const questionsList = Array.isArray(quiz.questions) ? quiz.questions : [];
+
+    // Deduplicate by student: choose best attempt
+    const studentMap = new Map();
+    for (const att of attempts) {
+      if (!att.student) continue;
+      const sId = att.student._id ? att.student._id.toString() : att.student.toString();
+      const norm = gradeAndNormalizeAttempt(att, quiz);
+      const enhancedAtt = {
+        ...att,
+        scoreValue: norm.rawMarks,
+        totalMarks: norm.totalMarks,
+        percentage: norm.percentage,
+        passed: norm.passed,
+        correctCount: norm.correctCount,
+        wrongCount: norm.wrongCount,
+        unattemptedCount: norm.unattemptedCount,
+        attendedCount: norm.attendedCount,
+        totalQuestions: norm.totalQuestions
+      };
+
+      if (!studentMap.has(sId)) {
+        studentMap.set(sId, enhancedAtt);
+      } else {
+        const existing = studentMap.get(sId);
+        if (enhancedAtt.percentage > existing.percentage) {
+          studentMap.set(sId, enhancedAtt);
+        }
+      }
+    }
+
+    const uniqueAttempts = Array.from(studentMap.values()).sort((a, b) => {
+      if (b.percentage !== a.percentage) return b.percentage - a.percentage;
+      if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
+      if (b.scoreValue !== a.scoreValue) return b.scoreValue - a.scoreValue;
+      if ((a.totalTimeTakenSec || 0) !== (b.totalTimeTakenSec || 0)) return (a.totalTimeTakenSec || 0) - (b.totalTimeTakenSec || 0);
+      return new Date(a.submittedAt || 0) - new Date(b.submittedAt || 0);
+    });
+
+    // Build ranked entries
+    const leaderboard = uniqueAttempts.map((att, index) => ({
+      rank: index + 1,
+      studentId: att.student._id ? att.student._id.toString() : String(att.student),
+      studentName: att.student.fullName || 'Student',
+      email: att.student.email || '',
+      avatar: att.student.avatar || '',
+      score: att.scoreValue,
+      totalMarks: att.totalMarks,
+      percentage: att.percentage,
+      passed: att.passed,
+      timeTakenSec: att.totalTimeTakenSec || 0,
+      submittedAt: att.submittedAt,
+      attemptNo: att.attemptNo || 1,
+      correctCount: att.correctCount,
+      wrongCount: att.wrongCount,
+      unattemptedCount: att.unattemptedCount,
+      attendedCount: att.attendedCount,
+      totalQuestions: att.totalQuestions
+    }));
+
+    const totalParticipants = leaderboard.length;
+    const averageScore = totalParticipants > 0
+      ? Math.round(leaderboard.reduce((s, a) => s + a.percentage, 0) / totalParticipants)
+      : 0;
+    const topScore = totalParticipants > 0
+      ? Math.max(...leaderboard.map(a => a.score))
+      : 0;
+    const passCount = leaderboard.filter(a => a.passed).length;
+    const passRate = totalParticipants > 0
+      ? Math.round((passCount / totalParticipants) * 100)
+      : 0;
+
+    const top3 = leaderboard.slice(0, 3);
+    const myRank = leaderboard.find(a => a.studentId === req.user._id.toString()) || null;
+
+    res.json({
+      success: true,
+      quizTitle: quiz.title,
+      totalQuestions: questionsList.length,
+      stats: {
+        totalParticipants,
+        averageScore,
+        topScore,
+        passRate
+      },
+      top3,
+      leaderboard,
+      myRank
+    });
   } catch (error) {
     next(error);
   }
@@ -846,11 +1034,51 @@ router.get('/:id/report', async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    const attempts = await QuizAttempt.find({ quiz: req.params.id, status: 'submitted' })
-      .populate('student', 'fullName email phone')
-      .sort({ 'score.rawMarks': -1 });
+    const rawAttempts = await QuizAttempt.find({ quiz: req.params.id, status: 'submitted' })
+      .populate('student', 'fullName email phone avatar')
+      .lean();
 
-    res.json({ success: true, attempts });
+    const questionsList = Array.isArray(quiz.questions) ? quiz.questions : [];
+
+    const attempts = rawAttempts.map((att) => {
+      const norm = gradeAndNormalizeAttempt(att, quiz);
+
+      return {
+        ...att,
+        id: att._id.toString(),
+        studentName: att.student?.fullName || 'Student',
+        studentEmail: att.student?.email || '',
+        studentAvatar: att.student?.avatar || '',
+        score: {
+          rawMarks: norm.rawMarks,
+          totalMarks: norm.totalMarks,
+          percentage: norm.percentage,
+          passed: norm.passed
+        },
+        correctCount: norm.correctCount,
+        wrongCount: norm.wrongCount,
+        unattemptedCount: norm.unattemptedCount,
+        attendedCount: norm.attendedCount,
+        totalQuestions: norm.totalQuestions,
+        answers: norm.detailedAnswers
+      };
+    });
+
+    // Sort accurately by performance (Percentage > Correct count > Raw marks > Fastest time)
+    attempts.sort((a, b) => {
+      if (b.score.percentage !== a.score.percentage) return b.score.percentage - a.score.percentage;
+      if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
+      if (b.score.rawMarks !== a.score.rawMarks) return b.score.rawMarks - a.score.rawMarks;
+      if ((a.totalTimeTakenSec || 0) !== (b.totalTimeTakenSec || 0)) return (a.totalTimeTakenSec || 0) - (b.totalTimeTakenSec || 0);
+      return new Date(a.submittedAt || 0) - new Date(b.submittedAt || 0);
+    });
+
+    // Assign true ranks
+    attempts.forEach((att, idx) => {
+      att.rank = idx + 1;
+    });
+
+    res.json({ success: true, attempts, totalQuestions: questionsList.length });
   } catch (error) {
     next(error);
   }

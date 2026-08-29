@@ -53,11 +53,18 @@ export interface QuizAttempt {
   id: string;
   studentId: string;
   studentName: string;
+  studentEmail?: string;
+  studentAvatar?: string;
+  rank?: number;
   attemptNo: number;
   status: "in_progress" | "submitted";
   startedAt: string;
   submittedAt?: string;
   totalTimeTakenSec?: number;
+  correctCount?: number;
+  wrongCount?: number;
+  unattemptedCount?: number;
+  totalQuestions?: number;
   answers: Answer[];
   score: {
     rawMarks: number;

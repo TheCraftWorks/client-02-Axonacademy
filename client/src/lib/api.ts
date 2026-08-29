@@ -611,18 +611,36 @@ export async function deleteQuiz(quizId: string) {
 function normalizeBackendQuizAttempt(att: any) {
   return {
     id: att._id || att.id,
+    rank: att.rank || 1,
     studentId: String(att.student?._id || att.student || ''),
     studentName: att.studentName || att.student?.fullName || 'Student',
+    studentEmail: att.studentEmail || att.student?.email || '',
+    studentAvatar: att.studentAvatar || att.student?.avatar || '',
     attemptNo: att.attemptNo || 1,
     status: att.status || 'submitted',
     startedAt: att.startedAt,
     submittedAt: att.submittedAt,
     totalTimeTakenSec: att.totalTimeTakenSec || 0,
+    correctCount: att.correctCount ?? 0,
+    wrongCount: att.wrongCount ?? 0,
+    unattemptedCount: att.unattemptedCount ?? 0,
+    totalQuestions: att.totalQuestions ?? 0,
     answers: Array.isArray(att.answers) ? att.answers.map((ans: any) => ({
       questionId: String(ans.questionId),
+      questionText: ans.questionText || '',
+      marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
+      correctOptions: ans.correctOptions || [],
+      isAttempted: ans.isAttempted !== undefined ? !!ans.isAttempted : (ans.selectedOptions && ans.selectedOptions.length > 0),
       isCorrect: !!ans.isCorrect,
       marksAwarded: ans.marksAwarded ?? 0,
+      timeTakenSec: ans.timeTakenSec ?? 0,
+      explanation: ans.explanation || '',
+      options: Array.isArray(ans.options) ? ans.options.map((o: any) => ({
+        label: o.label || '',
+        text: o.text || '',
+        isCorrect: !!o.isCorrect,
+      })) : [],
     })) : [],
     score: {
       rawMarks: att.score?.rawMarks ?? 0,
@@ -648,13 +666,14 @@ function normalizeApiQuizQuestion(q: any) {
 }
 
 export async function startQuizAttempt(quizId: string) {
-  const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/attempt/start`, { method: 'POST' });
+  const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/attempt/start`, {
+    method: 'POST',
+  });
   if (payload.alreadySubmitted) {
     return {
       alreadySubmitted: true,
-      attemptId: payload.attemptId ? String(payload.attemptId) : undefined,
+      attemptId: String(payload.attemptId || ''),
       message: payload.message || 'You have already submitted this quiz.',
-      questions: [],
     };
   }
   return {
@@ -708,7 +727,41 @@ export async function submitQuizAttempt(quizId: string, attemptId: string) {
   };
 }
 
-export async function getQuizAttemptResult(quizId: string, attemptId?: string) {
+export interface QuizAttemptReviewResult {
+  score: {
+    rawMarks: number;
+    totalMarks: number;
+    percentage: number;
+    passed: boolean;
+  };
+  submittedAt?: string;
+  totalTimeTakenSec?: number;
+  correctCount: number;
+  wrongCount: number;
+  unattemptedCount: number;
+  totalQuestions: number;
+  rank?: number;
+  totalParticipants?: number;
+  answers: Array<{
+    questionId: string;
+    questionText: string;
+    marks?: number;
+    selectedOptions: string[];
+    correctOptions: string[];
+    isAttempted: boolean;
+    isCorrect: boolean;
+    marksAwarded: number;
+    timeTakenSec?: number;
+    explanation?: string;
+    options: Array<{
+      label: string;
+      text: string;
+      isCorrect: boolean;
+    }>;
+  }>;
+}
+
+export async function getQuizAttemptResult(quizId: string, attemptId?: string): Promise<QuizAttemptReviewResult> {
   const query = attemptId ? `?attemptId=${encodeURIComponent(attemptId)}` : '';
   const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/attempt/my-result${query}`);
   return {
@@ -719,20 +772,75 @@ export async function getQuizAttemptResult(quizId: string, attemptId?: string) {
       passed: !!payload.score?.passed,
     },
     submittedAt: payload.submittedAt,
+    totalTimeTakenSec: payload.totalTimeTakenSec || 0,
+    correctCount: payload.correctCount ?? 0,
+    wrongCount: payload.wrongCount ?? 0,
+    unattemptedCount: payload.unattemptedCount ?? 0,
+    totalQuestions: payload.totalQuestions ?? 0,
+    rank: payload.rank,
+    totalParticipants: payload.totalParticipants,
     answers: Array.isArray(payload.answers) ? payload.answers.map((ans: any) => ({
       questionId: String(ans.questionId),
+      questionText: ans.questionText || '',
+      marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
+      correctOptions: ans.correctOptions || [],
+      isAttempted: ans.isAttempted !== undefined ? !!ans.isAttempted : (ans.selectedOptions && ans.selectedOptions.length > 0),
       isCorrect: !!ans.isCorrect,
       marksAwarded: ans.marksAwarded ?? 0,
-      questionText: ans.questionText || '',
+      timeTakenSec: ans.timeTakenSec ?? 0,
       explanation: ans.explanation || '',
-      correctOptions: ans.correctOptions || [],
       options: Array.isArray(ans.options) ? ans.options.map((o: any) => ({
         label: o.label || '',
         text: o.text || '',
         isCorrect: !!o.isCorrect,
       })) : [],
     })) : [],
+  };
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  studentId: string;
+  studentName: string;
+  email?: string;
+  avatar?: string;
+  score: number;
+  totalMarks: number;
+  percentage: number;
+  passed: boolean;
+  timeTakenSec: number;
+  submittedAt?: string;
+  attemptNo: number;
+  correctCount: number;
+  wrongCount: number;
+  unattemptedCount: number;
+  totalQuestions: number;
+}
+
+export interface QuizLeaderboardResponse {
+  quizTitle: string;
+  totalQuestions: number;
+  stats: {
+    totalParticipants: number;
+    averageScore: number;
+    topScore: number;
+    passRate: number;
+  };
+  top3: LeaderboardEntry[];
+  leaderboard: LeaderboardEntry[];
+  myRank: LeaderboardEntry | null;
+}
+
+export async function getQuizLeaderboard(quizId: string): Promise<QuizLeaderboardResponse> {
+  const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/leaderboard`);
+  return {
+    quizTitle: payload.quizTitle || '',
+    totalQuestions: payload.totalQuestions || 0,
+    stats: payload.stats || { totalParticipants: 0, averageScore: 0, topScore: 0, passRate: 0 },
+    top3: Array.isArray(payload.top3) ? payload.top3 : [],
+    leaderboard: Array.isArray(payload.leaderboard) ? payload.leaderboard : [],
+    myRank: payload.myRank || null,
   };
 }
 

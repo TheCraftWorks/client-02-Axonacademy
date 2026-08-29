@@ -4,7 +4,7 @@ import {
   LuArrowLeft, LuMegaphone, LuVideo, LuBookOpen, LuClipboardList,
   LuPlus, LuX, LuTrash2, LuPlay, LuEye, LuEyeOff, LuCheck, LuSend,
   LuCalendar, LuClock, LuRadio, LuUpload, LuUsers, LuCircleDot, LuDownload, LuCopy, LuLink, LuAward, LuShare2, LuUserPlus,
-  LuFolder, LuSearch, LuPrinter, LuRefreshCw
+  LuFolder, LuSearch, LuPrinter, LuRefreshCw, LuCrown, LuMedal, LuSparkles
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { DarkCard } from "@/components/portal/PortalShell";
@@ -24,6 +24,8 @@ import {
   type QuizAttempt,
 } from "@/lib/classroomStore";
 import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder } from "@/lib/api";
+import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
+import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnswerSheetModal";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { jsPDF } from "jspdf";
@@ -1740,6 +1742,8 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
   const [reportAttempts, setReportAttempts] = useState<QuizAttempt[]>([]);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [reportError, setReportError] = useState("");
+  const [inspectStudentAttempt, setInspectStudentAttempt] = useState<any | null>(null);
+  const [adminReportTab, setAdminReportTab] = useState<"table" | "leaderboard">("table");
 
   const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
   const [duplicateQuiz, setDuplicateQuiz] = useState<Quiz | null>(null);
@@ -2422,88 +2426,369 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
     const passRate = submitted.length ? Math.round(submitted.filter((a) => a.score.passed).length / submitted.length * 100) : 0;
     const avgScore = submitted.length ? Math.round(submitted.reduce((s, a) => s + a.score.percentage, 0) / submitted.length) : 0;
 
+    const sortedAttempts = [...submitted].sort((a: any, b: any) => {
+      const aPct = a.score?.percentage ?? 0;
+      const bPct = b.score?.percentage ?? 0;
+      if (bPct !== aPct) return bPct - aPct;
+
+      const aCorrect = a.correctCount ?? (a.answers?.filter((x: any) => x.isCorrect).length || 0);
+      const bCorrect = b.correctCount ?? (b.answers?.filter((x: any) => x.isCorrect).length || 0);
+      if (bCorrect !== aCorrect) return bCorrect - aCorrect;
+
+      const aRaw = a.score?.rawMarks ?? 0;
+      const bRaw = b.score?.rawMarks ?? 0;
+      if (bRaw !== aRaw) return bRaw - aRaw;
+
+      return (a.totalTimeTakenSec || 0) - (b.totalTimeTakenSec || 0);
+    });
+    const rank1 = sortedAttempts[0];
+    const rank2 = sortedAttempts[1];
+    const rank3 = sortedAttempts[2];
+
+    const formatSec = (sec?: number) => {
+      if (!sec || sec <= 0) return "< 1m";
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      if (m === 0) return `${s}s`;
+      return `${m}m ${s}s`;
+    };
+
     return (
-      <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setViewQuizId(null)} className="text-cream/60 hover:text-cream"><LuArrowLeft className="h-5 w-5" /></button>
-          <div className="flex-1">
-            <h2 className="font-display font-bold text-cream">{q.title} — Report</h2>
-            <p className="text-cream/60 text-xs">
-              {isLoadingReport ? "Loading submissions…" : `${submitted.length} submissions · ${passRate}% pass rate · ${avgScore}% avg score`}
-            </p>
+      <div className="space-y-6 text-slate-900">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setViewQuizId(null)}
+              className="w-9 h-9 rounded-full bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center justify-center transition-colors shadow-xs"
+            >
+              <LuArrowLeft className="h-4 w-4" />
+            </button>
+            <div>
+              <h2 className="font-display font-bold text-slate-900 text-lg sm:text-xl">{q.title} — Report & Mark Sheet</h2>
+              <p className="text-slate-500 text-xs mt-0.5">
+                {isLoadingReport ? "Loading submissions…" : `${submitted.length} submissions · ${passRate}% pass rate · ${avgScore}% avg score`}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={() => void refreshClassroom().then(() => getQuizReport(viewQuizId).then(setReportAttempts))}
-            disabled={isLoadingReport}
-            className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
-          >
-            Refresh
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void refreshClassroom().then(() => getQuizReport(viewQuizId).then(setReportAttempts))}
+              disabled={isLoadingReport}
+              className="flex items-center gap-1.5 rounded-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3.5 py-1.5 text-xs font-semibold disabled:opacity-40 transition-colors shadow-xs"
+            >
+              <LuRefreshCw className={`w-3.5 h-3.5 ${isLoadingReport ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
 
+        {/* KPI Summary Cards */}
         {isLoadingReport ? (
-          <div className="grid grid-cols-3 gap-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-4 text-center animate-pulse">
-                <div className="h-3 bg-cream/10 rounded w-16 mx-auto mb-2" />
-                <div className="h-7 bg-cream/15 rounded w-12 mx-auto" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="rounded-2xl bg-white border border-slate-200 p-4 text-center animate-pulse shadow-xs">
+                <div className="h-3 bg-slate-100 rounded w-16 mx-auto mb-2" />
+                <div className="h-7 bg-slate-150 rounded w-12 mx-auto" />
               </div>
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-3">
-            {[{ l: "Submitted", v: submitted.length }, { l: "Pass Rate", v: `${passRate}%` }, { l: "Avg Score", v: `${avgScore}%` }].map((s) => (
-              <div key={s.l} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-4 text-center">
-                <div className="text-[10px] uppercase tracking-widest text-cream/60">{s.l}</div>
-                <div className="font-display text-2xl font-bold text-cream mt-1">{s.v}</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { l: "Total Submissions", v: submitted.length },
+              { l: "Pass Rate", v: `${passRate}%` },
+              { l: "Average Score", v: `${avgScore}%` },
+              { l: "Top Score", v: submitted.length > 0 ? `${Math.max(...submitted.map(a => a.score.percentage))}%` : "0%" },
+            ].map((s) => (
+              <div key={s.l} className="rounded-2xl bg-white border border-slate-200 p-4 text-center shadow-xs">
+                <div className="text-[11px] uppercase tracking-widest text-slate-500 font-bold">{s.l}</div>
+                <div className="font-display text-2xl font-bold text-slate-900 mt-1">{s.v}</div>
               </div>
             ))}
           </div>
         )}
 
-        <div className="p-0 overflow-hidden">
-          <DarkCard className="p-0 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-cream/5">
-                <tr className="text-[10px] uppercase tracking-widest text-cream/60 text-left">
-                  <th className="p-4">Student</th>
-                  <th>Score</th>
-                  <th>%</th>
-                  <th>Status</th>
-                  <th>Submitted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoadingReport ? (
-                  <>
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <tr key={i} className="border-t border-cream/10 animate-pulse">
-                        <td className="p-4"><div className="h-4 bg-cream/10 rounded w-32" /></td>
-                        <td><div className="h-4 bg-cream/10 rounded w-14" /></td>
-                        <td><div className="h-4 bg-cream/10 rounded w-10" /></td>
-                        <td><div className="h-5 bg-cream/10 rounded w-12" /></td>
-                        <td className="p-4"><div className="h-4 bg-cream/10 rounded w-24" /></td>
-                      </tr>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    {submitted.map((att) => (
-                      <tr key={att.id} className="border-t border-cream/10 hover:bg-cream/5">
-                        <td className="p-4 font-semibold text-cream">{att.studentName}</td>
-                        <td className="font-mono text-cream/80">{att.score.rawMarks}/{att.score.totalMarks}</td>
-                        <td className="font-mono text-cream/80">{att.score.percentage}%</td>
-                        <td><span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded ${att.score.passed ? "bg-lime/20 text-lime" : "bg-red-500/20 text-red-300"}`}>{att.score.passed ? "Pass" : "Fail"}</span></td>
-                        <td className="text-cream/60 text-xs">{att.submittedAt ? fmtDate(att.submittedAt) : "—"}</td>
-                      </tr>
-                    ))}
-                    {submitted.length === 0 && (<tr><td colSpan={5} className="p-6 text-center text-cream/50 text-sm">No submissions yet.</td></tr>)}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </DarkCard>
+        {/* Top 3 Podium Achievers */}
+        {!isLoadingReport && sortedAttempts.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <LuSparkles className="w-4 h-4 text-amber-500" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Top 3 Podium Achievers
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+              {/* Rank 2 (Silver) */}
+              {rank2 ? (
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white flex flex-col items-center text-center relative transition-all order-2 md:order-1 hover:border-slate-300 shadow-xs">
+                  <div className="absolute -top-3 px-3 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-[10px] font-bold shadow-2xs flex items-center gap-1">
+                    <LuMedal className="w-3 h-3 text-slate-500" /> 2ND RANK
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center font-display font-bold text-base mt-2 text-slate-700">
+                    {rank2.studentName.charAt(0).toUpperCase()}
+                  </div>
+                  <h5 className="font-display font-bold text-sm mt-2 truncate max-w-full text-slate-900">
+                    {rank2.studentName}
+                  </h5>
+                  <div className="text-xs font-mono font-bold mt-0.5 text-slate-800">
+                    {rank2.score.percentage}% ({rank2.score.rawMarks}/{rank2.score.totalMarks} Marks)
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                    {(rank2.correctCount ?? 0) + (rank2.wrongCount ?? 0)}/{rank2.totalQuestions || q.questions?.length || 50} Qs Attended
+                  </div>
+                  <div className="text-[11px] flex items-center gap-1 mt-1 font-medium text-slate-500">
+                    <LuClock className="w-3 h-3 text-slate-400" /> {formatSec(rank2.totalTimeTakenSec)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInspectStudentAttempt(rank2)}
+                    className="mt-2.5 text-xs font-semibold text-slate-700 hover:text-slate-900 underline decoration-slate-300 flex items-center gap-1"
+                  >
+                    <LuEye className="w-3.5 h-3.5 text-slate-500" /> View Sheet
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center opacity-60 order-2 md:order-1">
+                  <p className="text-xs py-6 text-slate-500">No 2nd rank yet</p>
+                </div>
+              )}
+
+              {/* Rank 1 (Gold) */}
+              {rank1 && (
+                <div className="p-5 rounded-2xl border-2 border-amber-300 bg-amber-50/60 flex flex-col items-center text-center relative transition-all order-1 md:order-2 shadow-sm">
+                  <div className="absolute -top-3.5 px-3.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-xs font-black shadow-xs flex items-center gap-1.5 animate-bounce">
+                    <LuCrown className="w-3.5 h-3.5 fill-current" /> 1ST RANK 🏆
+                  </div>
+                  <div className="w-14 h-14 rounded-xl bg-amber-100 border-2 border-amber-300 flex items-center justify-center font-display font-black text-xl mt-2 text-amber-800">
+                    {rank1.studentName.charAt(0).toUpperCase()}
+                  </div>
+                  <h5 className="font-display font-black text-base mt-2 truncate max-w-full text-slate-900">
+                    {rank1.studentName}
+                  </h5>
+                  <div className="text-sm font-mono font-black mt-0.5 text-amber-950">
+                    {rank1.score.percentage}% ({rank1.score.rawMarks}/{rank1.score.totalMarks} Marks)
+                  </div>
+                  <div className="text-xs font-semibold text-slate-600 mt-0.5">
+                    {(rank1.correctCount ?? 0) + (rank1.wrongCount ?? 0)}/{rank1.totalQuestions || q.questions?.length || 50} Qs Attended
+                  </div>
+                  <div className="text-xs flex items-center gap-1 mt-1 font-semibold text-slate-600">
+                    <LuClock className="w-3.5 h-3.5 text-amber-600" /> {formatSec(rank1.totalTimeTakenSec)}
+                  </div>
+                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                    <LuCheck className="w-3 h-3" /> {rank1.correctCount ?? (rank1.answers?.filter((a: any) => a.isCorrect).length || 0)} Correct
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInspectStudentAttempt(rank1)}
+                    className="mt-2.5 text-xs font-bold text-amber-900 hover:text-amber-950 underline decoration-amber-400 flex items-center gap-1"
+                  >
+                    <LuEye className="w-3.5 h-3.5 text-amber-700" /> View Sheet
+                  </button>
+                </div>
+              )}
+
+              {/* Rank 3 (Bronze) */}
+              {rank3 ? (
+                <div className="p-4 rounded-2xl border border-amber-200/80 bg-white flex flex-col items-center text-center relative transition-all order-3 hover:border-amber-300 shadow-xs">
+                  <div className="absolute -top-3 px-3 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold shadow-2xs flex items-center gap-1">
+                    <LuMedal className="w-3 h-3 text-amber-700" /> 3RD RANK
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center font-display font-bold text-base mt-2 text-amber-800">
+                    {rank3.studentName.charAt(0).toUpperCase()}
+                  </div>
+                  <h5 className="font-display font-bold text-sm mt-2 truncate max-w-full text-slate-900">
+                    {rank3.studentName}
+                  </h5>
+                  <div className="text-xs font-mono font-bold mt-0.5 text-slate-800">
+                    {rank3.score.percentage}% ({rank3.score.rawMarks}/{rank3.score.totalMarks} Marks)
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                    {(rank3.correctCount ?? 0) + (rank3.wrongCount ?? 0)}/{rank3.totalQuestions || q.questions?.length || 50} Qs Attended
+                  </div>
+                  <div className="text-[11px] flex items-center gap-1 mt-1 font-medium text-slate-500">
+                    <LuClock className="w-3 h-3 text-slate-400" /> {formatSec(rank3.totalTimeTakenSec)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInspectStudentAttempt(rank3)}
+                    className="mt-2.5 text-xs font-semibold text-amber-900 hover:text-amber-950 underline decoration-amber-300 flex items-center gap-1"
+                  >
+                    <LuEye className="w-3.5 h-3.5 text-amber-700" /> View Sheet
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center opacity-60 order-3">
+                  <p className="text-xs py-6 text-slate-500">No 3rd rank yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Student Marksheet Table */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+              <LuClipboardList className="w-4 h-4 text-slate-600" />
+              <span>Full Student Mark Sheet ({submitted.length})</span>
+            </h4>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[760px]">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-[11px] uppercase tracking-wider text-slate-600 font-bold text-left">
+                    <th className="p-3.5 pl-4 w-14">Rank</th>
+                    <th className="p-3.5 min-w-[160px]">Student</th>
+                    <th className="p-3.5 text-center min-w-[120px] whitespace-nowrap">Score & Qs</th>
+                    <th className="p-3.5 text-center min-w-[75px] whitespace-nowrap">%</th>
+                    <th className="p-3.5 text-center min-w-[150px] whitespace-nowrap">Breakdown</th>
+                    <th className="p-3.5 min-w-[80px] whitespace-nowrap">Status</th>
+                    <th className="p-3.5 min-w-[110px] whitespace-nowrap">Submitted</th>
+                    <th className="p-3.5 pr-4 text-right min-w-[120px] whitespace-nowrap">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoadingReport ? (
+                    <>
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <tr key={i} className="border-t border-slate-100 animate-pulse">
+                          <td className="p-3.5 pl-4"><div className="h-5 bg-slate-100 rounded w-6" /></td>
+                          <td className="p-3.5"><div className="h-4 bg-slate-100 rounded w-32" /></td>
+                          <td className="p-3.5"><div className="h-4 bg-slate-100 rounded w-14 mx-auto" /></td>
+                          <td className="p-3.5"><div className="h-4 bg-slate-100 rounded w-10 mx-auto" /></td>
+                          <td className="p-3.5"><div className="h-4 bg-slate-100 rounded w-24 mx-auto" /></td>
+                          <td className="p-3.5"><div className="h-5 bg-slate-100 rounded w-12" /></td>
+                          <td className="p-3.5"><div className="h-4 bg-slate-100 rounded w-20" /></td>
+                          <td className="p-3.5 pr-4 text-right"><div className="h-6 bg-slate-100 rounded w-24 ml-auto" /></td>
+                        </tr>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      {sortedAttempts.map((att: any, idx: number) => {
+                        const rankNum = idx + 1;
+                        const isTop1 = rankNum === 1;
+                        const isTop2 = rankNum === 2;
+                        const isTop3 = rankNum === 3;
+                        const attendedCount = (att.correctCount ?? 0) + (att.wrongCount ?? 0);
+                        const totalQs = att.totalQuestions || q.questions.length || 50;
+
+                        return (
+                          <tr key={att.id} className="border-t border-slate-100 hover:bg-slate-50/70 transition-colors">
+                            <td className="p-3.5 pl-4">
+                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
+                                isTop1
+                                  ? "bg-amber-400 text-slate-950 font-black shadow-2xs"
+                                  : isTop2
+                                  ? "bg-slate-200 text-slate-800 font-bold border border-slate-300"
+                                  : isTop3
+                                  ? "bg-amber-100 text-amber-900 font-bold border border-amber-300"
+                                  : "bg-slate-100 text-slate-600 font-medium"
+                              }`}>
+                                #{rankNum}
+                              </span>
+                            </td>
+
+                            <td className="p-3.5">
+                              <div>
+                                <div className="font-bold text-slate-900 text-sm">{att.studentName}</div>
+                                {att.studentEmail && (
+                                  <div className="text-xs text-slate-500 truncate max-w-xs">{att.studentEmail}</div>
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="p-3.5 text-center whitespace-nowrap">
+                              <div className="font-mono font-bold text-slate-900 text-sm">
+                                {att.score.rawMarks}/{att.score.totalMarks} Marks
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-medium mt-0.5">
+                                {attendedCount}/{totalQs} Qs Attended
+                              </div>
+                            </td>
+
+                            <td className="p-3.5 text-center whitespace-nowrap">
+                              <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-xs">
+                                {att.score.percentage}%
+                              </span>
+                            </td>
+
+                            <td className="p-3.5 text-center whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5 text-xs">
+                                <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 font-semibold" title="Correct">
+                                  ✓ {att.correctCount ?? (att.answers?.filter((a: any) => a.isCorrect).length || 0)}
+                                </span>
+                                <span className="text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200 font-semibold" title="Wrong">
+                                  ✗ {att.wrongCount ?? (att.answers?.filter((a: any) => a.isAttempted && !a.isCorrect).length || 0)}
+                                </span>
+                                <span className="text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 font-medium" title="Not Attempted">
+                                  ⊘ {att.unattemptedCount ?? (att.answers?.filter((a: any) => !a.isAttempted).length || 0)}
+                                </span>
+                              </div>
+                            </td>
+
+                            <td className="p-3.5 whitespace-nowrap">
+                              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+                                att.score.passed
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-rose-50 text-rose-700 border border-rose-200"
+                              }`}>
+                                {att.score.passed ? "Pass" : "Fail"}
+                              </span>
+                            </td>
+
+                            <td className="p-3.5 text-slate-500 text-xs whitespace-nowrap">
+                              {att.submittedAt ? fmtDate(att.submittedAt) : "—"}
+                            </td>
+
+                            <td className="p-3.5 pr-4 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => setInspectStudentAttempt(att)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold border border-slate-200 transition-colors shadow-2xs"
+                              >
+                                <LuEye className="w-3.5 h-3.5 text-slate-500" />
+                                <span>View Sheet</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {submitted.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="p-8 text-center text-slate-500 text-sm">
+                            No submissions found for this test yet.
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+
+        {/* Answer Sheet Modal for Admin */}
+        {inspectStudentAttempt && (
+          <AdminStudentAnswerSheetModal
+            isOpen={Boolean(inspectStudentAttempt)}
+            onClose={() => setInspectStudentAttempt(null)}
+            studentName={inspectStudentAttempt.studentName}
+            studentEmail={inspectStudentAttempt.studentEmail}
+            quizTitle={q.title}
+            rank={inspectStudentAttempt.rank}
+            score={inspectStudentAttempt.score}
+            totalTimeTakenSec={inspectStudentAttempt.totalTimeTakenSec}
+            submittedAt={inspectStudentAttempt.submittedAt}
+            answers={inspectStudentAttempt.answers || []}
+          />
+        )}
       </div>
     );
   }
