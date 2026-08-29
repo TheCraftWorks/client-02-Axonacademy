@@ -4,7 +4,7 @@ import {
   LuArrowLeft, LuMegaphone, LuVideo, LuBookOpen, LuClipboardList,
   LuPlus, LuX, LuTrash2, LuPlay, LuEye, LuEyeOff, LuCheck, LuSend,
   LuCalendar, LuClock, LuRadio, LuUpload, LuUsers, LuCircleDot, LuDownload, LuCopy, LuLink, LuAward, LuShare2, LuUserPlus,
-  LuFolder, LuSearch, LuPrinter, LuRefreshCw, LuCrown, LuMedal, LuSparkles
+  LuFolder, LuSearch, LuPrinter, LuRefreshCw, LuCrown, LuMedal, LuSparkles, LuTrophy
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { DarkCard } from "@/components/portal/PortalShell";
@@ -707,7 +707,7 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
           const timeoutId = setTimeout(() => {
             try {
               if (video.src) window.URL.revokeObjectURL(video.src);
-            } catch {}
+            } catch { }
             resolve(0);
           }, 2000);
 
@@ -717,14 +717,14 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
             clearTimeout(timeoutId);
             try {
               window.URL.revokeObjectURL(video.src);
-            } catch {}
+            } catch { }
             resolve(Math.round(video.duration) || 0);
           };
           video.onerror = () => {
             clearTimeout(timeoutId);
             try {
               window.URL.revokeObjectURL(video.src);
-            } catch {}
+            } catch { }
             resolve(0);
           };
           video.src = URL.createObjectURL(uploadFile);
@@ -1293,8 +1293,8 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
                       ) : (
                         uploadStatusText || (
                           uploadPhase === 'preparing' ? 'Preparing upload...' :
-                          uploadPhase === 'saving' ? 'Saving metadata...' :
-                          'Uploading to cloud...'
+                            uploadPhase === 'saving' ? 'Saving metadata...' :
+                              'Uploading to cloud...'
                         )
                       )}
                     </span>
@@ -1437,126 +1437,126 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
                     </select>
                   </div>
 
-              {selectedSourceClassroomId && (
-                <div className="space-y-3">
-                  <div className="text-[10px] uppercase tracking-widest text-cream/50 font-bold">Select Items to Clone</div>
+                  {selectedSourceClassroomId && (
+                    <div className="space-y-3">
+                      <div className="text-[10px] uppercase tracking-widest text-cream/50 font-bold">Select Items to Clone</div>
 
-                  {/* Folders in source classroom */}
-                  <div className="space-y-2.5">
-                    {reuseFolders
-                      .filter(f => f.classroom.toString() === selectedSourceClassroomId)
-                      .map(folder => {
-                        const folderRecs = reuseRecordings.filter(r => r.folder && r.folder.toString() === folder._id.toString());
-                        const isFolderChecked = selectedFolderIds.includes(folder._id.toString());
-                        const isExpanded = !!expandedFolders[folder._id.toString()];
+                      {/* Folders in source classroom */}
+                      <div className="space-y-2.5">
+                        {reuseFolders
+                          .filter(f => f.classroom.toString() === selectedSourceClassroomId)
+                          .map(folder => {
+                            const folderRecs = reuseRecordings.filter(r => r.folder && r.folder.toString() === folder._id.toString());
+                            const isFolderChecked = selectedFolderIds.includes(folder._id.toString());
+                            const isExpanded = !!expandedFolders[folder._id.toString()];
 
-                        return (
-                          <div key={folder._id} className="border border-cream/10 rounded-xl bg-cream/2 overflow-hidden">
-                            <div className="flex items-center justify-between p-3 hover:bg-cream/5">
-                              <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  checked={isFolderChecked}
-                                  onChange={e => {
-                                    if (e.target.checked) {
-                                      // Select folder & all its recordings
-                                      setSelectedFolderIds(prev => [...prev, folder._id.toString()]);
-                                      const recIds = folderRecs.map(r => r._id.toString());
-                                      setSelectedRecIds(prev => Array.from(new Set([...prev, ...recIds])));
-                                    } else {
-                                      // Deselect folder & its recordings
-                                      setSelectedFolderIds(prev => prev.filter(id => id !== folder._id.toString()));
-                                      const recIds = folderRecs.map(r => r._id.toString());
-                                      setSelectedRecIds(prev => prev.filter(id => !recIds.includes(id)));
-                                    }
-                                  }}
-                                  className="accent-lime h-4 w-4"
-                                />
-                                <div className="text-xs font-semibold text-cream">{folder.name}</div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => toggleFolderExpanded(folder._id.toString())}
-                                className="text-[10px] text-lime font-bold hover:underline"
-                              >
-                                {isExpanded ? "Collapse" : `Expand (${folderRecs.length} vids)`}
-                              </button>
-                            </div>
+                            return (
+                              <div key={folder._id} className="border border-cream/10 rounded-xl bg-cream/2 overflow-hidden">
+                                <div className="flex items-center justify-between p-3 hover:bg-cream/5">
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={isFolderChecked}
+                                      onChange={e => {
+                                        if (e.target.checked) {
+                                          // Select folder & all its recordings
+                                          setSelectedFolderIds(prev => [...prev, folder._id.toString()]);
+                                          const recIds = folderRecs.map(r => r._id.toString());
+                                          setSelectedRecIds(prev => Array.from(new Set([...prev, ...recIds])));
+                                        } else {
+                                          // Deselect folder & its recordings
+                                          setSelectedFolderIds(prev => prev.filter(id => id !== folder._id.toString()));
+                                          const recIds = folderRecs.map(r => r._id.toString());
+                                          setSelectedRecIds(prev => prev.filter(id => !recIds.includes(id)));
+                                        }
+                                      }}
+                                      className="accent-lime h-4 w-4"
+                                    />
+                                    <div className="text-xs font-semibold text-cream">{folder.name}</div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleFolderExpanded(folder._id.toString())}
+                                    className="text-[10px] text-lime font-bold hover:underline"
+                                  >
+                                    {isExpanded ? "Collapse" : `Expand (${folderRecs.length} vids)`}
+                                  </button>
+                                </div>
 
-                            {isExpanded && (
-                              <div className="bg-black/20 border-t border-cream/5 p-3 space-y-2 pl-9">
-                                {folderRecs.map(rec => {
-                                  const isRecChecked = selectedRecIds.includes(rec._id.toString());
-                                  return (
-                                    <label key={rec._id} className="flex items-center gap-3 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={isRecChecked}
-                                        disabled={isFolderChecked} // Locked if parent folder is fully selected
-                                        onChange={e => {
-                                          if (e.target.checked) {
-                                            setSelectedRecIds(prev => [...prev, rec._id.toString()]);
-                                          } else {
-                                            setSelectedRecIds(prev => prev.filter(id => id !== rec._id.toString()));
-                                          }
-                                        }}
-                                        className="accent-lime h-3.5 w-3.5"
-                                      />
-                                      <div className="text-xs text-cream/80 truncate">{rec.title}</div>
-                                    </label>
-                                  );
-                                })}
-                                {folderRecs.length === 0 && (
-                                  <div className="text-[10px] text-cream/40 italic">No recordings in this folder</div>
+                                {isExpanded && (
+                                  <div className="bg-black/20 border-t border-cream/5 p-3 space-y-2 pl-9">
+                                    {folderRecs.map(rec => {
+                                      const isRecChecked = selectedRecIds.includes(rec._id.toString());
+                                      return (
+                                        <label key={rec._id} className="flex items-center gap-3 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={isRecChecked}
+                                            disabled={isFolderChecked} // Locked if parent folder is fully selected
+                                            onChange={e => {
+                                              if (e.target.checked) {
+                                                setSelectedRecIds(prev => [...prev, rec._id.toString()]);
+                                              } else {
+                                                setSelectedRecIds(prev => prev.filter(id => id !== rec._id.toString()));
+                                              }
+                                            }}
+                                            className="accent-lime h-3.5 w-3.5"
+                                          />
+                                          <div className="text-xs text-cream/80 truncate">{rec.title}</div>
+                                        </label>
+                                      );
+                                    })}
+                                    {folderRecs.length === 0 && (
+                                      <div className="text-[10px] text-cream/40 italic">No recordings in this folder</div>
+                                    )}
+                                  </div>
                                 )}
                               </div>
-                            )}
+                            );
+                          })}
+                      </div>
+
+                      {/* Root recordings in source classroom */}
+                      {(() => {
+                        const rootRecs = reuseRecordings.filter(r => r.classroom.toString() === selectedSourceClassroomId && !r.folder);
+                        if (rootRecs.length === 0) return null;
+                        return (
+                          <div className="border border-cream/10 rounded-xl bg-cream/2 p-3 space-y-2">
+                            <div className="text-[10px] uppercase tracking-widest text-cream/40 font-bold mb-1">Root Recordings</div>
+                            {rootRecs.map(rec => {
+                              const isChecked = selectedRecIds.includes(rec._id.toString());
+                              return (
+                                <label key={rec._id} className="flex items-center gap-3 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={e => {
+                                      if (e.target.checked) {
+                                        setSelectedRecIds(prev => [...prev, rec._id.toString()]);
+                                      } else {
+                                        setSelectedRecIds(prev => prev.filter(id => id !== rec._id.toString()));
+                                      }
+                                    }}
+                                    className="accent-lime h-3.5 w-3.5"
+                                  />
+                                  <div className="text-xs text-cream">{rec.title}</div>
+                                </label>
+                              );
+                            })}
                           </div>
                         );
-                      })}
-                  </div>
+                      })()}
+                    </div>
+                  )}
 
-                  {/* Root recordings in source classroom */}
-                  {(() => {
-                    const rootRecs = reuseRecordings.filter(r => r.classroom.toString() === selectedSourceClassroomId && !r.folder);
-                    if (rootRecs.length === 0) return null;
-                    return (
-                      <div className="border border-cream/10 rounded-xl bg-cream/2 p-3 space-y-2">
-                        <div className="text-[10px] uppercase tracking-widest text-cream/40 font-bold mb-1">Root Recordings</div>
-                        {rootRecs.map(rec => {
-                          const isChecked = selectedRecIds.includes(rec._id.toString());
-                          return (
-                            <label key={rec._id} className="flex items-center gap-3 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={e => {
-                                  if (e.target.checked) {
-                                    setSelectedRecIds(prev => [...prev, rec._id.toString()]);
-                                  } else {
-                                    setSelectedRecIds(prev => prev.filter(id => id !== rec._id.toString()));
-                                  }
-                                }}
-                                className="accent-lime h-3.5 w-3.5"
-                              />
-                              <div className="text-xs text-cream">{rec.title}</div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
+                  {reuseClassrooms.filter(c => c.id !== cls.id).length === 0 && !isLoadingReuseList && (
+                    <div className="text-center py-6 text-cream/50 text-xs">
+                      No other active classrooms available to copy from.
+                    </div>
+                  )}
+                </>
               )}
-
-              {reuseClassrooms.filter(c => c.id !== cls.id).length === 0 && !isLoadingReuseList && (
-                <div className="text-center py-6 text-cream/50 text-xs">
-                  No other active classrooms available to copy from.
-                </div>
-              )}
-            </>
-          )}
-        </div>
+            </div>
             <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
               <button onClick={() => setShowReuseModal(false)} disabled={isReusing} className="flex-1 rounded-full bg-cream/10 text-cream py-2 text-xs font-semibold">Cancel</button>
               <button
@@ -2510,118 +2510,152 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
           </div>
         )}
 
-        {/* Top 3 Podium Achievers */}
+        {/* Top 3 Podium Achievers - 3-by-3 Responsive Olympic Pedestal */}
         {!isLoadingReport && sortedAttempts.length > 0 && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <LuSparkles className="w-4 h-4 text-amber-500" />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Top 3 Podium Achievers
-              </h4>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LuTrophy className="w-4 h-4 text-amber-500" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Top 3 Podium Achievers
+                </h4>
+              </div>
+              <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+                <LuSparkles className="w-3 h-3 text-amber-500" /> Olympic Pedestal
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-              {/* Rank 2 (Silver) */}
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-4 items-end pt-5 sm:pt-6">
+              {/* Rank 2 (Silver - Left) */}
               {rank2 ? (
-                <div className="p-4 rounded-2xl border border-slate-200 bg-white flex flex-col items-center text-center relative transition-all order-2 md:order-1 hover:border-slate-300 shadow-xs">
-                  <div className="absolute -top-3 px-3 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300 text-[10px] font-bold shadow-2xs flex items-center gap-1">
-                    <LuMedal className="w-3 h-3 text-slate-500" /> 2ND RANK
+                <div className="p-2 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-300/80 bg-linear-to-b from-slate-50 via-slate-100/60 to-slate-200/60 flex flex-col items-center text-center relative transition-all duration-300 hover:-translate-y-1 hover:shadow-md shadow-xs">
+                  <div className="absolute -top-3 sm:-top-4 px-2 sm:px-3 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300 text-[9px] sm:text-[11px] font-black shadow-xs flex items-center gap-1 ring-2 ring-white">
+                    <LuMedal className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-slate-600" /> 2ND RANK
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center font-display font-bold text-base mt-2 text-slate-700">
+                  <div className="w-9 h-9 sm:w-14 sm:h-14 rounded-2xl bg-linear-to-br from-slate-100 to-slate-300 border-2 border-white shadow-sm flex items-center justify-center font-display font-bold text-sm sm:text-xl text-slate-800 ring-2 ring-slate-300/50 mt-1">
                     {rank2.studentName.charAt(0).toUpperCase()}
                   </div>
-                  <h5 className="font-display font-bold text-sm mt-2 truncate max-w-full text-slate-900">
+                  <h5 className="font-display font-bold text-[11px] sm:text-sm mt-1.5 truncate w-full text-slate-900 px-0.5">
                     {rank2.studentName}
                   </h5>
-                  <div className="text-xs font-mono font-bold mt-0.5 text-slate-800">
-                    {rank2.score.percentage}% ({rank2.score.rawMarks}/{rank2.score.totalMarks} Marks)
+                  <div className="text-[11px] sm:text-base font-mono font-black text-slate-900 mt-0.5 leading-tight">
+                    {rank2.score.percentage}%
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                  <div className="text-[9px] sm:text-xs font-mono font-bold text-slate-600">
+                    {rank2.score.rawMarks}/{rank2.score.totalMarks} Marks
+                  </div>
+                  <div className="text-[9px] sm:text-xs text-slate-500 font-medium mt-0.5 hidden xs:block truncate max-w-full">
                     {(rank2.correctCount ?? 0) + (rank2.wrongCount ?? 0)}/{rank2.totalQuestions || q.questions?.length || 50} Qs Attended
                   </div>
-                  <div className="text-[11px] flex items-center gap-1 mt-1 font-medium text-slate-500">
-                    <LuClock className="w-3 h-3 text-slate-400" /> {formatSec(rank2.totalTimeTakenSec)}
+                  <div className="text-[9px] sm:text-xs flex items-center gap-1 mt-1 font-medium text-slate-500">
+                    <LuClock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400" /> {formatSec(rank2.totalTimeTakenSec)}
                   </div>
                   <button
                     type="button"
                     onClick={() => setInspectStudentAttempt(rank2)}
-                    className="mt-2.5 text-xs font-semibold text-slate-700 hover:text-slate-900 underline decoration-slate-300 flex items-center gap-1"
+                    className="mt-2 w-full max-w-[120px] py-1 sm:py-1.5 px-2 rounded-xl bg-white hover:bg-slate-200 text-slate-800 border border-slate-300 text-[10px] sm:text-xs font-semibold transition-all shadow-2xs flex items-center justify-center gap-1"
                   >
-                    <LuEye className="w-3.5 h-3.5 text-slate-500" /> View Sheet
+                    <LuEye className="w-3 h-3 text-slate-500" />
+                    <span className="hidden sm:inline">View</span> Sheet
                   </button>
+                  {/* Stepped Pedestal Base */}
+                  <div className="mt-2.5 sm:mt-3.5 w-full h-7 sm:h-10 rounded-xl bg-linear-to-b from-slate-300 to-slate-400 flex items-center justify-center text-slate-800 font-display font-black text-sm sm:text-lg shadow-inner border-t border-slate-100">
+                    2
+                  </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center opacity-60 order-2 md:order-1">
-                  <p className="text-xs py-6 text-slate-500">No 2nd rank yet</p>
+                <div className="p-2 sm:p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-center opacity-60">
+                  <p className="text-[10px] sm:text-xs py-6 text-slate-400">No 2nd rank</p>
                 </div>
               )}
 
-              {/* Rank 1 (Gold) */}
+              {/* Rank 1 (Gold - Center Champion) */}
               {rank1 && (
-                <div className="p-5 rounded-2xl border-2 border-amber-300 bg-amber-50/60 flex flex-col items-center text-center relative transition-all order-1 md:order-2 shadow-sm">
-                  <div className="absolute -top-3.5 px-3.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-xs font-black shadow-xs flex items-center gap-1.5 animate-bounce">
-                    <LuCrown className="w-3.5 h-3.5 fill-current" /> 1ST RANK 🏆
+                <div className="p-2.5 sm:p-5 rounded-2xl sm:rounded-3xl border-2 border-amber-300/90 bg-linear-to-b from-amber-50 via-amber-100/50 to-amber-200/60 flex flex-col items-center text-center relative transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl shadow-md ring-2 sm:ring-4 ring-amber-400/25">
+                  <div className="absolute -top-4 sm:-top-5 px-2.5 sm:px-4 py-0.5 rounded-full bg-linear-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 text-[10px] sm:text-xs font-black shadow-md flex items-center gap-1 sm:gap-1.5 animate-bounce ring-2 ring-white">
+                    <LuCrown className="w-3 h-3 sm:w-4 sm:h-4 fill-current" /> 1ST RANK 🏆
                   </div>
-                  <div className="w-14 h-14 rounded-xl bg-amber-100 border-2 border-amber-300 flex items-center justify-center font-display font-black text-xl mt-2 text-amber-800">
-                    {rank1.studentName.charAt(0).toUpperCase()}
+                  <div className="relative mt-1">
+                    <div className="w-11 h-11 sm:w-16 sm:h-16 rounded-2xl bg-linear-to-br from-amber-200 to-amber-400 border-2 sm:border-3 border-white shadow-md flex items-center justify-center font-display font-black text-base sm:text-2xl text-amber-950 ring-2 sm:ring-3 ring-amber-400/50">
+                      {rank1.studentName.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-400 text-slate-950 border border-white flex items-center justify-center text-[10px] sm:text-xs font-black shadow-xs">
+                      🏆
+                    </span>
                   </div>
-                  <h5 className="font-display font-black text-base mt-2 truncate max-w-full text-slate-900">
+                  <h5 className="font-display font-black text-xs sm:text-base mt-2 truncate w-full text-slate-900 px-1">
                     {rank1.studentName}
                   </h5>
-                  <div className="text-sm font-mono font-black mt-0.5 text-amber-950">
-                    {rank1.score.percentage}% ({rank1.score.rawMarks}/{rank1.score.totalMarks} Marks)
+                  <div className="text-xs sm:text-lg font-mono font-black text-amber-950 mt-0.5 leading-tight">
+                    {rank1.score.percentage}%
                   </div>
-                  <div className="text-xs font-semibold text-slate-600 mt-0.5">
+                  <div className="text-[10px] sm:text-xs font-mono font-bold text-amber-900/90">
+                    {rank1.score.rawMarks}/{rank1.score.totalMarks} Marks
+                  </div>
+                  <div className="text-[9px] sm:text-xs text-amber-900/80 font-semibold mt-0.5 hidden xs:block truncate max-w-full">
                     {(rank1.correctCount ?? 0) + (rank1.wrongCount ?? 0)}/{rank1.totalQuestions || q.questions?.length || 50} Qs Attended
                   </div>
-                  <div className="text-xs flex items-center gap-1 mt-1 font-semibold text-slate-600">
-                    <LuClock className="w-3.5 h-3.5 text-amber-600" /> {formatSec(rank1.totalTimeTakenSec)}
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[9px] sm:text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-200">
+                    <LuCheck className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> {rank1.correctCount ?? (rank1.answers?.filter((a: any) => a.isCorrect).length || 0)} Correct
                   </div>
-                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                    <LuCheck className="w-3 h-3" /> {rank1.correctCount ?? (rank1.answers?.filter((a: any) => a.isCorrect).length || 0)} Correct
+                  <div className="text-[9px] sm:text-xs flex items-center gap-1 mt-1 font-semibold text-slate-600">
+                    <LuClock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600" /> {formatSec(rank1.totalTimeTakenSec)}
                   </div>
                   <button
                     type="button"
                     onClick={() => setInspectStudentAttempt(rank1)}
-                    className="mt-2.5 text-xs font-bold text-amber-900 hover:text-amber-950 underline decoration-amber-400 flex items-center gap-1"
+                    className="mt-2 w-full max-w-[130px] py-1 sm:py-1.5 px-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 text-[10px] sm:text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1"
                   >
-                    <LuEye className="w-3.5 h-3.5 text-amber-700" /> View Sheet
+                    <LuEye className="w-3 h-3 text-slate-950" />
+                    <span className="hidden sm:inline">View</span> Sheet
                   </button>
+                  {/* Stepped Pedestal Base */}
+                  <div className="mt-2.5 sm:mt-3.5 w-full h-10 sm:h-14 rounded-xl bg-linear-to-b from-amber-400 to-amber-500 flex items-center justify-center text-slate-950 font-display font-black text-base sm:text-2xl shadow-inner border-t border-amber-200">
+                    1
+                  </div>
                 </div>
               )}
 
-              {/* Rank 3 (Bronze) */}
+              {/* Rank 3 (Bronze - Right) */}
               {rank3 ? (
-                <div className="p-4 rounded-2xl border border-amber-200/80 bg-white flex flex-col items-center text-center relative transition-all order-3 hover:border-amber-300 shadow-xs">
-                  <div className="absolute -top-3 px-3 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold shadow-2xs flex items-center gap-1">
-                    <LuMedal className="w-3 h-3 text-amber-700" /> 3RD RANK
+                <div className="p-2 sm:p-4 rounded-2xl sm:rounded-3xl border border-amber-200/80 bg-linear-to-b from-amber-50/40 via-amber-100/40 to-amber-200/50 flex flex-col items-center text-center relative transition-all duration-300 hover:-translate-y-1 hover:shadow-md shadow-xs">
+                  <div className="absolute -top-3 sm:-top-4 px-2 sm:px-3 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[9px] sm:text-[11px] font-black shadow-xs flex items-center gap-1 ring-2 ring-white">
+                    <LuMedal className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-amber-700" /> 3RD RANK
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center font-display font-bold text-base mt-2 text-amber-800">
+                  <div className="w-9 h-9 sm:w-14 sm:h-14 rounded-2xl bg-linear-to-br from-amber-100 to-amber-300 border-2 border-white shadow-sm flex items-center justify-center font-display font-bold text-sm sm:text-xl text-amber-900 ring-2 ring-amber-300/50 mt-1">
                     {rank3.studentName.charAt(0).toUpperCase()}
                   </div>
-                  <h5 className="font-display font-bold text-sm mt-2 truncate max-w-full text-slate-900">
+                  <h5 className="font-display font-bold text-[11px] sm:text-sm mt-1.5 truncate w-full text-slate-900 px-0.5">
                     {rank3.studentName}
                   </h5>
-                  <div className="text-xs font-mono font-bold mt-0.5 text-slate-800">
-                    {rank3.score.percentage}% ({rank3.score.rawMarks}/{rank3.score.totalMarks} Marks)
+                  <div className="text-[11px] sm:text-base font-mono font-black text-slate-900 mt-0.5 leading-tight">
+                    {rank3.score.percentage}%
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                  <div className="text-[9px] sm:text-xs font-mono font-bold text-slate-600">
+                    {rank3.score.rawMarks}/{rank3.score.totalMarks} Marks
+                  </div>
+                  <div className="text-[9px] sm:text-xs text-slate-500 font-medium mt-0.5 hidden xs:block truncate max-w-full">
                     {(rank3.correctCount ?? 0) + (rank3.wrongCount ?? 0)}/{rank3.totalQuestions || q.questions?.length || 50} Qs Attended
                   </div>
-                  <div className="text-[11px] flex items-center gap-1 mt-1 font-medium text-slate-500">
-                    <LuClock className="w-3 h-3 text-slate-400" /> {formatSec(rank3.totalTimeTakenSec)}
+                  <div className="text-[9px] sm:text-xs flex items-center gap-1 mt-1 font-medium text-slate-500">
+                    <LuClock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-400" /> {formatSec(rank3.totalTimeTakenSec)}
                   </div>
                   <button
                     type="button"
                     onClick={() => setInspectStudentAttempt(rank3)}
-                    className="mt-2.5 text-xs font-semibold text-amber-900 hover:text-amber-950 underline decoration-amber-300 flex items-center gap-1"
+                    className="mt-2 w-full max-w-[120px] py-1 sm:py-1.5 px-2 rounded-xl bg-white hover:bg-amber-100/80 text-amber-900 border border-amber-200 text-[10px] sm:text-xs font-semibold transition-all shadow-2xs flex items-center justify-center gap-1"
                   >
-                    <LuEye className="w-3.5 h-3.5 text-amber-700" /> View Sheet
+                    <LuEye className="w-3 h-3 text-amber-700" />
+                    <span className="hidden sm:inline">View</span> Sheet
                   </button>
+                  {/* Stepped Pedestal Base */}
+                  <div className="mt-2.5 sm:mt-3.5 w-full h-5 sm:h-8 rounded-xl bg-linear-to-b from-amber-300 to-amber-400 flex items-center justify-center text-amber-950 font-display font-black text-xs sm:text-base shadow-inner border-t border-amber-100">
+                    3
+                  </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-center opacity-60 order-3">
-                  <p className="text-xs py-6 text-slate-500">No 3rd rank yet</p>
+                <div className="p-2 sm:p-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-center opacity-60">
+                  <p className="text-[10px] sm:text-xs py-6 text-slate-400">No 3rd rank</p>
                 </div>
               )}
             </div>
@@ -2681,15 +2715,14 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
                         return (
                           <tr key={att.id} className="border-t border-slate-100 hover:bg-slate-50/70 transition-colors">
                             <td className="p-3.5 pl-4">
-                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-                                isTop1
-                                  ? "bg-amber-400 text-slate-950 font-black shadow-2xs"
-                                  : isTop2
+                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${isTop1
+                                ? "bg-amber-400 text-slate-950 font-black shadow-2xs"
+                                : isTop2
                                   ? "bg-slate-200 text-slate-800 font-bold border border-slate-300"
                                   : isTop3
-                                  ? "bg-amber-100 text-amber-900 font-bold border border-amber-300"
-                                  : "bg-slate-100 text-slate-600 font-medium"
-                              }`}>
+                                    ? "bg-amber-100 text-amber-900 font-bold border border-amber-300"
+                                    : "bg-slate-100 text-slate-600 font-medium"
+                                }`}>
                                 #{rankNum}
                               </span>
                             </td>
@@ -2733,11 +2766,10 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
                             </td>
 
                             <td className="p-3.5 whitespace-nowrap">
-                              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                                att.score.passed
-                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                  : "bg-rose-50 text-rose-700 border border-rose-200"
-                              }`}>
+                              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${att.score.passed
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-rose-50 text-rose-700 border border-rose-200"
+                                }`}>
                                 {att.score.passed ? "Pass" : "Fail"}
                               </span>
                             </td>
@@ -2900,97 +2932,97 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
                       <LuEye className="h-3 w-3" /> Report
                     </button>
                     <button
-                    onClick={() => {
-                      setEditingQuizId(q.id);
-                      setQuiz({
-                        title: q.title,
-                        instructions: q.instructions || "",
-                        duration: q.duration,
-                        maxAttempts: q.maxAttempts || 1,
-                        randomizeQuestions: q.randomizeQuestions ?? true,
-                        randomizeOptions: q.randomizeOptions ?? true,
-                        showLeaderboard: q.showLeaderboard ?? false,
-                        negativeMarking: q.negativeMarking ?? false,
-                        negativeMarkValue: q.negativeMarkValue ?? 0.25,
-                        passPercent: q.passPercent || 60,
-                        availableFrom: toDatetimeLocal(q.availableFrom),
-                        availableUntil: toDatetimeLocal(q.availableUntil),
-                        status: q.status || "draft",
-                        questions: (q.questions || []).map((quest) => ({
-                          ...quest,
-                          options: (quest.options || []).map((o) => ({
-                            label: o.label,
-                            text: o.text,
-                            isCorrect: Boolean(o.isCorrect),
+                      onClick={() => {
+                        setEditingQuizId(q.id);
+                        setQuiz({
+                          title: q.title,
+                          instructions: q.instructions || "",
+                          duration: q.duration,
+                          maxAttempts: q.maxAttempts || 1,
+                          randomizeQuestions: q.randomizeQuestions ?? true,
+                          randomizeOptions: q.randomizeOptions ?? true,
+                          showLeaderboard: q.showLeaderboard ?? false,
+                          negativeMarking: q.negativeMarking ?? false,
+                          negativeMarkValue: q.negativeMarkValue ?? 0.25,
+                          passPercent: q.passPercent || 60,
+                          availableFrom: toDatetimeLocal(q.availableFrom),
+                          availableUntil: toDatetimeLocal(q.availableUntil),
+                          status: q.status || "draft",
+                          questions: (q.questions || []).map((quest) => ({
+                            ...quest,
+                            options: (quest.options || []).map((o) => ({
+                              label: o.label,
+                              text: o.text,
+                              isCorrect: Boolean(o.isCorrect),
+                            })),
                           })),
-                        })),
-                      });
-                      const hasQuestions = q.questions && q.questions.length > 0;
-                      const allSameMarks = hasQuestions && q.questions.every(quest => quest.marks === q.questions[0].marks);
-                      if (allSameMarks) {
-                        setBulkMarksEnabled(true);
-                        setBulkMarksValue(q.questions[0].marks);
-                      } else {
-                        setBulkMarksEnabled(false);
-                        setBulkMarksValue(1);
-                      }
-                      setBulkNegEnabled(q.negativeMarking ?? false);
-                      setBulkNegValue(q.negativeMarkValue ?? 0);
-                      setShowBuilder(true);
-                    }}
-                    className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => {
-                      setDuplicateQuiz(q);
-                      setSelectedTargetClassrooms([]);
-                    }}
-                    className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
-                    title="Reuse/Duplicate to another class"
-                  >
-                    <LuCopy className="h-3 w-3" /> Reuse
-                  </button>
-                  <button
-                    onClick={() => handleDownloadQuiz(q, 'print')}
-                    className="rounded-full bg-cream/10 text-cream px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
-                    title="Download Quiz as PDF"
-                  >
-                    <LuDownload className="h-3.5 w-3.5" /> PDF
-                  </button>
-                  <button
-                    onClick={() => handleDownloadQuiz(q, 'doc')}
-                    className="rounded-full bg-cream/10 text-cream px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
-                    title="Download Quiz as Word Doc"
-                  >
-                    <LuDownload className="h-3.5 w-3.5" /> DOC
-                  </button>
-                  {q.status === "draft" && (
-                    <button onClick={() => handlePublishQuiz(q.id)}
-                      disabled={quizOperationQuizId === q.id}
-                      className="rounded-full bg-lime/10 text-lime px-3 py-1.5 text-xs font-semibold hover:bg-lime/20 disabled:cursor-not-allowed disabled:opacity-50 transition-colors">
-                      {quizOperationQuizId === q.id ? 'Publishing...' : 'Publish'}
+                        });
+                        const hasQuestions = q.questions && q.questions.length > 0;
+                        const allSameMarks = hasQuestions && q.questions.every(quest => quest.marks === q.questions[0].marks);
+                        if (allSameMarks) {
+                          setBulkMarksEnabled(true);
+                          setBulkMarksValue(q.questions[0].marks);
+                        } else {
+                          setBulkMarksEnabled(false);
+                          setBulkMarksValue(1);
+                        }
+                        setBulkNegEnabled(q.negativeMarking ?? false);
+                        setBulkNegValue(q.negativeMarkValue ?? 0);
+                        setShowBuilder(true);
+                      }}
+                      className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
+                    >
+                      Edit
                     </button>
-                  )}
-                  {q.status === "published" && (
-                    <button onClick={() => handleCloseQuiz(q.id)}
-                      disabled={quizOperationQuizId === q.id}
-                      className="rounded-full bg-cream/10 text-cream/70 px-3 py-1.5 text-xs font-semibold hover:bg-cream/20 disabled:cursor-not-allowed disabled:opacity-50 transition-colors">
-                      {quizOperationQuizId === q.id ? 'Closing...' : 'Close'}
+                    <button
+                      onClick={() => {
+                        setDuplicateQuiz(q);
+                        setSelectedTargetClassrooms([]);
+                      }}
+                      className="rounded-full bg-cream/10 text-cream px-3 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
+                      title="Reuse/Duplicate to another class"
+                    >
+                      <LuCopy className="h-3 w-3" /> Reuse
                     </button>
-                  )}
-                  <button onClick={() => handleDeleteQuiz(q.id)}
-                    disabled={quizOperationQuizId === q.id}
-                    className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors">
-                    <LuTrash2 className="h-3.5 w-3.5" />
-                  </button>
+                    <button
+                      onClick={() => handleDownloadQuiz(q, 'print')}
+                      className="rounded-full bg-cream/10 text-cream px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
+                      title="Download Quiz as PDF"
+                    >
+                      <LuDownload className="h-3.5 w-3.5" /> PDF
+                    </button>
+                    <button
+                      onClick={() => handleDownloadQuiz(q, 'doc')}
+                      className="rounded-full bg-cream/10 text-cream px-2.5 py-1.5 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
+                      title="Download Quiz as Word Doc"
+                    >
+                      <LuDownload className="h-3.5 w-3.5" /> DOC
+                    </button>
+                    {q.status === "draft" && (
+                      <button onClick={() => handlePublishQuiz(q.id)}
+                        disabled={quizOperationQuizId === q.id}
+                        className="rounded-full bg-lime/10 text-lime px-3 py-1.5 text-xs font-semibold hover:bg-lime/20 disabled:cursor-not-allowed disabled:opacity-50 transition-colors">
+                        {quizOperationQuizId === q.id ? 'Publishing...' : 'Publish'}
+                      </button>
+                    )}
+                    {q.status === "published" && (
+                      <button onClick={() => handleCloseQuiz(q.id)}
+                        disabled={quizOperationQuizId === q.id}
+                        className="rounded-full bg-cream/10 text-cream/70 px-3 py-1.5 text-xs font-semibold hover:bg-cream/20 disabled:cursor-not-allowed disabled:opacity-50 transition-colors">
+                        {quizOperationQuizId === q.id ? 'Closing...' : 'Close'}
+                      </button>
+                    )}
+                    <button onClick={() => handleDeleteQuiz(q.id)}
+                      disabled={quizOperationQuizId === q.id}
+                      className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors">
+                      <LuTrash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </DarkCard>
-          );
-        })}
-      </div>
+              </DarkCard>
+            );
+          })}
+        </div>
       )}
 
       {/* Quiz Reuse / Duplication Modal */}
@@ -3532,8 +3564,8 @@ ${window.location.origin}/classroom-join/${classroom.id}`;
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`flex flex-col items-center justify-center p-3 rounded-2xl border ${t.bg} ${t.text} ${t.border} transition-all relative overflow-hidden group aspect-square shadow-xs ${isActive
-                  ? `scale-[1.04] ring-2 ring-offset-2 ring-offset-slate-900 shadow-md ${t.key === 'live' ? 'ring-[#E11D48]' : t.key === 'recordings' ? 'ring-[#EA580C]' : t.key === 'announcements' ? 'ring-[#2563EB]' : t.key === 'tests' ? 'ring-[#0284C7]' : t.key === 'students' ? 'ring-[#059669]' : 'ring-[#7C3AED]'}`
-                  : "hover:scale-[1.02] hover:shadow-sm"
+                ? `scale-[1.04] ring-2 ring-offset-2 ring-offset-slate-900 shadow-md ${t.key === 'live' ? 'ring-[#E11D48]' : t.key === 'recordings' ? 'ring-[#EA580C]' : t.key === 'announcements' ? 'ring-[#2563EB]' : t.key === 'tests' ? 'ring-[#0284C7]' : t.key === 'students' ? 'ring-[#059669]' : 'ring-[#7C3AED]'}`
+                : "hover:scale-[1.02] hover:shadow-sm"
                 }`}
             >
               {t.key === 'requests' && (classroom.pendingJoinRequestsCount || 0) > 0 && (
