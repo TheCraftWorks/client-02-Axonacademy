@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { useMemo } from "react";
 import { ClipboardList, CheckCircle2, Clock, X, ChevronLeft, ChevronRight, AlertCircle, Trophy, Check } from "lucide-react";
 import { Card } from "@/components/portal/PortalShell";
 import { useClassroomStore, classroomActions, getGrade, formatTime, type Quiz, type Question } from "@/lib/classroomStore";
@@ -35,7 +36,7 @@ export const Route = createFileRoute("/_student/student/exams")({
 
 // ─── Quiz Attempt Modal ───────────────────────────────────────────────────────
 
-function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
+function QuizModal({ quiz, classroomId, studentId, studentName, reviewAttemptId, onClose }: {
   quiz: Quiz; classroomId: string; studentId: string; studentName: string; reviewAttemptId?: string | null; onClose: () => void;
 }) {
   const [phase, setPhase] = useState<"intro" | "taking" | "result">(reviewAttemptId ? "result" : "intro");
@@ -44,10 +45,30 @@ function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
   const [qIdx, setQIdx] = useState(0);
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [timeLeft, setTimeLeft] = useState((quiz.duration || 0) * 60);
-  const [result, setResult] = useState<QuizResultReview | null>(null);
+
+  // Fast pre-population using existing attempt in quiz.attempts (0ms instant open)
+  const existingAttempt = useMemo(() => {
+    if (!quiz.attempts) return null;
+    if (reviewAttemptId) {
+      return quiz.attempts.find(a => a.id === reviewAttemptId || a.studentId === studentId);
+    }
+    return quiz.attempts.find(a => a.studentId === studentId && a.status === 'submitted');
+  }, [quiz.attempts, reviewAttemptId, studentId]);
+
+  const [result, setResult] = useState<QuizResultReview | null>(() => {
+    if (existingAttempt && existingAttempt.score) {
+      return {
+        score: existingAttempt.score,
+        answers: existingAttempt.answers || [],
+      };
+    }
+    return null;
+  });
+
   const [resultViewTab, setResultViewTab] = useState<"review" | "leaderboard">("review");
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingReview, setIsLoadingReview] = useState(false);
   const [error, setError] = useState("");
   const selectedRef = useRef(selected);
   const submitRef = useRef<() => void>(() => {});
@@ -57,19 +78,25 @@ function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
   }, [selected]);
 
   useEffect(() => {
-    if (reviewAttemptId) {
+    if (reviewAttemptId || (phase === "result" && (!result || result.answers.length === 0))) {
+      const targetAttemptId = reviewAttemptId || existingAttempt?.id;
       const loadReview = async () => {
         setError("");
+        setIsLoadingReview(true);
         try {
-          const review = await getQuizAttemptResult(quiz.id, reviewAttemptId);
+          const review = await getQuizAttemptResult(quiz.id, targetAttemptId || undefined);
           setResult(review);
         } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not load quiz review");
+          if (!result) {
+            setError(err instanceof Error ? err.message : "Could not load quiz review");
+          }
+        } finally {
+          setIsLoadingReview(false);
         }
       };
       void loadReview();
     }
-  }, [reviewAttemptId, quiz.id]);
+  }, [reviewAttemptId, quiz.id, phase]);
 
   const submittingRef = useRef(false);
 
@@ -283,93 +310,104 @@ function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
         )}
 
         {/* RESULT */}
-        {phase === "result" && result && (
-          <div className="p-6 space-y-6 text-left">
-            {/* Header Result Card */}
-            <div className="bg-slate-50 border border-slate-200/80 p-6 rounded-3xl text-center">
-              <div
-                className="grid h-16 w-16 place-items-center rounded-2xl mx-auto mb-3"
-                style={result.score.passed ? { background: '#F4B400', color: '#0B1F3A' } : { background: 'rgba(239,68,68,0.1)', color: '#DC2626' }}
-              >
-                {result.score.passed ? <Trophy className="h-8 w-8" /> : <X className="h-8 w-8" />}
-              </div>
-              <h2 className="font-display text-2xl font-bold" style={{ color: result.score.passed ? '#0B1F3A' : '#DC2626' }}>
-                {result.score.passed ? "You Passed! 🎉" : "Not Passed"}
-              </h2>
-              <p className="text-slate-500 text-xs mt-1">{quiz.title}</p>
+        {phase === "result" && (
+          result ? (
+            <div className="p-6 space-y-6 text-left">
+              {/* Header Result Card */}
+              <div className="bg-slate-50 border border-slate-200/80 p-6 rounded-3xl text-center">
+                <div
+                  className="grid h-16 w-16 place-items-center rounded-2xl mx-auto mb-3"
+                  style={result.score.passed ? { background: '#F4B400', color: '#0B1F3A' } : { background: 'rgba(239,68,68,0.1)', color: '#DC2626' }}
+                >
+                  {result.score.passed ? <Trophy className="h-8 w-8" /> : <X className="h-8 w-8" />}
+                </div>
+                <h2 className="font-display text-2xl font-bold" style={{ color: result.score.passed ? '#0B1F3A' : '#DC2626' }}>
+                  {result.score.passed ? "You Passed! 🎉" : "Not Passed"}
+                </h2>
+                <p className="text-slate-500 text-xs mt-1">{quiz.title}</p>
 
-              <div className="mt-4 grid grid-cols-3 gap-3">
-                {[
-                  { l: "Score", v: `${result.score.rawMarks}/${result.score.totalMarks}` },
-                  { l: "Percentage", v: `${result.score.percentage}%` },
-                  { l: "Grade", v: getGrade(result.score.percentage) },
-                ].map((s) => (
-                  <div
-                    key={s.l}
-                    className="rounded-2xl p-3 border border-black/5"
-                    style={result.score.passed ? { background: 'rgba(244,180,0,0.1)' } : { background: 'rgba(239,68,68,0.07)' }}
-                  >
-                    <div className="font-display text-xl font-bold" style={{ color: result.score.passed ? '#0B1F3A' : '#DC2626' }}>
-                      {s.v}
+                <div className="mt-4 grid grid-cols-3 gap-3">
+                  {[
+                    { l: "Score", v: `${result.score.rawMarks}/${result.score.totalMarks}` },
+                    { l: "Percentage", v: `${result.score.percentage}%` },
+                    { l: "Grade", v: getGrade(result.score.percentage) },
+                  ].map((s) => (
+                    <div
+                      key={s.l}
+                      className="rounded-2xl p-3 border border-black/5"
+                      style={result.score.passed ? { background: 'rgba(244,180,0,0.1)' } : { background: 'rgba(239,68,68,0.07)' }}
+                    >
+                      <div className="font-display text-xl font-bold" style={{ color: result.score.passed ? '#0B1F3A' : '#DC2626' }}>
+                        {s.v}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{s.l}</div>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-0.5">{s.l}</div>
+                  ))}
+                </div>
+
+                <p className="mt-3 text-xs font-semibold" style={{ color: result.score.passed ? '#10B981' : '#DC2626' }}>
+                  {result.score.passed
+                    ? `Great work! You scored above the ${quiz.passPercent}% pass mark.`
+                    : `You needed ${quiz.passPercent}% to pass. Keep practicing!`}
+                </p>
+
+                {/* Segmented Switcher */}
+                <div className="mt-4 flex items-center justify-center">
+                  <div className="bg-white p-1 rounded-2xl inline-flex items-center gap-1 border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setResultViewTab("review")}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        resultViewTab === "review"
+                          ? "bg-slate-900 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <ClipboardList className="w-3.5 h-3.5" />
+                      <span>Question Review (3 Tabs)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setResultViewTab("leaderboard")}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        resultViewTab === "leaderboard"
+                          ? "bg-slate-900 text-white shadow-xs"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Leaderboard & Top 3</span>
+                    </button>
                   </div>
-                ))}
-              </div>
-
-              <p className="mt-3 text-xs font-semibold" style={{ color: result.score.passed ? '#10B981' : '#DC2626' }}>
-                {result.score.passed
-                  ? `Great work! You scored above the ${quiz.passPercent}% pass mark.`
-                  : `You needed ${quiz.passPercent}% to pass. Keep practicing!`}
-              </p>
-
-              {/* Segmented Switcher */}
-              <div className="mt-4 flex items-center justify-center">
-                <div className="bg-white p-1 rounded-2xl inline-flex items-center gap-1 border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setResultViewTab("review")}
-                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      resultViewTab === "review"
-                        ? "bg-slate-900 text-white shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <ClipboardList className="w-3.5 h-3.5" />
-                    <span>Question Review (3 Tabs)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setResultViewTab("leaderboard")}
-                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      resultViewTab === "leaderboard"
-                        ? "bg-slate-900 text-white shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Leaderboard & Top 3</span>
-                  </button>
                 </div>
               </div>
+
+              {/* Tab View */}
+              {resultViewTab === "review" ? (
+                <QuizQuestionReviewTabs
+                  answers={result.answers}
+                  isLoading={isLoadingReview || !result.answers || result.answers.length === 0}
+                  theme="light"
+                />
+              ) : (
+                <QuizLeaderboard quizId={quiz.id} currentUserId={studentId} theme="light" />
+              )}
+
+              <button
+                onClick={onClose}
+                className="mt-6 w-full rounded-full py-3 font-bold text-white text-xs transition-all hover:opacity-90 shadow-md"
+                style={{ background: '#0B1F3A' }}
+              >
+                Close Window
+              </button>
             </div>
-
-            {/* Tab View */}
-            {resultViewTab === "review" ? (
-              <QuizQuestionReviewTabs answers={result.answers} theme="light" />
-            ) : (
-              <QuizLeaderboard quizId={quiz.id} currentUserId={studentId} theme="light" />
-            )}
-
-            <button
-              onClick={onClose}
-              className="mt-6 w-full rounded-full py-3 font-bold text-white text-xs transition-all hover:opacity-90 shadow-md"
-              style={{ background: '#0B1F3A' }}
-            >
-              Close Window
-            </button>
-          </div>
+          ) : (
+            <div className="p-12 text-center flex flex-col items-center justify-center gap-3">
+              <div className="w-10 h-10 border-3 border-amber-400 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-bold text-slate-800">Loading your test score & review...</p>
+            </div>
+          )
         )}
       </div>
     </div>
@@ -391,7 +429,7 @@ function Exams() {
   const { classrooms, currentUser } = useClassroomStore();
   const studentId = currentUser?.id || "";
   const studentName = currentUser?.name || "";
-  const [activeQuiz, setActiveQuiz] = useState<{ quiz: Quiz; classroomId: string } | null>(null);
+  const [activeQuiz, setActiveQuiz] = useState<{ quiz: Quiz; classroomId: string; reviewAttemptId?: string | null } | null>(null);
 
   const enrolledClassrooms = classrooms.filter(c =>
     c.students.some(s => s.id === studentId && s.status === "active")
@@ -405,7 +443,14 @@ function Exams() {
   );
   const completedAttempts = allQuizzes.flatMap(q =>
     q.attempts.filter(a => a.studentId === studentId && a.status === "submitted")
-      .map(a => ({ ...a, quizTitle: q.title, classroomName: q.classroomName }))
+      .map(a => ({
+        ...a,
+        quizId: q.id,
+        quizTitle: q.title,
+        classroomName: q.classroomName,
+        classroomId: q.classroomId,
+        parentQuiz: q,
+      }))
   );
   const avgScore = completedAttempts.length
     ? Math.round(completedAttempts.reduce((s, a) => s + a.score.percentage, 0) / completedAttempts.length) : 0;
@@ -428,6 +473,7 @@ function Exams() {
           classroomId={activeQuiz.classroomId}
           studentId={studentId}
           studentName={studentName}
+          reviewAttemptId={activeQuiz.reviewAttemptId}
           onClose={() => setActiveQuiz(null)}
         />
       )}
@@ -465,9 +511,20 @@ function Exams() {
             const endTime = e.availableUntil ? new Date(e.availableUntil).getTime() : null;
             const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
             const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
+            const isClickable = canAttempt(e);
 
             return (
-              <div key={e.id} className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-border p-4">
+              <div
+                key={e.id}
+                onClick={() => {
+                  if (isClickable) {
+                    setActiveQuiz({ quiz: e, classroomId: e.classroomId });
+                  }
+                }}
+                className={`flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-border p-4 transition-all ${
+                  isClickable ? "cursor-pointer hover:border-sky-400 hover:shadow-md active:scale-[0.995]" : ""
+                }`}
+              >
                 <div className="grid h-12 w-12 place-items-center rounded-xl shrink-0" style={{background:'#0B1F3A'}}>
                   <ClipboardList className="h-5 w-5" style={{color:'#F4B400'}} />
                 </div>
@@ -509,7 +566,10 @@ function Exams() {
                     <span className="text-xs text-red-600 rounded-full border border-red-200 bg-red-50 px-4 py-2 font-medium">Deadline Passed</span>
                   ) : canAttempt(e) ? (
                     <button
-                      onClick={() => setActiveQuiz({ quiz: e, classroomId: e.classroomId })}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActiveQuiz({ quiz: e, classroomId: e.classroomId });
+                      }}
                       className="rounded-full text-white text-xs font-semibold px-4 py-2 transition-all hover:brightness-110 active:scale-95"
                       style={{background:'#0B1F3A'}}
                     >
@@ -533,12 +593,27 @@ function Exams() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-widest text-muted-foreground border-b border-border">
-                <th className="pb-3">Exam</th><th className="pb-3">Date</th><th className="pb-3">Score</th><th className="pb-3">Grade</th><th className="pb-3">Result</th>
+                <th className="pb-3">Exam</th>
+                <th className="pb-3">Date</th>
+                <th className="pb-3">Score</th>
+                <th className="pb-3">Grade</th>
+                <th className="pb-3">Result</th>
+                <th className="pb-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {completedAttempts.sort((a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()).map(r => (
-                <tr key={r.id} className="border-b border-border/60 last:border-0 hover:bg-secondary/40 transition-colors">
+                <tr
+                  key={r.id}
+                  onClick={() => {
+                    setActiveQuiz({
+                      quiz: r.parentQuiz,
+                      classroomId: r.classroomId,
+                      reviewAttemptId: r.id,
+                    });
+                  }}
+                  className="border-b border-border/60 last:border-0 hover:bg-sky-50/50 cursor-pointer transition-colors"
+                >
                   <td className="py-3.5 font-semibold" style={{color:'#0B1F3A'}}>
                     {r.quizTitle}
                     <div className="text-[10px] font-normal uppercase tracking-widest text-muted-foreground mt-0.5">{r.classroomName}</div>
@@ -551,10 +626,26 @@ function Exams() {
                   <td className="py-3.5">
                     <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-1 rounded" style={r.score.passed ? {background:'rgba(22,163,74,0.12)',color:'#16A34A'} : {background:'rgba(239,68,68,0.1)',color:'#B91C1C'}}>{r.score.passed ? "Passed" : "Failed"}</span>
                   </td>
+                  <td className="py-3.5 text-right">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveQuiz({
+                          quiz: r.parentQuiz,
+                          classroomId: r.classroomId,
+                          reviewAttemptId: r.id,
+                        });
+                      }}
+                      className="rounded-full border border-slate-300 text-slate-800 hover:border-slate-900 hover:bg-slate-100 text-xs font-bold px-3.5 py-1 transition-colors shadow-2xs"
+                    >
+                      View Result
+                    </button>
+                  </td>
                 </tr>
               ))}
               {completedAttempts.length === 0 && (
-                <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No results yet. Attempt an exam above!</td></tr>
+                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No results yet. Attempt an exam above!</td></tr>
               )}
             </tbody>
           </table>

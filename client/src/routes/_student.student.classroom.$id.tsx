@@ -1184,6 +1184,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [startingQuizId, setStartingQuizId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingReview, setIsLoadingReview] = useState(false);
   const [error, setError] = useState("");
   const answersRef = useRef(answers);
   const submitQuizRef = useRef<() => void>(() => { });
@@ -1318,15 +1319,35 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
   const handleViewResult = async (quiz: Quiz) => {
     setActiveQuiz(quiz);
     setError("");
-    try {
-      const fullResult = await getQuizAttemptResult(quiz.id);
+    const myAttempts = (quiz.attempts || []).filter(
+      (a) => a.studentId === CURRENT_STUDENT.id || a.studentId === currentUser?.userId
+    );
+    const submittedAttempts = myAttempts.filter((a) => a.status === "submitted");
+    const bestAttempt = submittedAttempts.sort((a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0))[0];
+
+    if (bestAttempt?.score) {
       setResult({
-        score: fullResult.score,
-        answers: fullResult.answers,
+        score: bestAttempt.score,
+        answers: bestAttempt.answers || [],
       });
       setPhase("result");
+    } else {
+      setPhase("result");
+    }
+
+    setIsLoadingReview(true);
+    try {
+      const fullResult = await getQuizAttemptResult(quiz.id, bestAttempt?.id);
+      setResult({
+        score: fullResult.score || bestAttempt?.score,
+        answers: fullResult.answers || bestAttempt?.answers || [],
+      });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not load test results");
+      if (!bestAttempt?.score) {
+        toast.error(err instanceof Error ? err.message : "Could not load test results");
+      }
+    } finally {
+      setIsLoadingReview(false);
     }
   };
 
@@ -1370,9 +1391,26 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
           const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
           const canTake = hasAttemptsLeft && !isNotStarted && !isExpired;
           const isThisStarting = startingQuizId === q.id;
+          const isClickable = (hasSubmitted && !!bestAttempt) || canTake;
+
+          const handleCardClick = () => {
+            if (hasSubmitted && bestAttempt) {
+              void handleViewResult(q);
+            } else if (canTake) {
+              void handleStartExam(q);
+            }
+          };
 
           return (
-            <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-5 hover:border-sky-300 transition-all shadow-xs">
+            <div
+              key={q.id}
+              onClick={handleCardClick}
+              className={`rounded-2xl border border-slate-200 bg-white p-5 transition-all shadow-xs ${
+                isClickable
+                  ? "cursor-pointer hover:border-sky-400 hover:shadow-md active:scale-[0.995]"
+                  : ""
+              }`}
+            >
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -1412,7 +1450,10 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
                 <div className="flex items-center gap-2 shrink-0">
                   {hasSubmitted && bestAttempt && (
                     <button
-                      onClick={() => void handleViewResult(q)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleViewResult(q);
+                      }}
                       className="rounded-full border border-plum-dark text-plum-dark px-4 py-2 text-xs font-bold hover:bg-plum/5 transition-colors"
                     >
                       View Result ({bestAttempt.score?.percentage}%)
@@ -1431,7 +1472,10 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
                   {canTake && (
                     <button
                       disabled={!!startingQuizId}
-                      onClick={() => void handleStartExam(q)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleStartExam(q);
+                      }}
                       className="rounded-full bg-plum-dark text-cream px-5 py-2 text-xs font-bold hover:bg-plum transition-colors shadow-xs disabled:opacity-50 inline-flex items-center gap-1.5"
                     >
                       {isThisStarting && <Loader2 className="h-3 w-3 animate-spin text-lime" />}
@@ -1517,7 +1561,15 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
     );
   }
 
-  if (phase === "result" && result && activeQuiz) {
+  if (phase === "result" && activeQuiz) {
+    if (!result) {
+      return (
+        <div className="space-y-6 max-w-4xl mx-auto bg-white p-12 rounded-3xl border border-slate-200 shadow-md text-center flex flex-col items-center justify-center gap-3">
+          <div className="w-10 h-10 border-3 border-amber-400 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm font-bold text-slate-800">Loading your test score & review...</p>
+        </div>
+      );
+    }
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
         {/* Result Hero Banner */}
@@ -1588,7 +1640,11 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
 
         {/* View Section */}
         {resultViewTab === "review" ? (
-          <QuizQuestionReviewTabs answers={result.answers} theme="light" />
+          <QuizQuestionReviewTabs
+            answers={result.answers}
+            isLoading={isLoadingReview || !result.answers || result.answers.length === 0}
+            theme="light"
+          />
         ) : (
           <QuizLeaderboard
             quizId={activeQuiz.id}

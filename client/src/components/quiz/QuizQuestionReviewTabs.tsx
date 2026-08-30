@@ -26,6 +26,7 @@ export type FilterTab = "all" | "correct" | "wrong" | "unattempted";
 
 interface QuizQuestionReviewTabsProps {
   answers: ReviewQuestionItem[];
+  isLoading?: boolean;
   theme?: "dark" | "light";
   className?: string;
   activeTab?: FilterTab;
@@ -34,7 +35,8 @@ interface QuizQuestionReviewTabsProps {
 }
 
 export function QuizQuestionReviewTabs({
-  answers,
+  answers = [],
+  isLoading,
   theme = "light",
   className = "",
   activeTab: controlledTab,
@@ -53,6 +55,70 @@ export function QuizQuestionReviewTabs({
   };
 
   const isDark = theme === "dark";
+
+  // Show loading skeleton if isLoading is true or if answers are still empty while loading
+  if (isLoading || (answers.length === 0 && isLoading !== false)) {
+    return (
+      <div className={`space-y-4 ${className}`}>
+        {/* Skeleton Tab Bar */}
+        {!hideTabBar && (
+          <div className={`p-1 rounded-xl border flex flex-wrap items-center gap-1.5 animate-pulse ${
+            isDark ? "bg-[#181030] border-white/15" : "bg-slate-100 border-slate-200"
+          }`}>
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className={`h-9 flex-1 min-w-[110px] rounded-lg ${isDark ? "bg-white/10" : "bg-slate-200/80"}`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Loading Spinner & Status Header */}
+        <div className={`p-4 rounded-2xl border flex items-center justify-center gap-2.5 ${
+          isDark ? "bg-white/5 border-white/10 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700"
+        }`}>
+          <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span className="text-xs font-bold">Loading questions review, answers & explanations...</span>
+        </div>
+
+        {/* Skeleton Question Cards */}
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className={`p-5 rounded-2xl border animate-pulse ${
+                isDark ? "border-white/10 bg-[#160D2E]" : "border-slate-200 bg-white shadow-xs"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-start gap-3 flex-1">
+                  <div className={`w-6 h-6 rounded-lg shrink-0 ${isDark ? "bg-white/15" : "bg-slate-200"}`} />
+                  <div className="space-y-2 flex-1">
+                    <div className={`h-4 rounded-md w-3/4 ${isDark ? "bg-white/15" : "bg-slate-200"}`} />
+                    <div className={`h-3 rounded-md w-1/3 ${isDark ? "bg-white/10" : "bg-slate-100"}`} />
+                  </div>
+                </div>
+                <div className={`w-20 h-6 rounded-md shrink-0 ${isDark ? "bg-white/15" : "bg-slate-200"}`} />
+              </div>
+
+              {/* Skeleton Options */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                {[1, 2, 3, 4].map((j) => (
+                  <div
+                    key={j}
+                    className={`h-11 rounded-xl border ${
+                      isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const totalQuestions = answers.length;
   const correctQuestions = answers.filter((a) => a.isCorrect);
