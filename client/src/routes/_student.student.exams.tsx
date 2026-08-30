@@ -359,7 +359,7 @@ function QuizModal({ quiz, classroomId, reviewAttemptId, onClose }: {
             {resultViewTab === "review" ? (
               <QuizQuestionReviewTabs answers={result.answers} theme="light" />
             ) : (
-              <QuizLeaderboard quizId={quiz.id} theme="light" />
+              <QuizLeaderboard quizId={quiz.id} currentUserId={studentId} theme="light" />
             )}
 
             <button

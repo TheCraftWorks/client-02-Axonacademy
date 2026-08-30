@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 import {
-  Flame, Trophy, Clock, BookOpen, PlayCircle, ChevronRight, CheckCircle2, Radio, Download
+  Trophy, Clock, BookOpen, PlayCircle, ChevronRight, CheckCircle2, Radio, Download,
+  Crown, Medal, Sparkles, Award
 } from "lucide-react";
 import { Card, StatTile } from "@/components/portal/PortalShell";
 import { useClassroomStore } from "@/lib/classroomStore";
 import { useQuery } from "@tanstack/react-query";
-import { getMyMeetings, getMyNotifications, getDetailedProgress, type PortalNotification } from "@/lib/api";
+import { getMyMeetings, getMyNotifications, getDetailedProgress, getQuizLeaderboard, type PortalNotification } from "@/lib/api";
 import ProgressStats from "@/components/portal/ProgressStats";
 
 interface MeetingsResponse {
@@ -107,6 +109,93 @@ function Dashboard() {
     return true;
   });
 
+  // ─── Last Test & Top 3 Rankers ───────────────────────────────────────────────
+  const allQuizzes = useMemo(() => {
+    return enrolledClassrooms.flatMap(c => 
+      (c.quizzes || []).map(q => ({
+        ...q,
+        classroomId: c.id,
+        classroomName: c.name,
+      }))
+    );
+  }, [enrolledClassrooms]);
+
+  const latestQuiz = useMemo(() => {
+    if (allQuizzes.length === 0) return null;
+    
+    // Prioritize quizzes that have submissions
+    const sorted = [...allQuizzes].sort((a: any, b: any) => {
+      const aHasSubmissions = (a.attempts || []).some((att: any) => att.status === 'submitted') ? 1 : 0;
+      const bHasSubmissions = (b.attempts || []).some((att: any) => att.status === 'submitted') ? 1 : 0;
+      if (bHasSubmissions !== aHasSubmissions) return bHasSubmissions - aHasSubmissions;
+
+      const dateA = a.availableFrom || a.updatedAt || a.createdAt || "";
+      const dateB = b.availableFrom || b.updatedAt || b.createdAt || "";
+      return new Date(dateB).getTime() - new Date(dateA).getTime();
+    });
+
+    return sorted[0] || null;
+  }, [allQuizzes]);
+
+  const { data: leaderboardData } = useQuery({
+    queryKey: ['dashboardQuizLeaderboard', latestQuiz?.id],
+    queryFn: () => getQuizLeaderboard(latestQuiz!.id),
+    enabled: !!latestQuiz?.id,
+    staleTime: 1000 * 60 * 2,
+    retry: 1,
+  });
+
+  const top3Rankers = useMemo(() => {
+    if (leaderboardData?.top3 && leaderboardData.top3.length > 0) {
+      return leaderboardData.top3;
+    }
+    if (!latestQuiz?.attempts || latestQuiz.attempts.length === 0) return [];
+    const submitted = latestQuiz.attempts.filter((a: any) => a.status === 'submitted');
+    const sorted = [...submitted].sort((a: any, b: any) => {
+      const aPct = a.score?.percentage ?? 0;
+      const bPct = b.score?.percentage ?? 0;
+      if (bPct !== aPct) return bPct - aPct;
+      const aCorrect = a.correctCount ?? 0;
+      const bCorrect = b.correctCount ?? 0;
+      if (bCorrect !== aCorrect) return bCorrect - aCorrect;
+      return (a.totalTimeTakenSec || 0) - (b.totalTimeTakenSec || 0);
+    });
+    return sorted.slice(0, 3).map((att: any, idx: number) => ({
+      rank: idx + 1,
+      studentId: att.studentId,
+      studentName: att.studentName,
+      score: att.score?.rawMarks ?? 0,
+      totalMarks: att.score?.totalMarks ?? 0,
+      percentage: att.score?.percentage ?? 0,
+      passed: att.score?.passed ?? true,
+      timeTakenSec: att.totalTimeTakenSec ?? 0,
+      correctCount: att.correctCount ?? 0,
+      wrongCount: att.wrongCount ?? 0,
+      unattemptedCount: att.unattemptedCount ?? 0,
+    }));
+  }, [leaderboardData, latestQuiz]);
+
+  const myLeaderboardRank = useMemo(() => {
+    if (leaderboardData?.myRank) return leaderboardData.myRank;
+    if (leaderboardData?.leaderboard) {
+      const found = leaderboardData.leaderboard.find((e: any) => e.studentId === studentId);
+      if (found) return found;
+    }
+    if (latestQuiz?.attempts) {
+      const myAttempt = latestQuiz.attempts.find((a: any) => a.studentId === studentId && a.status === 'submitted');
+      if (myAttempt) {
+        return {
+          rank: myAttempt.rank || 1,
+          score: myAttempt.score?.rawMarks ?? 0,
+          totalMarks: myAttempt.score?.totalMarks ?? 0,
+          percentage: myAttempt.score?.percentage ?? 0,
+          passed: myAttempt.score?.passed ?? true,
+        };
+      }
+    }
+    return null;
+  }, [leaderboardData, latestQuiz, studentId]);
+
   return (
     <div className="space-y-6">
       {/* Welcome */}
@@ -164,8 +253,8 @@ function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile label="Active Courses" value={activeCoursesCount.toString()} delta="+1 this month" icon={BookOpen} accent="navy" />
         <StatTile label="Hours This Week" value="0" delta="0% vs last" icon={Clock} accent="gold" />
-        <StatTile label="Assignments Done" value={`${totalSubmissions}/${totalQuizzes}`} icon={CheckCircle2} accent="sky" />
-        <StatTile label="Achievement Points" value="0" delta="0% vs last" icon={Trophy} accent="emerald" />
+        <StatTile label="Quizzes Done" value={`${totalSubmissions}/${totalQuizzes}`} icon={CheckCircle2} accent="sky" />
+       
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -200,28 +289,231 @@ function Dashboard() {
           </div>
         </Card>
 
-        {/* Streak */}
-        <Card>
-          <div className="flex items-center gap-2">
-            <Flame className="h-5 w-5 text-orange-500" />
-            <h3 className="font-display text-base sm:text-lg font-bold" style={{color: '#0B1F3A'}}>Streak</h3>
+        {/* Last Test Top 3 Rankers with Animated Golden Wings */}
+        <Card className="flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-400/20 text-amber-600 flex items-center justify-center">
+                  <Trophy className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 leading-tight">
+                    Last Test Top Rankers
+                  </h3>
+                  {latestQuiz && (
+                    <p className="text-[11px] text-slate-500 truncate max-w-[150px] sm:max-w-[200px]">
+                      {latestQuiz.title} · <span className="font-semibold text-slate-600">{latestQuiz.classroomName}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Link
+                to="/student/exams"
+                className="text-[11px] font-bold text-sky-600 hover:text-sky-700 flex items-center gap-0.5 shrink-0"
+              >
+                All Exams <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
+
+            {top3Rankers.length > 0 ? (
+              <div className="pt-3 pb-1">
+                {/* 3-Column Podium */}
+                <div className="grid grid-cols-3 gap-1.5 items-end">
+                  {/* Rank 2 (Silver - Left) */}
+                  {top3Rankers[1] ? (
+                    <div className="p-2 rounded-2xl border border-slate-300/80 bg-gradient-to-b from-slate-50 via-slate-100/60 to-slate-200/60 flex flex-col items-center text-center relative transition-all hover:shadow-sm">
+                      <div className="absolute -top-2.5 px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300 text-[8px] sm:text-[9px] font-black shadow-2xs flex items-center gap-0.5 ring-1 ring-white">
+                        <Medal className="w-2.5 h-2.5 text-slate-600" /> 2ND
+                      </div>
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-300 border-2 border-white text-slate-800 ring-1 ring-slate-300/50 shadow-xs flex items-center justify-center font-display font-bold text-xs sm:text-sm mt-0.5">
+                        {top3Rankers[1].studentName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="font-display font-bold text-[10px] sm:text-xs mt-1 truncate w-full px-0.5 text-slate-900">
+                        {top3Rankers[1].studentName}
+                      </div>
+                      <div className="text-[10px] sm:text-xs font-mono font-black text-slate-900 mt-0.5">
+                        {top3Rankers[1].percentage}%
+                      </div>
+                      <div className="text-[8px] sm:text-[9px] font-mono text-slate-500">
+                        {top3Rankers[1].score}/{top3Rankers[1].totalMarks}
+                      </div>
+                      {/* Stepped Pedestal Base 2 */}
+                      <div className="mt-1.5 w-full h-5 sm:h-7 rounded-lg bg-gradient-to-b from-slate-300 to-slate-400 flex items-center justify-center text-slate-800 font-display font-black text-xs shadow-inner border-t border-slate-100">
+                        2
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-center opacity-40">
+                      <p className="text-[9px] py-4 text-slate-400">No 2nd</p>
+                    </div>
+                  )}
+
+                  {/* Rank 1 (Gold - Center Champion with Animated Golden Wings) */}
+                  {top3Rankers[0] && (
+                    <div className="p-2 sm:p-2.5 rounded-2xl border-2 border-amber-300/90 bg-gradient-to-b from-amber-50 via-amber-100/50 to-amber-200/60 flex flex-col items-center text-center relative transition-all hover:shadow-md shadow-xs ring-2 ring-amber-400/25">
+                      {/* Animated Golden Wings Behind Avatar */}
+                      <div className="absolute -top-3 sm:-top-3.5 left-1/2 -translate-x-1/2 w-24 sm:w-32 h-8 sm:h-10 pointer-events-none z-0 flex items-center justify-between">
+                        {/* Left Wing */}
+                        <svg
+                          viewBox="0 0 100 70"
+                          className="w-10 h-7 sm:w-13 sm:h-9 animate-wing-left -mr-2 sm:-mr-2.5"
+                        >
+                          <defs>
+                            <linearGradient id="dashGoldWingL" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor="#FEF08A" />
+                              <stop offset="35%" stopColor="#FBBF24" />
+                              <stop offset="75%" stopColor="#F59E0B" />
+                              <stop offset="100%" stopColor="#D97706" />
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d="M95,55 C70,48 45,32 20,8 C12,0 0,-3 0,5 C0,10 10,18 22,25 C10,22 2,28 4,34 C6,40 18,42 30,44 C18,44 10,50 14,56 C18,62 34,58 48,56 C36,60 30,68 36,70 C42,72 65,65 95,55 Z"
+                            fill="url(#dashGoldWingL)"
+                          />
+                          <path
+                            d="M85,50 C65,44 45,30 25,12 C18,7 8,5 8,9 C10,14 18,20 28,26 C18,24 12,28 14,33 C16,38 26,40 36,42 C26,42 20,47 24,51 C28,55 42,52 54,50"
+                            fill="none"
+                            stroke="#FFF"
+                            strokeOpacity="0.5"
+                            strokeWidth="1.5"
+                          />
+                        </svg>
+
+                        {/* Right Wing */}
+                        <svg
+                          viewBox="0 0 100 70"
+                          className="w-10 h-7 sm:w-13 sm:h-9 animate-wing-right -ml-2 sm:-ml-2.5"
+                        >
+                          <defs>
+                            <linearGradient id="dashGoldWingR" x1="100%" y1="0%" x2="0%" y2="100%">
+                              <stop offset="0%" stopColor="#FEF08A" />
+                              <stop offset="35%" stopColor="#FBBF24" />
+                              <stop offset="75%" stopColor="#F59E0B" />
+                              <stop offset="100%" stopColor="#D97706" />
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d="M5,55 C30,48 55,32 80,8 C88,0 100,-3 100,5 C100,10 90,18 78,25 C90,22 98,28 96,34 C94,40 82,42 70,44 C82,44 90,50 86,56 C82,62 66,58 52,56 C64,60 70,68 64,70 C58,72 35,65 5,55 Z"
+                            fill="url(#dashGoldWingR)"
+                          />
+                          <path
+                            d="M15,50 C35,44 55,30 75,12 C82,7 92,5 92,9 C90,14 82,20 72,26 C82,24 88,28 86,33 C84,38 74,40 64,42 C74,42 80,47 76,51 C72,55 58,52 46,50"
+                            fill="none"
+                            stroke="#FFF"
+                            strokeOpacity="0.5"
+                            strokeWidth="1.5"
+                          />
+                        </svg>
+                      </div>
+
+                      <div className="absolute -top-3 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-slate-950 text-[9px] sm:text-[10px] font-black shadow-xs flex items-center gap-1 animate-bounce ring-1 ring-white z-10">
+                        <Crown className="w-2.5 h-2.5 fill-current" /> 1ST 🏆
+                      </div>
+                      <div className="relative mt-0.5 z-10">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-amber-200 to-amber-400 border-2 border-white text-amber-950 ring-2 ring-amber-400/50 shadow-sm flex items-center justify-center font-display font-black text-sm sm:text-base">
+                          {top3Rankers[0].studentName.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-amber-400 text-slate-950 border border-white flex items-center justify-center text-[8px] font-black shadow-xs">
+                          👑
+                        </span>
+                      </div>
+                      <div className="font-display font-black text-[11px] sm:text-xs mt-1 truncate w-full px-0.5 text-slate-950 z-10">
+                        {top3Rankers[0].studentName}
+                      </div>
+                      <div className="text-[11px] sm:text-sm font-mono font-black text-amber-950 mt-0.5 z-10">
+                        {top3Rankers[0].percentage}%
+                      </div>
+                      <div className="text-[8px] sm:text-[9px] font-mono text-amber-900/90 z-10">
+                        {top3Rankers[0].score}/{top3Rankers[0].totalMarks}
+                      </div>
+                      {/* Stepped Pedestal Base 1 */}
+                      <div className="mt-1.5 w-full h-8 sm:h-10 rounded-lg bg-gradient-to-b from-amber-400 to-amber-500 flex items-center justify-center text-slate-950 font-display font-black text-sm sm:text-base shadow-inner border-t border-amber-200 z-10">
+                        1
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rank 3 (Bronze - Right) */}
+                  {top3Rankers[2] ? (
+                    <div className="p-2 rounded-2xl border border-amber-200/80 bg-gradient-to-b from-amber-50/40 via-amber-100/40 to-amber-200/50 flex flex-col items-center text-center relative transition-all hover:shadow-sm">
+                      <div className="absolute -top-2.5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[8px] sm:text-[9px] font-black shadow-2xs flex items-center gap-0.5 ring-1 ring-white">
+                        <Medal className="w-2.5 h-2.5 text-amber-700" /> 3RD
+                      </div>
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-100 to-amber-300 border-2 border-white text-amber-900 ring-1 ring-amber-300/50 shadow-xs flex items-center justify-center font-display font-bold text-xs sm:text-sm mt-0.5">
+                        {top3Rankers[2].studentName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="font-display font-bold text-[10px] sm:text-xs mt-1 truncate w-full px-0.5 text-slate-900">
+                        {top3Rankers[2].studentName}
+                      </div>
+                      <div className="text-[10px] sm:text-xs font-mono font-black text-slate-900 mt-0.5">
+                        {top3Rankers[2].percentage}%
+                      </div>
+                      <div className="text-[8px] sm:text-[9px] font-mono text-slate-500">
+                        {top3Rankers[2].score}/{top3Rankers[2].totalMarks}
+                      </div>
+                      {/* Stepped Pedestal Base 3 */}
+                      <div className="mt-1.5 w-full h-4 sm:h-5 rounded-lg bg-gradient-to-b from-amber-300 to-amber-400 flex items-center justify-center text-amber-950 font-display font-black text-xs shadow-inner border-t border-amber-100">
+                        3
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 text-center opacity-40">
+                      <p className="text-[9px] py-4 text-slate-400">No 3rd</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="py-6 text-center">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto mb-2">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <p className="text-xs font-bold text-slate-800">No Test Rankers Yet</p>
+                <p className="text-[11px] text-slate-500 mt-0.5 max-w-[200px] mx-auto">
+                  Take tests in your classrooms to claim the top podium spot!
+                </p>
+              </div>
+            )}
           </div>
-          <div className="mt-2 sm:mt-3 font-display text-4xl sm:text-5xl font-bold" style={{color: '#0B1F3A'}}>14<span className="text-sm sm:text-base font-medium text-muted-foreground">days</span></div>
-          <p className="mt-1 text-xs text-muted-foreground">Best: 21 days · Keep it up!</p>
-          <div className="mt-3 sm:mt-4 grid grid-cols-7 gap-1">
-            {Array.from({ length: 28 }).map((_, i) => (
-              <div
-                key={i}
-                className="aspect-square rounded"
-                style={{background: i < 14 ? '#F4B400' : i < 21 ? 'rgba(244,180,0,0.25)' : '#E5E9EF'}}
-              />
-            ))}
-          </div>
-          <div className="mt-5 rounded-xl p-4" style={{background: 'linear-gradient(135deg, #0B1F3A 0%, #12294D 100%)'}}>
-            <div className="text-xs uppercase tracking-widest font-semibold" style={{color: '#F4B400'}}>Next badge</div>
-            <div className="font-display font-bold mt-1 text-white">Iron Discipline</div>
-            <div className="text-xs mt-1" style={{color: 'rgba(255,255,255,0.6)'}}>7 more days to unlock</div>
-          </div>
+
+          {/* Student's Personal Rank Banner if attended */}
+          {myLeaderboardRank ? (
+            <div className="mt-3 p-2.5 rounded-xl bg-gradient-to-r from-emerald-50 via-slate-50 to-amber-50 border border-emerald-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                  #{myLeaderboardRank.rank}
+                </span>
+                <div>
+                  <div className="text-[11px] font-bold text-slate-900">Your Rank</div>
+                  <div className="text-[10px] text-slate-500">
+                    Score: <strong className="text-emerald-700 font-bold">{myLeaderboardRank.score}/{myLeaderboardRank.totalMarks}</strong> ({myLeaderboardRank.percentage}%)
+                  </div>
+                </div>
+              </div>
+              <Link
+                to="/student/exams"
+                className="text-[10px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2 py-1 rounded-lg transition-colors"
+              >
+                View
+              </Link>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl p-2.5 bg-gradient-to-r from-[#0B1F3A] to-[#1A3560] text-white flex items-center justify-between">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-amber-400 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> Challenge
+                </div>
+                <div className="text-xs font-bold mt-0.5">Aim for the #1 Podium</div>
+              </div>
+              <Link
+                to="/student/exams"
+                className="text-[10px] font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 px-2.5 py-1 rounded-lg transition-all shadow-xs"
+              >
+                Take Tests
+              </Link>
+            </div>
+          )}
         </Card>
       </div>
 
