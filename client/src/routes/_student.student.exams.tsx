@@ -57,9 +57,32 @@ function QuizModal({ quiz, classroomId, studentId, studentName, reviewAttemptId,
 
   const [result, setResult] = useState<QuizResultReview | null>(() => {
     if (existingAttempt && existingAttempt.score) {
+      const initialAnswers = (quiz.questions && quiz.questions.length > 0)
+        ? quiz.questions.map((q) => {
+            const ans = existingAttempt.answers?.find((a) => a.questionId === q.id);
+            const selectedOptions = ans?.selectedOptions || [];
+            const correctOptions = (q.options || []).filter((o) => o.isCorrect).map((o) => o.label);
+            return {
+              questionId: q.id,
+              questionText: q.text,
+              marks: q.marks,
+              selectedOptions,
+              correctOptions,
+              isAttempted: selectedOptions.length > 0,
+              isCorrect: !!ans?.isCorrect,
+              marksAwarded: ans?.marksAwarded ?? (ans?.isCorrect ? q.marks : 0),
+              explanation: q.explanation,
+              options: (q.options || []).map((o) => ({
+                label: o.label,
+                text: o.text,
+                isCorrect: o.isCorrect,
+              })),
+            };
+          })
+        : [];
       return {
         score: existingAttempt.score,
-        answers: existingAttempt.answers || [],
+        answers: initialAnswers,
       };
     }
     return null;

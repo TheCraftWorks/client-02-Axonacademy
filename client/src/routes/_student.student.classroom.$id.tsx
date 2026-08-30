@@ -1326,9 +1326,32 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
     const bestAttempt = submittedAttempts.sort((a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0))[0];
 
     if (bestAttempt?.score) {
+      const initialAnswers = (quiz.questions && quiz.questions.length > 0)
+        ? quiz.questions.map((q) => {
+            const ans = bestAttempt.answers?.find((a) => a.questionId === q.id);
+            const selectedOptions = ans?.selectedOptions || [];
+            const correctOptions = (q.options || []).filter((o) => o.isCorrect).map((o) => o.label);
+            return {
+              questionId: q.id,
+              questionText: q.text,
+              marks: q.marks,
+              selectedOptions,
+              correctOptions,
+              isAttempted: selectedOptions.length > 0,
+              isCorrect: !!ans?.isCorrect,
+              marksAwarded: ans?.marksAwarded ?? (ans?.isCorrect ? q.marks : 0),
+              explanation: q.explanation,
+              options: (q.options || []).map((o) => ({
+                label: o.label,
+                text: o.text,
+                isCorrect: o.isCorrect,
+              })),
+            };
+          })
+        : [];
       setResult({
         score: bestAttempt.score,
-        answers: bestAttempt.answers || [],
+        answers: initialAnswers,
       });
       setPhase("result");
     } else {
