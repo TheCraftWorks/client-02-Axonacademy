@@ -95,7 +95,7 @@ function LiveClasses() {
           <p className="mt-1 text-white/80">{latestLive.title} – {latestLive.classroomName}</p>
           <Link
             to="/live/$roomId"
-            params={{ roomId: latestLive.roomId }}
+            params={{ roomId: latestLive.roomId || latestLive.id }}
             className="inline-flex items-center gap-2 rounded-full px-4 py-2 font-bold mt-2 transition-all hover:brightness-110 active:scale-95"
             style={{ background: GOLD, color: NAVY }}
           >
@@ -133,7 +133,7 @@ function LiveClasses() {
                 </div>
                 <Link
                   to="/live/$roomId"
-                  params={{ roomId: m.roomId }}
+                  params={{ roomId: m.roomId || m.id }}
                   className="inline-flex items-center gap-2 rounded-full px-6 py-3 font-bold shrink-0 transition-all hover:brightness-110 active:scale-95"
                   style={{ background: GOLD, color: NAVY }}
                 >
@@ -177,7 +177,7 @@ function LiveClasses() {
               </div>
               <Link
                 to="/live/$roomId"
-                params={{ roomId: m.roomId }}
+                params={{ roomId: m.roomId || m.id }}
                 className="inline-flex items-center gap-2 rounded-full px-4 py-2 font-bold shrink-0 transition-all hover:brightness-110 active:scale-95 text-white"
                 style={{ background: `linear-gradient(135deg, ${NAVY}, #1A3560)` }}
               >

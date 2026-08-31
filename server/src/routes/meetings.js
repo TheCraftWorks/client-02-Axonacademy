@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 const User = require('../models/User');
 const LiveMeeting = require('../models/LiveMeeting');
@@ -10,6 +11,11 @@ const Attendance = require('../models/Attendance');
 const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/auth');
 const { sendFCMNotification } = require('../config/firebase');
 const emailService = require('../services/emailService');
+
+const findMeetingByRoomOrId = (roomOrId) => {
+  const isObjId = mongoose.Types.ObjectId.isValid(roomOrId);
+  return isObjId ? { $or: [{ roomId: roomOrId }, { _id: roomOrId }] } : { roomId: roomOrId };
+};
 
 // Socket notification helper
 const notifyMeetingCreated = async (meeting) => {
@@ -143,13 +149,22 @@ router.get('/my', protect, async (req, res, next) => {
 // GET /room/:roomId → Get meeting detail by roomId (used for lobby/room route)
 router.get('/room/:roomId', protect, async (req, res, next) => {
   try {
-    const meeting = await LiveMeeting.findOne({ roomId: req.params.roomId })
+    const meeting = await LiveMeeting.findOne(findMeetingByRoomOrId(req.params.roomId))
       .populate('classroom', 'name code students')
       .populate('createdBy', 'fullName email')
       .populate('attendees.student', 'fullName email avatar');
 
     if (!meeting) {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
+    }
+
+    if (!meeting.roomId) {
+      const r = () => Math.floor(100 + Math.random() * 900);
+      meeting.roomId = `${r()}-${r()}-${r()}`;
+      meeting.meetingLink = `/live/${meeting.roomId}`;
+      meeting.webexMeetingId = meeting.roomId;
+      meeting.webexLink = `/live/${meeting.roomId}`;
+      await meeting.save();
     }
 
     const classroom = meeting.classroom;
@@ -170,10 +185,19 @@ router.get('/room/:roomId', protect, async (req, res, next) => {
 // POST /room/:roomId/join → Student/Admin joins by roomId
 router.post('/room/:roomId/join', protect, async (req, res, next) => {
   try {
-    const meeting = await LiveMeeting.findOne({ roomId: req.params.roomId })
+    const meeting = await LiveMeeting.findOne(findMeetingByRoomOrId(req.params.roomId))
       .populate('classroom', 'students');
     if (!meeting) {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
+    }
+
+    if (!meeting.roomId) {
+      const r = () => Math.floor(100 + Math.random() * 900);
+      meeting.roomId = `${r()}-${r()}-${r()}`;
+      meeting.meetingLink = `/live/${meeting.roomId}`;
+      meeting.webexMeetingId = meeting.roomId;
+      meeting.webexLink = `/live/${meeting.roomId}`;
+      await meeting.save();
     }
 
     const classroom = meeting.classroom;
@@ -214,7 +238,7 @@ router.post('/room/:roomId/join', protect, async (req, res, next) => {
 // POST /room/:roomId/heartbeat → keep live-class attendance duration fresh
 router.post('/room/:roomId/heartbeat', protect, async (req, res, next) => {
   try {
-    const meeting = await LiveMeeting.findOne({ roomId: req.params.roomId });
+    const meeting = await LiveMeeting.findOne(findMeetingByRoomOrId(req.params.roomId));
     if (!meeting) {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
     }
@@ -249,7 +273,7 @@ router.post('/room/:roomId/heartbeat', protect, async (req, res, next) => {
 // POST /room/:roomId/leave → finalize live-class attendance duration by roomId
 router.post('/room/:roomId/leave', protect, async (req, res, next) => {
   try {
-    const meeting = await LiveMeeting.findOne({ roomId: req.params.roomId });
+    const meeting = await LiveMeeting.findOne(findMeetingByRoomOrId(req.params.roomId));
     if (!meeting) {
       return res.status(404).json({ success: false, message: 'Meeting not found' });
     }
@@ -636,8 +660,12 @@ router.post('/:id/start', async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    if (meeting.status === 'live') {
-      return res.status(400).json({ success: false, message: 'Meeting is already live' });
+    if (!meeting.roomId) {
+      const r = () => Math.floor(100 + Math.random() * 900);
+      meeting.roomId = `${r()}-${r()}-${r()}`;
+      meeting.meetingLink = `/live/${meeting.roomId}`;
+      meeting.webexMeetingId = meeting.roomId;
+      meeting.webexLink = `/live/${meeting.roomId}`;
     }
 
     meeting.status = 'live';

@@ -52,6 +52,10 @@ function LiveClassroomRoom() {
   const { currentUser: user, accessToken: token } = useClassroomStore();
   const { status, activePanel, raisedHands } = useSelector((s: any) => s.meeting);
 
+  if (!routeRoomId || routeRoomId === 'undefined' || routeRoomId === 'null') {
+    return <Navigate to={user?.role === 'student' ? '/student/live' : '/admin/dashboard'} replace />;
+  }
+
   // WebRTC getDisplayMedia Screen Share Polyfill for Capacitor Android App
   useEffect(() => {
     const isCapacitor = typeof window !== 'undefined' && (window as any).Capacitor;

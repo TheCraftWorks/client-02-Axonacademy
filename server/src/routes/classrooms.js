@@ -207,7 +207,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   // 1. Live Meetings (exclude large attendees & waitingRoom arrays on overview)
   let meetingsQuery = LiveMeeting.find({ classroom: { $in: classroomIds } });
   if (isList) {
-    meetingsQuery = meetingsQuery.select('_id classroom title status scheduledAt duration');
+    meetingsQuery = meetingsQuery.select('_id classroom title status scheduledAt duration roomId webexLink');
   } else {
     meetingsQuery = meetingsQuery.select('-attendees -waitingRoom').populate('createdBy', 'fullName');
   }

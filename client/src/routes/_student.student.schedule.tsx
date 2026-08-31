@@ -100,7 +100,7 @@ function Schedule() {
                 </span>
                 {m.status === "live" && (
                   <a
-                    href={`/live/${m.roomId}`}
+                    href={`/live/${m.roomId || m.id}`}
                     className="rounded-full text-white text-xs font-bold px-4 py-2 animate-pulse inline-flex"
                     style={{ background: '#EF4444' }}
                   >

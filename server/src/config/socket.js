@@ -322,7 +322,9 @@ const initSocket = (server) => {
         // Allow waiting even if host hasn't joined yet, verify meeting exists in DB
         try {
           const LiveMeeting = require('../models/LiveMeeting');
-          const meeting = await LiveMeeting.findOne({ roomId });
+          const mongoose = require('mongoose');
+          const isObjId = mongoose.Types.ObjectId.isValid(roomId);
+          const meeting = await LiveMeeting.findOne(isObjId ? { $or: [{ roomId }, { _id: roomId }] } : { roomId });
           if (!meeting || meeting.status === 'cancelled' || meeting.status === 'ended') {
             return cb?.({ error: 'Class is not available.' });
           }

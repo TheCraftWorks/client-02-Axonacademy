@@ -182,7 +182,7 @@ function normalizeBackendClassroom(raw: any) {
         duration: m.duration || 60,
         status: normalizeMeetingStatus(m.status),
         attendees: Array.isArray(m.attendees) ? m.attendees.map((a: any) => String(a.student?._id || a.student || a)) : [],
-        roomId: m.roomId || '',
+        roomId: m.roomId || m._id || m.id || '',
         webexLink: m.webexLink || '',
         webexPassword: m.webexPassword || '',
       }))

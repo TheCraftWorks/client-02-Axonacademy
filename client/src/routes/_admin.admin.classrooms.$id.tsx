@@ -522,7 +522,7 @@ function LiveClassesTab({ classroomId, refreshClassroom, isFetching }: { classro
                       )}
                       {m.status === "live" && (
                         <>
-                          <Link to="/live/$roomId" params={{ roomId: m.roomId }}
+                          <Link to="/live/$roomId" params={{ roomId: m.roomId || m.id }}
                             className="rounded-full bg-red-500/20 text-red-300 px-4 py-2 text-xs font-bold flex items-center gap-1">
                             <LuRadio className="h-3 w-3" /> Join Class
                           </Link>
