@@ -589,6 +589,13 @@ router.post('/', async (req, res, next) => {
       console.log(`[WhatsApp Service Mock] Notify classroom students about: "${title}"`);
     }
 
+    try {
+      const classroomsRouter = require('./classrooms');
+      if (typeof classroomsRouter.clearClassroomCache === 'function') {
+        classroomsRouter.clearClassroomCache();
+      }
+    } catch (e) {}
+
     res.status(201).json({ success: true, message: 'Meeting scheduled successfully', meeting });
   } catch (error) {
     next(error);
@@ -610,6 +617,14 @@ router.put('/:id', async (req, res, next) => {
 
     Object.assign(meeting, req.body);
     await meeting.save();
+
+    try {
+      const classroomsRouter = require('./classrooms');
+      if (typeof classroomsRouter.clearClassroomCache === 'function') {
+        classroomsRouter.clearClassroomCache();
+      }
+    } catch (e) {}
+
     res.json({ success: true, message: 'Meeting updated successfully', meeting });
   } catch (error) {
     next(error);
@@ -636,6 +651,13 @@ router.delete('/:id', async (req, res, next) => {
     await Classroom.findByIdAndUpdate(meeting.classroom, {
       $inc: { 'stats.totalLiveSessions': -1 }
     });
+
+    try {
+      const classroomsRouter = require('./classrooms');
+      if (typeof classroomsRouter.clearClassroomCache === 'function') {
+        classroomsRouter.clearClassroomCache();
+      }
+    } catch (e) {}
 
     res.json({ success: true, message: 'Meeting cancelled successfully' });
   } catch (error) {
@@ -671,6 +693,13 @@ router.post('/:id/start', async (req, res, next) => {
     meeting.status = 'live';
     meeting.startedAt = new Date();
     await meeting.save();
+
+    try {
+      const classroomsRouter = require('./classrooms');
+      if (typeof classroomsRouter.clearClassroomCache === 'function') {
+        classroomsRouter.clearClassroomCache();
+      }
+    } catch (e) {}
 
     // ── Socket: notify enrolled students in real-time ─────────────────────
     try {
@@ -774,6 +803,13 @@ router.post('/:id/end', async (req, res, next) => {
 
     await meeting.save();
     await Promise.all(meeting.attendees.map((attendee) => upsertMeetingAttendance(meeting, attendee.student)));
+
+    try {
+      const classroomsRouter = require('./classrooms');
+      if (typeof classroomsRouter.clearClassroomCache === 'function') {
+        classroomsRouter.clearClassroomCache();
+      }
+    } catch (e) {}
 
     // Emit ended socket alert
     try {

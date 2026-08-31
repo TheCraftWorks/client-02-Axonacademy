@@ -327,11 +327,13 @@ function LiveClassesTab({ classroomId, refreshClassroom, isFetching }: { classro
 
   const handleDeleteMeeting = async (meetingId: string) => {
     setDeletingMeetingId(meetingId);
+    classroomActions.deleteMeeting(classroomId, meetingId);
     try {
       await deleteMeeting(meetingId);
-      await refreshClassroom();
       toast.success("Meeting deleted.");
+      await refreshClassroom();
     } catch (err) {
+      await refreshClassroom();
       toast.error(err instanceof Error ? err.message : "Could not delete meeting");
     } finally {
       setDeletingMeetingId(null);
@@ -342,23 +344,28 @@ function LiveClassesTab({ classroomId, refreshClassroom, isFetching }: { classro
     if (startingMeetingId) return;
 
     setStartingMeetingId(meetingId);
+    classroomActions.startMeeting(classroomId, meetingId);
 
     try {
       await apiStartMeeting(meetingId);
-      await refreshClassroom();
       toast.success("Meeting started!");
+      await refreshClassroom();
     } catch (err) {
+      await refreshClassroom();
       toast.error(err instanceof Error ? err.message : "Could not start meeting");
     } finally {
       setStartingMeetingId(null);
     }
   };
+
   const handleEndMeeting = async (meetingId: string) => {
+    classroomActions.endMeeting(classroomId, meetingId);
     try {
       await apiEndMeeting(meetingId);
-      await refreshClassroom();
       toast.success("Meeting ended.");
+      await refreshClassroom();
     } catch (err) {
+      await refreshClassroom();
       toast.error(err instanceof Error ? err.message : "Could not end meeting");
     }
   };
@@ -376,11 +383,19 @@ function LiveClassesTab({ classroomId, refreshClassroom, isFetching }: { classro
       sendPortalNotification: notifyStudents,
       sendWhatsApp: false,
     })
-      .then(async () => {
-        await refreshClassroom();
+      .then(async (res: any) => {
+        if (res?.meeting) {
+          classroomActions.addMeeting(classroomId, {
+            ...res.meeting,
+            id: res.meeting._id || res.meeting.id,
+            roomId: res.meeting.roomId,
+            status: res.meeting.status || "scheduled",
+          });
+        }
         setForm({ title: "", description: "", scheduledAt: "", duration: 60 });
         setShowForm(false);
         toast.success("Live class scheduled successfully!");
+        await refreshClassroom();
       })
       .catch((err) => {
         console.error("Schedule Error:", err);
