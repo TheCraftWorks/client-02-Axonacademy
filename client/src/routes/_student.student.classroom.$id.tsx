@@ -40,7 +40,22 @@ import {
 import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { QuizQuestionReviewTabs } from "@/components/quiz/QuizQuestionReviewTabs";
 
+export type TabKey = "announcements" | "live" | "recordings" | "tests";
+
+export interface ClassroomSearchParams {
+  tab?: TabKey;
+  quizId?: string;
+  action?: "start" | "result";
+  attemptId?: string;
+}
+
 export const Route = createFileRoute("/_student/student/classroom/$id")({
+  validateSearch: (search: Record<string, unknown>): ClassroomSearchParams => ({
+    tab: typeof search.tab === "string" ? (search.tab as TabKey) : undefined,
+    quizId: typeof search.quizId === "string" ? search.quizId : undefined,
+    action: typeof search.action === "string" ? (search.action as "start" | "result") : undefined,
+    attemptId: typeof search.attemptId === "string" ? search.attemptId : undefined,
+  }),
   component: StudentClassroomDetail,
 });
 
@@ -79,8 +94,6 @@ interface TabConfig {
   iconColor: string;
   isLive?: boolean;
 }
-
-type TabKey = "announcements" | "live" | "recordings" | "tests";
 
 const TABS: readonly TabConfig[] = [
   { key: "announcements", label: "Announcements", icon: BookOpen, bg: "bg-[#DBEAFE]", text: "text-[#1E40AF]", border: "border-[#93C5FD]", iconColor: "#2563EB" },
@@ -1161,7 +1174,19 @@ type QuizResultReview = {
     options?: Array<{ label: string; text: string; isCorrect?: boolean }>;
   }>;
 };
-function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
+function TestsTab({
+  classroomId,
+  isFetching,
+  initialQuizId,
+  initialAction,
+  initialAttemptId,
+}: {
+  classroomId: string;
+  isFetching?: boolean;
+  initialQuizId?: string | null;
+  initialAction?: "start" | "result" | null;
+  initialAttemptId?: string | null;
+}) {
   const { classrooms, currentUser } = useClassroomStore();
   const CURRENT_STUDENT = { id: currentUser?.id || "", name: currentUser?.name || "" };
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
@@ -1282,7 +1307,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
     return () => clearInterval(timer);
   }, [phase, timeLeft]);
 
-  const handleStartExam = async (quiz: Quiz) => {
+  const handleStartExam = useCallback(async (quiz: Quiz) => {
     setActiveQuiz(quiz);
     setError("");
     setStartingQuizId(quiz.id);
@@ -1314,21 +1339,23 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
     } finally {
       setStartingQuizId(null);
     }
-  };
+  }, []);
 
-  const handleViewResult = async (quiz: Quiz) => {
+  const handleViewResult = useCallback(async (quiz: Quiz, preferredAttemptId?: string | null) => {
     setActiveQuiz(quiz);
     setError("");
     const myAttempts = (quiz.attempts || []).filter(
       (a) => a.studentId === CURRENT_STUDENT.id || a.studentId === currentUser?.userId
     );
     const submittedAttempts = myAttempts.filter((a) => a.status === "submitted");
-    const bestAttempt = submittedAttempts.sort((a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0))[0];
+    const targetAttempt = preferredAttemptId
+      ? submittedAttempts.find((a) => a.id === preferredAttemptId) || submittedAttempts[0]
+      : submittedAttempts.sort((a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0))[0];
 
-    if (bestAttempt?.score) {
+    if (targetAttempt?.score) {
       const initialAnswers = (quiz.questions && quiz.questions.length > 0)
         ? quiz.questions.map((q) => {
-            const ans = bestAttempt.answers?.find((a) => a.questionId === q.id);
+            const ans = targetAttempt.answers?.find((a) => a.questionId === q.id);
             const selectedOptions = ans?.selectedOptions || [];
             const correctOptions = (q.options || []).filter((o) => o.isCorrect).map((o) => o.label);
             return {
@@ -1350,7 +1377,7 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
           })
         : [];
       setResult({
-        score: bestAttempt.score,
+        score: targetAttempt.score,
         answers: initialAnswers,
       });
       setPhase("result");
@@ -1360,19 +1387,50 @@ function TestsTab({ classroomId, isFetching }: { classroomId: string; isFetching
 
     setIsLoadingReview(true);
     try {
-      const fullResult = await getQuizAttemptResult(quiz.id, bestAttempt?.id);
+      const fullResult = await getQuizAttemptResult(quiz.id, targetAttempt?.id || preferredAttemptId || undefined);
       setResult({
-        score: fullResult.score || bestAttempt?.score,
-        answers: fullResult.answers || bestAttempt?.answers || [],
+        score: fullResult.score || targetAttempt?.score,
+        answers: fullResult.answers || targetAttempt?.answers || [],
       });
     } catch (err) {
-      if (!bestAttempt?.score) {
+      if (!targetAttempt?.score) {
         toast.error(err instanceof Error ? err.message : "Could not load test results");
       }
     } finally {
       setIsLoadingReview(false);
     }
-  };
+  }, [CURRENT_STUDENT.id, currentUser?.userId]);
+
+  const autoHandledRef = useRef(false);
+  useEffect(() => {
+    if (autoHandledRef.current || !cls || isFetching || !initialQuizId) return;
+
+    const targetQuiz = (cls.quizzes || []).find((q) => q.id === initialQuizId && q.status === "published");
+    if (!targetQuiz) return;
+
+    autoHandledRef.current = true;
+
+    const myAttempts = (targetQuiz.attempts || []).filter(
+      (a) => a.studentId === CURRENT_STUDENT.id || a.studentId === currentUser?.userId
+    );
+    const submittedAttempts = myAttempts.filter((a) => a.status === "submitted");
+    const attemptsLeft = targetQuiz.maxAttempts - submittedAttempts.length;
+
+    const now = Date.now();
+    const startTime = targetQuiz.availableFrom ? new Date(targetQuiz.availableFrom).getTime() : null;
+    const endTime = targetQuiz.availableUntil ? new Date(targetQuiz.availableUntil).getTime() : null;
+    const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
+    const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
+    const canTake = attemptsLeft > 0 && !isNotStarted && !isExpired;
+
+    if (initialAction === "result" || (submittedAttempts.length > 0 && !canTake)) {
+      void handleViewResult(targetQuiz, initialAttemptId);
+    } else if (initialAction === "start" && canTake) {
+      void handleStartExam(targetQuiz);
+    } else if (submittedAttempts.length > 0) {
+      void handleViewResult(targetQuiz, initialAttemptId);
+    }
+  }, [cls, isFetching, initialQuizId, initialAction, initialAttemptId, CURRENT_STUDENT.id, currentUser?.userId, handleStartExam, handleViewResult]);
 
   const toggleOption = (questionId: string, optionLabel: string, type: string) => {
     setAnswers((prev) => {
@@ -1690,7 +1748,25 @@ function StudentClassroomDetail() {
   const id = params.id as string;
   const { classrooms, currentUser } = useClassroomStore();
   const CURRENT_STUDENT = { id: currentUser?.id || "", name: currentUser?.name || "" };
-  const [tab, setTab] = useState<TabKey>("live");
+
+  const search: any = (Route.useSearch as any) ? Route.useSearch() : {};
+  const queryTab = (search?.tab as TabKey) || (typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get("tab") as TabKey) : null);
+  const queryQuizId = (search?.quizId as string | undefined) || (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get("quizId") : null);
+  const queryAction = (search?.action as "start" | "result" | undefined) || (typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get("action") as "start" | "result") : null);
+  const queryAttemptId = (search?.attemptId as string | undefined) || (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get("attemptId") : null);
+
+  const [tab, setTab] = useState<TabKey>(() => {
+    if (queryTab && ["announcements", "live", "recordings", "tests"].includes(queryTab)) {
+      return queryTab;
+    }
+    return "live";
+  });
+
+  useEffect(() => {
+    if (queryTab && ["announcements", "live", "recordings", "tests"].includes(queryTab)) {
+      setTab(queryTab);
+    }
+  }, [queryTab]);
 
   const [isLoading, setIsLoading] = useState(!classrooms.some((c) => c.id === id || (c as any)._id === id));
   const [isFetching, setIsFetching] = useState(false);
@@ -1852,7 +1928,15 @@ function StudentClassroomDetail() {
               {tab === "announcements" && <AnnouncementsTab classroomId={classroomId} isFetching={isFetching} />}
               {tab === "live" && <LiveClassesTab classroomId={classroomId} isFetching={isFetching} />}
               {tab === "recordings" && <RecordingsTab classroomId={classroomId} isFetching={isFetching} />}
-              {tab === "tests" && <TestsTab classroomId={classroomId} isFetching={isFetching} />}
+              {tab === "tests" && (
+                <TestsTab
+                  classroomId={classroomId}
+                  isFetching={isFetching}
+                  initialQuizId={queryQuizId}
+                  initialAction={queryAction}
+                  initialAttemptId={queryAttemptId}
+                />
+              )}
             </>
           );
         })()}
