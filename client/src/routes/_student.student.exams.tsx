@@ -31,23 +31,32 @@ function fmtDate(iso?: string) {
 function Exams() {
   const navigate = useNavigate();
   const { classrooms, currentUser } = useClassroomStore();
-  const studentId = currentUser?.id || "";
+  const currentEmail = (currentUser?.email || "").toLowerCase();
+
+  const isMyAttempt = (a: any) =>
+    a.studentId === currentUser?.id ||
+    a.studentId === currentUser?.userId ||
+    (currentEmail && a.studentEmail && a.studentEmail.toLowerCase() === currentEmail);
 
   const enrolledClassrooms = classrooms.filter((c) =>
-    c.students.some((s) => s.id === studentId && s.status === "active")
+    c.students.some(
+      (s) =>
+        (s.id === currentUser?.id ||
+          s.id === currentUser?.userId ||
+          (s.email && currentEmail && s.email.toLowerCase() === currentEmail)) &&
+        s.status === "active"
+    )
   );
+
   const allQuizzes = enrolledClassrooms.flatMap((c) =>
-    c.quizzes
+    (c.quizzes || [])
       .filter((q) => q.status === "published")
       .map((q) => ({ ...q, classroomName: c.name, classroomId: c.id }))
   );
 
-  const upcomingQuizzes = allQuizzes.filter(
-    (q) => !q.attempts.some((a) => a.studentId === studentId && a.status === "submitted")
-  );
   const completedAttempts = allQuizzes.flatMap((q) =>
-    q.attempts
-      .filter((a) => a.studentId === studentId && a.status === "submitted")
+    (q.attempts || [])
+      .filter((a) => isMyAttempt(a) && a.status === "submitted")
       .map((a) => ({
         ...a,
         quizId: q.id,
@@ -57,22 +66,13 @@ function Exams() {
         parentQuiz: q,
       }))
   );
+
   const avgScore = completedAttempts.length
     ? Math.round(
         completedAttempts.reduce((s, a) => s + (a.score?.percentage || 0), 0) /
           completedAttempts.length
       )
     : 0;
-
-  const canAttempt = (q: (typeof allQuizzes)[0]) => {
-    const prevAttempts = q.attempts.filter((a) => a.studentId === studentId);
-    const now = Date.now();
-    const startTime = q.availableFrom ? new Date(q.availableFrom).getTime() : null;
-    const endTime = q.availableUntil ? new Date(q.availableUntil).getTime() : null;
-    const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
-    const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
-    return prevAttempts.length < q.maxAttempts && !isNotStarted && !isExpired;
-  };
 
   const handleStartExam = (quiz: (typeof allQuizzes)[0]) => {
     navigate({
@@ -86,15 +86,15 @@ function Exams() {
     });
   };
 
-  const handleViewResult = (attempt: (typeof completedAttempts)[0]) => {
+  const handleViewResult = (classroomId: string, quizId: string, attemptId?: string) => {
     navigate({
       to: "/student/classroom/$id",
-      params: { id: attempt.classroomId },
+      params: { id: classroomId },
       search: {
         tab: "tests",
-        quizId: attempt.quizId,
+        quizId: quizId,
         action: "result",
-        attemptId: attempt.id,
+        attemptId: attemptId,
       },
     });
   };
@@ -114,7 +114,7 @@ function Exams() {
         {[
           { k: "Average Score", v: `${avgScore}%`, icon: CheckCircle2 },
           { k: "Exams Taken", v: completedAttempts.length.toString(), icon: ClipboardList },
-          { k: "Upcoming", v: upcomingQuizzes.length.toString(), icon: Clock },
+          { k: "Available Tests", v: allQuizzes.length.toString(), icon: Clock },
         ].map((s) => (
           <Card key={s.k} className="flex items-center gap-4">
             <div
@@ -133,28 +133,39 @@ function Exams() {
         ))}
       </div>
 
-      {/* Upcoming Exams */}
+      {/* Available Exams & Quizzes */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display font-bold text-lg" style={{ color: "#0B1F3A" }}>
-            Upcoming Exams
+            Available Exams & Quizzes
           </h3>
         </div>
         <div className="space-y-3">
-          {upcomingQuizzes.map((e) => {
+          {allQuizzes.map((e) => {
+            const myAttempts = (e.attempts || []).filter(isMyAttempt);
+            const submittedAttempts = myAttempts.filter((a) => a.status === "submitted");
+            const bestAttempt = submittedAttempts.sort(
+              (a, b) => (b.score?.percentage || 0) - (a.score?.percentage || 0)
+            )[0];
+            const attemptsLeft = e.maxAttempts - submittedAttempts.length;
+            const hasAttemptsLeft = attemptsLeft > 0;
+
             const now = Date.now();
             const startTime = e.availableFrom ? new Date(e.availableFrom).getTime() : null;
             const endTime = e.availableUntil ? new Date(e.availableUntil).getTime() : null;
             const isNotStarted = startTime !== null && !isNaN(startTime) && startTime > now;
             const isExpired = endTime !== null && !isNaN(endTime) && endTime < now;
-            const isClickable = canAttempt(e);
+            const canTake = hasAttemptsLeft && !isNotStarted && !isExpired;
+            const isClickable = canTake || submittedAttempts.length > 0;
 
             return (
               <div
                 key={e.id}
                 onClick={() => {
-                  if (isClickable) {
+                  if (canTake) {
                     handleStartExam(e);
+                  } else if (submittedAttempts.length > 0) {
+                    handleViewResult(e.classroomId, e.id, bestAttempt?.id);
                   }
                 }}
                 className={`flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-border p-4 transition-all ${
@@ -173,10 +184,16 @@ function Exams() {
                   <div className="font-semibold" style={{ color: "#0B1F3A" }}>
                     {e.title}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {e.duration ? `${e.duration} min timer` : "No limit"}
-                    {e.questions.length ? ` · ${e.questions.length} questions` : ""}
-                    {` · Pass: ${e.passPercent}%`}
+                  <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                    <span>{e.duration ? `${e.duration} min timer` : "No limit"}</span>
+                    <span>·</span>
+                    <span>{e.questions?.length || 0} questions</span>
+                    <span>·</span>
+                    <span>Pass: {e.passPercent}%</span>
+                    <span>·</span>
+                    <span className="font-medium text-slate-700">
+                      Attempts: {submittedAttempts.length}/{e.maxAttempts}
+                    </span>
                   </div>
                   {(e.availableFrom || e.availableUntil) && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -200,28 +217,34 @@ function Exams() {
                     </div>
                   )}
                   <div
-                    className="text-[10px] uppercase tracking-widest mt-1.5"
-                    style={{ color: "rgba(11,31,58,0.5)" }}
+                    className="text-[10px] uppercase tracking-widest mt-1.5 font-medium"
+                    style={{ color: "rgba(11,31,58,0.6)" }}
                   >
                     {e.classroomName}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span
-                    className="text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-full font-bold"
-                    style={{ background: "rgba(244,180,0,0.15)", color: "#B8870A" }}
-                  >
-                    Pending
-                  </span>
+                  {submittedAttempts.length > 0 && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleViewResult(e.classroomId, e.id, bestAttempt?.id);
+                      }}
+                      className="rounded-full border border-slate-300 text-slate-800 hover:border-slate-900 hover:bg-slate-100 text-xs font-semibold px-4 py-2 transition-all shadow-2xs"
+                    >
+                      View Result ({bestAttempt?.score?.percentage || 0}%)
+                    </button>
+                  )}
+
                   {isNotStarted ? (
                     <span className="text-xs text-muted-foreground rounded-full border border-border px-4 py-2">
                       Starts Soon
                     </span>
-                  ) : isExpired ? (
+                  ) : isExpired && submittedAttempts.length === 0 ? (
                     <span className="text-xs text-red-600 rounded-full border border-red-200 bg-red-50 px-4 py-2 font-medium">
                       Deadline Passed
                     </span>
-                  ) : canAttempt(e) ? (
+                  ) : canTake ? (
                     <button
                       onClick={(event) => {
                         event.stopPropagation();
@@ -230,20 +253,16 @@ function Exams() {
                       className="rounded-full text-white text-xs font-semibold px-4 py-2 transition-all hover:brightness-110 active:scale-95 flex items-center gap-1"
                       style={{ background: "#0B1F3A" }}
                     >
-                      <span>Start Exam</span>
+                      <span>{submittedAttempts.length > 0 ? "Retake Test" : "Start Exam"}</span>
                       <ChevronRight className="w-3.5 h-3.5 opacity-80" />
                     </button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground rounded-full border border-border px-4 py-2">
-                      Max attempts reached
-                    </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             );
           })}
-          {upcomingQuizzes.length === 0 && (
-            <p className="text-sm text-muted-foreground">No upcoming exams. 🎉</p>
+          {allQuizzes.length === 0 && (
+            <p className="text-sm text-muted-foreground">No exams or quizzes available yet. 🎉</p>
           )}
         </div>
       </Card>
@@ -274,7 +293,7 @@ function Exams() {
                 .map((r) => (
                   <tr
                     key={r.id}
-                    onClick={() => handleViewResult(r)}
+                    onClick={() => handleViewResult(r.classroomId, r.quizId, r.id)}
                     className="border-b border-border/60 last:border-0 hover:bg-sky-50/50 cursor-pointer transition-colors"
                   >
                     <td className="py-3.5 font-semibold" style={{ color: "#0B1F3A" }}>
@@ -323,7 +342,7 @@ function Exams() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleViewResult(r);
+                          handleViewResult(r.classroomId, r.quizId, r.id);
                         }}
                         className="rounded-full border border-slate-300 text-slate-800 hover:border-slate-900 hover:bg-slate-100 text-xs font-bold px-3.5 py-1 transition-colors shadow-2xs inline-flex items-center gap-1"
                       >
