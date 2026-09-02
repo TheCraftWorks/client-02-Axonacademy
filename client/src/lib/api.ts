@@ -869,6 +869,78 @@ export interface VideoUploadProgress {
 }
 
 /**
+ * Fetch helper with timeout and automatic retry for orchestrating multipart APIs.
+ */
+async function fetchJsonWithTimeout<T = any>(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 25000,
+  maxRetries = 3,
+  signal?: AbortSignal
+): Promise<T> {
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) {
+      throw new Error('Upload cancelled');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onUserAbort = () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onUserAbort, { once: true });
+    }
+
+    try {
+      if (attempt > 1) {
+        const backoff = Math.min(1000 * Math.pow(2, attempt - 2), 3000);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener('abort', onUserAbort);
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401) {
+          classroomStore.setState(() => ({ currentUser: null }));
+        }
+        throw new Error(data.message || `Request failed with status ${res.status}`);
+      }
+
+      return data as T;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener('abort', onUserAbort);
+
+      if (signal?.aborted) {
+        throw new Error('Upload cancelled');
+      }
+
+      const isAbort = err.name === 'AbortError' || err.message?.includes('aborted');
+      lastErr = isAbort
+        ? new Error(`Network timeout (${Math.round(timeoutMs / 1000)}s) on ${url.split('/').pop()}`)
+        : err;
+      console.warn(`[API] ${url} attempt ${attempt} failed:`, lastErr.message);
+      if (attempt === maxRetries) {
+        throw lastErr;
+      }
+    }
+  }
+  throw lastErr || new Error('Request failed after retries');
+}
+
+/**
  * Upload one part of a multipart upload directly to R2 with auto-retry & watchdog.
  */
 async function uploadPartToR2WithRetry({
@@ -878,6 +950,7 @@ async function uploadPartToR2WithRetry({
   totalParts,
   onPartBytes,
   onStatusUpdate,
+  signal,
   maxRetries = 4,
 }: {
   getPresignedUrl: () => Promise<string>;
@@ -886,11 +959,16 @@ async function uploadPartToR2WithRetry({
   totalParts: number;
   onPartBytes?: (loaded: number) => void;
   onStatusUpdate?: (status: string, isRetrying: boolean) => void;
+  signal?: AbortSignal;
   maxRetries?: number;
 }): Promise<string> {
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) {
+      throw new Error('Upload cancelled');
+    }
+
     try {
       if (attempt > 1) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 2), 6000);
@@ -908,12 +986,28 @@ async function uploadPartToR2WithRetry({
         let lastActivity = Date.now();
         let hasResolved = false;
 
+        const onAbort = () => {
+          if (!hasResolved) {
+            hasResolved = true;
+            xhr.abort();
+            reject(new Error('Upload cancelled'));
+          }
+        };
+
+        if (signal) {
+          if (signal.aborted) {
+            return reject(new Error('Upload cancelled'));
+          }
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+
         // Inactivity watchdog: abort if no bytes are transferred for 45s
         const watchdog = setInterval(() => {
           if (Date.now() - lastActivity > 45000) {
             clearInterval(watchdog);
             if (!hasResolved) {
               hasResolved = true;
+              if (signal) signal.removeEventListener('abort', onAbort);
               xhr.abort();
               reject(new Error(`Part ${partNumber} upload timed out (network stalled)`));
             }
@@ -932,6 +1026,7 @@ async function uploadPartToR2WithRetry({
 
         xhr.addEventListener('load', () => {
           clearInterval(watchdog);
+          if (signal) signal.removeEventListener('abort', onAbort);
           if (hasResolved) return;
           hasResolved = true;
 
@@ -950,6 +1045,7 @@ async function uploadPartToR2WithRetry({
 
         xhr.addEventListener('error', () => {
           clearInterval(watchdog);
+          if (signal) signal.removeEventListener('abort', onAbort);
           if (hasResolved) return;
           hasResolved = true;
           reject(new Error(`Network error while uploading part ${partNumber}`));
@@ -957,9 +1053,10 @@ async function uploadPartToR2WithRetry({
 
         xhr.addEventListener('abort', () => {
           clearInterval(watchdog);
+          if (signal) signal.removeEventListener('abort', onAbort);
           if (hasResolved) return;
           hasResolved = true;
-          reject(new Error(`Upload aborted on part ${partNumber}`));
+          reject(new Error(signal?.aborted ? 'Upload cancelled' : `Upload aborted on part ${partNumber}`));
         });
 
         xhr.send(chunk);
@@ -967,6 +1064,7 @@ async function uploadPartToR2WithRetry({
 
       return etag;
     } catch (err: any) {
+      if (signal?.aborted) throw new Error('Upload cancelled');
       console.warn(`[Upload] Part ${partNumber} attempt ${attempt} failed:`, err.message);
       lastError = err;
       if (attempt === maxRetries) {
@@ -986,17 +1084,23 @@ async function uploadSingleFileToR2WithRetry({
   file,
   contentType,
   onProgress,
+  signal,
   maxRetries = 3,
 }: {
   getPresignedUrl: () => Promise<string>;
   file: File;
   contentType: string;
   onProgress?: (loaded: number, total: number) => void;
+  signal?: AbortSignal;
   maxRetries?: number;
 }): Promise<void> {
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) {
+      throw new Error('Upload cancelled');
+    }
+
     try {
       if (attempt > 1) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 2), 4000);
@@ -1010,11 +1114,25 @@ async function uploadSingleFileToR2WithRetry({
         let lastActivity = Date.now();
         let hasResolved = false;
 
+        const onAbort = () => {
+          if (!hasResolved) {
+            hasResolved = true;
+            xhr.abort();
+            reject(new Error('Upload cancelled'));
+          }
+        };
+
+        if (signal) {
+          if (signal.aborted) return reject(new Error('Upload cancelled'));
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+
         const watchdog = setInterval(() => {
           if (Date.now() - lastActivity > 45000) {
             clearInterval(watchdog);
             if (!hasResolved) {
               hasResolved = true;
+              if (signal) signal.removeEventListener('abort', onAbort);
               xhr.abort();
               reject(new Error('Upload timed out (network stalled)'));
             }
@@ -1033,6 +1151,7 @@ async function uploadSingleFileToR2WithRetry({
 
         xhr.addEventListener('load', () => {
           clearInterval(watchdog);
+          if (signal) signal.removeEventListener('abort', onAbort);
           if (hasResolved) return;
           hasResolved = true;
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -1045,6 +1164,7 @@ async function uploadSingleFileToR2WithRetry({
 
         xhr.addEventListener('error', () => {
           clearInterval(watchdog);
+          if (signal) signal.removeEventListener('abort', onAbort);
           if (hasResolved) return;
           hasResolved = true;
           reject(new Error('Network error during upload'));
@@ -1052,9 +1172,10 @@ async function uploadSingleFileToR2WithRetry({
 
         xhr.addEventListener('abort', () => {
           clearInterval(watchdog);
+          if (signal) signal.removeEventListener('abort', onAbort);
           if (hasResolved) return;
           hasResolved = true;
-          reject(new Error('Upload was cancelled'));
+          reject(new Error(signal?.aborted ? 'Upload cancelled' : 'Upload was cancelled'));
         });
 
         xhr.send(file);
@@ -1062,6 +1183,7 @@ async function uploadSingleFileToR2WithRetry({
 
       return;
     } catch (err: any) {
+      if (signal?.aborted) throw new Error('Upload cancelled');
       console.warn(`[Upload] Single PUT attempt ${attempt} failed:`, err.message);
       lastError = err;
       if (attempt === maxRetries) {
@@ -1136,6 +1258,7 @@ export async function uploadClassroomRecordingToCloudflare({
   isPublished = false,
   chapters = [],
   folderId,
+  signal,
   onProgress,
 }: {
   file: File;
@@ -1146,6 +1269,7 @@ export async function uploadClassroomRecordingToCloudflare({
   isPublished?: boolean;
   chapters?: unknown[];
   folderId?: string;
+  signal?: AbortSignal;
   onProgress?: (progress: VideoUploadProgress) => void;
 }) {
   const authHeaders = getDevAuthUserHeaders();
@@ -1187,17 +1311,22 @@ export async function uploadClassroomRecordingToCloudflare({
     console.log(`[Upload] PATH A — single PUT | ${file.name} | ${fileMB} MB`);
 
     const getPresignedUrl = async () => {
-      const presignRes = await fetch(`${API_BASE}/recordings/classroom/presigned-url`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: baseHeaders,
-        body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
-      });
-      const presignData = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok) {
-        if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-        throw new Error(presignData.message || 'Failed to get upload URL');
-      }
+      const presignData = await fetchJsonWithTimeout<{
+        uploadUrl: string;
+        objectKey: string;
+        publicUrl: string;
+      }>(
+        `${API_BASE}/recordings/classroom/presigned-url`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: baseHeaders,
+          body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
+        },
+        25000,
+        3,
+        signal
+      );
       return presignData;
     };
 
@@ -1208,6 +1337,7 @@ export async function uploadClassroomRecordingToCloudflare({
       getPresignedUrl: async () => (await getPresignedUrl()).uploadUrl,
       file,
       contentType: videoContentType,
+      signal,
       onProgress: (loaded, total) => {
         reportProgress(loaded, total, 1, 1, 'Uploading to cloud...');
       },
@@ -1215,28 +1345,28 @@ export async function uploadClassroomRecordingToCloudflare({
 
     reportProgress(file.size, file.size, 1, 1, 'Saving metadata...');
 
-    const saveRes = await fetch(`${API_BASE}/recordings/classroom/save-recording`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({
-        classroom,
-        title,
-        description,
-        duration,
-        isPublished,
-        objectKey,
-        publicUrl,
-        chapters,
-        folderId,
-      }),
-    });
-
-    const saveData = await saveRes.json().catch(() => ({}));
-    if (!saveRes.ok) {
-      if (saveRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-      throw new Error(saveData.message || 'Failed to save recording metadata');
-    }
+    const saveData = await fetchJsonWithTimeout(
+      `${API_BASE}/recordings/classroom/save-recording`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({
+          classroom,
+          title,
+          description,
+          duration,
+          isPublished,
+          objectKey,
+          publicUrl,
+          chapters,
+          folderId,
+        }),
+      },
+      25000,
+      3,
+      signal
+    );
 
     return saveData;
   }
@@ -1247,32 +1377,35 @@ export async function uploadClassroomRecordingToCloudflare({
   const totalParts = Math.ceil(file.size / MULTIPART_CHUNK_SIZE);
   console.log(`[Upload] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 10 MB`);
 
-  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (10 MB chunks)...`);
+  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (${totalParts} parts × 10 MB)...`);
 
-  const initiateRes = await fetch(`${API_BASE}/recordings/classroom/multipart/initiate`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: baseHeaders,
-    body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
-  });
-
-  const initiateData = await initiateRes.json().catch(() => ({}));
-  if (!initiateRes.ok) {
-    if (initiateRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-    throw new Error(initiateData.message || 'Failed to initiate multipart upload');
-  }
-
-  const { uploadId, objectKey, publicUrl } = initiateData as {
+  const initiateData = await fetchJsonWithTimeout<{
     uploadId: string;
     objectKey: string;
     publicUrl: string;
-  };
+  }>(
+    `${API_BASE}/recordings/classroom/multipart/initiate`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
+    },
+    25000,
+    3,
+    signal
+  );
 
+  const { uploadId, objectKey, publicUrl } = initiateData;
   const partBytesLoaded = new Array<number>(totalParts).fill(0);
   const completedParts: { PartNumber: number; ETag: string }[] = [];
 
   try {
     for (let i = 0; i < totalParts; i++) {
+      if (signal?.aborted) {
+        throw new Error('Upload cancelled');
+      }
+
       const partNumber = i + 1;
       const start = i * MULTIPART_CHUNK_SIZE;
       const end = Math.min(start + MULTIPART_CHUNK_SIZE, file.size);
@@ -1288,17 +1421,19 @@ export async function uploadClassroomRecordingToCloudflare({
       );
 
       const fetchPartPresignedUrl = async () => {
-        const partUrlRes = await fetch(`${API_BASE}/recordings/classroom/multipart/presign-part`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: baseHeaders,
-          body: JSON.stringify({ objectKey, uploadId, partNumber }),
-        });
-        const partUrlData = await partUrlRes.json().catch(() => ({}));
-        if (!partUrlRes.ok) {
-          throw new Error(partUrlData.message || `Failed to get presigned URL for part ${partNumber}`);
-        }
-        return (partUrlData as { presignedUrl: string }).presignedUrl;
+        const partUrlData = await fetchJsonWithTimeout<{ presignedUrl: string }>(
+          `${API_BASE}/recordings/classroom/multipart/presign-part`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: baseHeaders,
+            body: JSON.stringify({ objectKey, uploadId, partNumber }),
+          },
+          25000,
+          3,
+          signal
+        );
+        return partUrlData.presignedUrl;
       };
 
       const etag = await uploadPartToR2WithRetry({
@@ -1306,6 +1441,7 @@ export async function uploadClassroomRecordingToCloudflare({
         chunk,
         partNumber,
         totalParts,
+        signal,
         onPartBytes: (loaded) => {
           partBytesLoaded[i] = loaded;
           const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
@@ -1346,47 +1482,59 @@ export async function uploadClassroomRecordingToCloudflare({
     throw uploadError;
   }
 
+  if (signal?.aborted) {
+    fetch(`${API_BASE}/recordings/classroom/multipart/abort`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({ objectKey, uploadId }),
+    }).catch(() => {});
+    throw new Error('Upload cancelled');
+  }
+
   reportProgress(file.size, file.size, totalParts, totalParts, 'Assembling video on cloud storage...');
 
-  const completeRes = await fetch(`${API_BASE}/recordings/classroom/multipart/complete`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: baseHeaders,
-    body: JSON.stringify({ objectKey, uploadId, parts: completedParts }),
-  });
-
-  const completeData = await completeRes.json().catch(() => ({}));
-  if (!completeRes.ok) {
-    throw new Error(completeData.message || 'Failed to complete multipart upload on R2');
-  }
+  await fetchJsonWithTimeout(
+    `${API_BASE}/recordings/classroom/multipart/complete`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({ objectKey, uploadId, parts: completedParts }),
+    },
+    30000,
+    3,
+    signal
+  );
 
   reportProgress(file.size, file.size, totalParts, totalParts, 'Saving recording metadata...');
 
-  const saveRes = await fetch(`${API_BASE}/recordings/classroom/save-recording`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: baseHeaders,
-    body: JSON.stringify({
-      classroom,
-      title,
-      description,
-      duration,
-      isPublished,
-      objectKey,
-      publicUrl,
-      chapters,
-      folderId,
-    }),
-  });
-
-  const saveData = await saveRes.json().catch(() => ({}));
-  if (!saveRes.ok) {
-    if (saveRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-    throw new Error(saveData.message || 'Failed to save recording metadata');
-  }
+  const saveData = await fetchJsonWithTimeout(
+    `${API_BASE}/recordings/classroom/save-recording`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({
+        classroom,
+        title,
+        description,
+        duration,
+        isPublished,
+        objectKey,
+        publicUrl,
+        chapters,
+        folderId,
+      }),
+    },
+    25000,
+    3,
+    signal
+  );
 
   return saveData;
 }
+
 
 export async function addStudentsToClassroom(classroomId: string, studentIds: string[]) {
   const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/students/add`, {
@@ -1948,6 +2096,7 @@ export async function uploadLibraryRecordingToCloudflare({
   title,
   description = '',
   duration = 0,
+  signal,
   onProgress,
 }: {
   file: File;
@@ -1955,6 +2104,7 @@ export async function uploadLibraryRecordingToCloudflare({
   title: string;
   description?: string;
   duration?: number;
+  signal?: AbortSignal;
   onProgress?: (progress: VideoUploadProgress) => void;
 }) {
   const authHeaders = getDevAuthUserHeaders();
@@ -1994,17 +2144,22 @@ export async function uploadLibraryRecordingToCloudflare({
     console.log(`[Upload Library] PATH A — single PUT | ${file.name} | ${fileMB} MB`);
 
     const getPresignedUrl = async () => {
-      const presignRes = await fetch(`${API_BASE}/recordings/presigned-url`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: baseHeaders,
-        body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
-      });
-      const presignData = await presignRes.json().catch(() => ({}));
-      if (!presignRes.ok) {
-        if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-        throw new Error(presignData.message || 'Failed to get upload URL');
-      }
+      const presignData = await fetchJsonWithTimeout<{
+        uploadUrl: string;
+        objectKey: string;
+        publicUrl: string;
+      }>(
+        `${API_BASE}/recordings/presigned-url`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: baseHeaders,
+          body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
+        },
+        25000,
+        3,
+        signal
+      );
       return presignData;
     };
 
@@ -2015,6 +2170,7 @@ export async function uploadLibraryRecordingToCloudflare({
       getPresignedUrl: async () => (await getPresignedUrl()).uploadUrl,
       file,
       contentType: videoContentType,
+      signal,
       onProgress: (loaded, total) => {
         reportProgress(loaded, total, 1, 1, 'Uploading to cloud...');
       },
@@ -2022,36 +2178,42 @@ export async function uploadLibraryRecordingToCloudflare({
 
     reportProgress(file.size, file.size, 1, 1, 'Saving metadata...');
 
-    const saveRes = await fetch(`${API_BASE}/recordings/save-recording`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ folderId, title, description, duration, objectKey, publicUrl }),
-    });
-    const saveData = await saveRes.json().catch(() => ({}));
-    if (!saveRes.ok) {
-      if (saveRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-      throw new Error(saveData.message || 'Failed to save recording metadata');
-    }
+    const saveData = await fetchJsonWithTimeout(
+      `${API_BASE}/recordings/save-recording`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ folderId, title, description, duration, objectKey, publicUrl }),
+      },
+      25000,
+      3,
+      signal
+    );
     return saveData;
   }
 
   const totalParts = Math.ceil(file.size / MULTIPART_CHUNK_SIZE);
   console.log(`[Upload Library] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 10 MB`);
 
-  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (10 MB chunks)...`);
+  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (${totalParts} parts × 10 MB)...`);
 
-  const initiateRes = await fetch(`${API_BASE}/recordings/multipart/initiate`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: baseHeaders,
-    body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
-  });
-  const initiateData = await initiateRes.json().catch(() => ({}));
-  if (!initiateRes.ok) {
-    if (initiateRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-    throw new Error(initiateData.message || 'Failed to initiate multipart upload');
-  }
+  const initiateData = await fetchJsonWithTimeout<{
+    uploadId: string;
+    objectKey: string;
+    publicUrl: string;
+  }>(
+    `${API_BASE}/recordings/multipart/initiate`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
+    },
+    25000,
+    3,
+    signal
+  );
 
   const { uploadId, objectKey, publicUrl } = initiateData as any;
   const completedParts: { PartNumber: number; ETag: string }[] = [];
@@ -2059,6 +2221,10 @@ export async function uploadLibraryRecordingToCloudflare({
 
   try {
     for (let i = 0; i < totalParts; i++) {
+      if (signal?.aborted) {
+        throw new Error('Upload cancelled');
+      }
+
       const partNumber = i + 1;
       const start = i * MULTIPART_CHUNK_SIZE;
       const end = Math.min(start + MULTIPART_CHUNK_SIZE, file.size);
@@ -2074,18 +2240,19 @@ export async function uploadLibraryRecordingToCloudflare({
       );
 
       const fetchPartPresignedUrl = async () => {
-        const presignRes = await fetch(`${API_BASE}/recordings/multipart/presign-part`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: baseHeaders,
-          body: JSON.stringify({ objectKey, uploadId, partNumber }),
-        });
-        const presignData = await presignRes.json().catch(() => ({}));
-        if (!presignRes.ok) {
-          if (presignRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-          throw new Error(presignData.message || `Failed to presign part ${partNumber}`);
-        }
-        return (presignData as { presignedUrl: string }).presignedUrl;
+        const presignData = await fetchJsonWithTimeout<{ presignedUrl: string }>(
+          `${API_BASE}/recordings/multipart/presign-part`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: baseHeaders,
+            body: JSON.stringify({ objectKey, uploadId, partNumber }),
+          },
+          25000,
+          3,
+          signal
+        );
+        return presignData.presignedUrl;
       };
 
       const etag = await uploadPartToR2WithRetry({
@@ -2093,6 +2260,7 @@ export async function uploadLibraryRecordingToCloudflare({
         chunk,
         partNumber,
         totalParts,
+        signal,
         onPartBytes: (loaded) => {
           partBytesLoaded[i] = loaded;
           const totalLoaded = partBytesLoaded.reduce((acc, b) => acc + b, 0);
@@ -2123,33 +2291,46 @@ export async function uploadLibraryRecordingToCloudflare({
       );
     }
 
+    if (signal?.aborted) {
+      fetch(`${API_BASE}/recordings/multipart/abort`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ objectKey, uploadId }),
+      }).catch(() => {});
+      throw new Error('Upload cancelled');
+    }
+
     reportProgress(file.size, file.size, totalParts, totalParts, 'Assembling video on cloud storage...');
 
-    const completeRes = await fetch(`${API_BASE}/recordings/multipart/complete`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ objectKey, uploadId, parts: completedParts }),
-    });
-    const completeData = await completeRes.json().catch(() => ({}));
-    if (!completeRes.ok) {
-      if (completeRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-      throw new Error(completeData.message || 'Failed to complete multipart upload');
-    }
+    await fetchJsonWithTimeout(
+      `${API_BASE}/recordings/multipart/complete`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ objectKey, uploadId, parts: completedParts }),
+      },
+      30000,
+      3,
+      signal
+    );
 
     reportProgress(file.size, file.size, totalParts, totalParts, 'Saving recording metadata...');
 
-    const saveRes = await fetch(`${API_BASE}/recordings/save-recording`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ folderId, title, description, duration, objectKey, publicUrl }),
-    });
-    const saveData = await saveRes.json().catch(() => ({}));
-    if (!saveRes.ok) {
-      if (saveRes.status === 401) classroomStore.setState(() => ({ currentUser: null }));
-      throw new Error(saveData.message || 'Failed to save recording metadata');
-    }
+    const saveData = await fetchJsonWithTimeout(
+      `${API_BASE}/recordings/save-recording`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ folderId, title, description, duration, objectKey, publicUrl }),
+      },
+      25000,
+      3,
+      signal
+    );
+
     return saveData;
 
   } catch (error) {

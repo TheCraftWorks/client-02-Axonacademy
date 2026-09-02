@@ -207,12 +207,37 @@ function GlobalRecordingsLibrary() {
     }
   };
 
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
+
+  const handleCancelUpload = () => {
+    if (uploadAbortControllerRef.current) {
+      try {
+        uploadAbortControllerRef.current.abort();
+      } catch { }
+      uploadAbortControllerRef.current = null;
+      toast.info("Upload cancelled");
+    }
+    setIsUploadModalOpen(false);
+    setUploadTitle("");
+    setUploadFile(null);
+    setIsUploading(false);
+    setUploadProgress(0);
+    setUploadBytes({ loaded: 0, total: 0 });
+    setUploadPhase('idle');
+    setUploadStatusText("");
+    setIsUploadRetrying(false);
+    setUploadPartInfo(null);
+  };
+
   const handleUploadVideo = async () => {
     if (!uploadTitle || !uploadFile) {
       toast.error("Title and video file are required");
       return;
     }
     
+    const abortController = new AbortController();
+    uploadAbortControllerRef.current = abortController;
+
     setIsUploading(true);
     setUploadProgress(0);
     setUploadBytes({ loaded: 0, total: uploadFile.size });
@@ -259,6 +284,7 @@ function GlobalRecordingsLibrary() {
         title: uploadTitle,
         duration: calculatedDuration,
         folderId: currentFolder?._id,
+        signal: abortController.signal,
         onProgress: ({ loaded, total, percentage, part, totalParts, statusText, isRetrying }) => {
           setUploadPhase(percentage === 100 ? 'saving' : 'uploading');
           setUploadProgress(percentage);
@@ -287,11 +313,16 @@ function GlobalRecordingsLibrary() {
       setIsUploadRetrying(false);
       fetchRecordings();
     } catch (err: any) {
-      toast.error(err.message || "Failed to upload video");
+      if (err.message === "Upload cancelled") {
+        toast.info("Upload cancelled");
+      } else {
+        toast.error(err.message || "Failed to upload video");
+      }
       setUploadPhase('idle');
       setUploadStatusText("");
       setIsUploadRetrying(false);
     } finally {
+      uploadAbortControllerRef.current = null;
       setIsUploading(false);
       setUploadProgress(0);
       setUploadBytes({ loaded: 0, total: 0 });
@@ -502,7 +533,9 @@ function GlobalRecordingsLibrary() {
                   )}
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsUploadModalOpen(false)} disabled={isUploading}>Cancel</Button>
+                  <Button variant="outline" type="button" onClick={handleCancelUpload}>
+                    {isUploading ? "Cancel Upload" : "Cancel"}
+                  </Button>
                   <Button onClick={handleUploadVideo} disabled={isUploading || !uploadFile || !uploadTitle}>
                     {isUploading ? "Uploading..." : "Upload Video"}
                   </Button>

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   LuArrowLeft, LuMegaphone, LuVideo, LuBookOpen, LuClipboardList,
   LuPlus, LuX, LuTrash2, LuPlay, LuEye, LuEyeOff, LuCheck, LuSend,
@@ -633,6 +633,29 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
   const [uploadPartInfo, setUploadPartInfo] = useState<{ part: number; totalParts: number } | null>(null);
   const [uploadStatusText, setUploadStatusText] = useState("");
   const [isUploadRetrying, setIsUploadRetrying] = useState(false);
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
+
+  const handleCancelUpload = () => {
+    if (uploadAbortControllerRef.current) {
+      try {
+        uploadAbortControllerRef.current.abort();
+      } catch { }
+      uploadAbortControllerRef.current = null;
+      toast.info("Upload cancelled");
+    }
+    setIsUploadModalOpen(false);
+    setUploadTitle("");
+    setUploadDesc("");
+    setUploadFile(null);
+    setUploadPublished(false);
+    setIsUploading(false);
+    setUploadProgress(0);
+    setUploadBytes({ loaded: 0, total: 0 });
+    setUploadPhase('idle');
+    setUploadStatusText("");
+    setIsUploadRetrying(false);
+    setUploadPartInfo(null);
+  };
 
   // Video Edit States
   const [editRecId, setEditRecId] = useState<string | null>(null);
@@ -707,6 +730,9 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
       return;
     }
 
+    const abortController = new AbortController();
+    uploadAbortControllerRef.current = abortController;
+
     setIsUploading(true);
     setUploadProgress(0);
     setUploadBytes({ loaded: 0, total: uploadFile.size });
@@ -756,6 +782,7 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
         duration: calculatedDuration,
         isPublished: uploadPublished,
         folderId: currentFolderId || undefined,
+        signal: abortController.signal,
         onProgress: ({ loaded, total, percentage, part, totalParts, statusText, isRetrying }) => {
           setUploadPhase(percentage === 100 ? 'saving' : 'uploading');
           setUploadProgress(percentage);
@@ -779,11 +806,16 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
       setIsUploadRetrying(false);
       await refreshClassroom();
     } catch (err: any) {
-      toast.error(err.message || "Failed to upload video");
+      if (err.message === "Upload cancelled") {
+        toast.info("Upload cancelled");
+      } else {
+        toast.error(err.message || "Failed to upload video");
+      }
       setUploadPhase('idle');
       setUploadStatusText("");
       setIsUploadRetrying(false);
     } finally {
+      uploadAbortControllerRef.current = null;
       setIsUploading(false);
       setUploadProgress(0);
       setUploadBytes({ loaded: 0, total: 0 });
@@ -1252,7 +1284,7 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
               <h3 className="font-display font-bold text-cream">
                 Upload to {currentFolderId ? `Folder: ${visibleFolders.find(f => f.id === currentFolderId)?.name}` : "Classroom Root"}
               </h3>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-cream/50 hover:text-cream" disabled={isUploading}><LuX className="h-4 w-4" /></button>
+              <button onClick={handleCancelUpload} className="text-cream/50 hover:text-cream"><LuX className="h-4 w-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               <div>
@@ -1337,7 +1369,13 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
               )}
             </div>
             <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
-              <button onClick={() => setIsUploadModalOpen(false)} disabled={isUploading} className="flex-1 rounded-full bg-cream/10 text-cream py-2 text-xs font-semibold">Cancel</button>
+              <button
+                type="button"
+                onClick={handleCancelUpload}
+                className="flex-1 rounded-full bg-cream/10 hover:bg-rose-500/20 hover:text-rose-300 text-cream py-2 text-xs font-semibold transition-colors"
+              >
+                {isUploading ? "Cancel Upload" : "Cancel"}
+              </button>
               <button onClick={handleUploadVideo} disabled={isUploading || !uploadFile || !uploadTitle} className="flex-1 rounded-full bg-lime text-plum-dark py-2 text-xs font-bold disabled:opacity-40">
                 {isUploading ? "Uploading..." : "Upload Video"}
               </button>

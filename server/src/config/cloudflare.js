@@ -11,6 +11,7 @@ const {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
 } = require('@aws-sdk/client-s3');
+const { NodeHttpHandler } = require('@smithy/node-http-handler');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 dotenv.config();
@@ -47,6 +48,11 @@ function getS3Client() {
     },
     region: 'auto',
     forcePathStyle: true,
+    maxAttempts: 3,
+    requestHandler: new NodeHttpHandler({
+      connectionTimeout: 10000,
+      requestTimeout: 25000,
+    }),
   });
 
   return s3Client;
