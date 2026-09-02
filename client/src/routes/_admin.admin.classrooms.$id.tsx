@@ -75,8 +75,11 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
-function timeAgo(iso: string) {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+function timeAgo(iso?: string) {
+  if (!iso) return "recently";
+  const d = new Date(iso).getTime();
+  if (isNaN(d)) return "recently";
+  const diff = (Date.now() - d) / 1000;
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -255,44 +258,63 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
               <p className="text-cream/50 text-sm">No announcements yet.</p>
             </DarkCard>
           )}
-          {announcements.map((ann) => {
+          {announcements.map((ann: any, idx: number) => {
+            if (!ann) return null;
             const authorName = typeof ann.author === 'object' && ann.author !== null
-              ? ((ann.author as any).fullName || (ann.author as any).name || 'Admin')
-              : (ann.author || 'Admin');
+              ? (ann.author.fullName || ann.author.name || 'Admin')
+              : (typeof ann.author === 'string' && ann.author.trim() ? ann.author : 'Admin');
+            const safeAuthorName = String(authorName || 'Admin');
+            const initials = safeAuthorName
+              .split(/\s+/)
+              .filter(Boolean)
+              .map((w: string) => w[0])
+              .join("")
+              .slice(0, 2) || "A";
+
+            const rawAttachments = Array.isArray(ann.attachments) ? ann.attachments : [];
+            const safeContent = typeof ann.content === 'string' ? ann.content : (typeof ann.content === 'object' && ann.content !== null ? JSON.stringify(ann.content) : String(ann.content || ''));
+            const annId = ann.id || ann._id || `ann-${idx}`;
+
             return (
-              <DarkCard key={ann.id}>
+              <DarkCard key={annId}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3 flex-1">
                     <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lime text-plum-dark font-bold text-xs">
-                      {authorName.split(" ").map((w: string) => w[0]).join("").slice(0, 2)}
+                      {initials}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-cream text-sm font-semibold">{authorName}</span>
+                        <span className="text-cream text-sm font-semibold">{safeAuthorName}</span>
                         <span className="text-cream/50 text-xs">{timeAgo(ann.createdAt)}</span>
                       </div>
-                      <div className="text-cream/80 text-sm leading-relaxed whitespace-pre-wrap break-words">{ann.content}</div>
-                      {ann.attachments && ann.attachments.length > 0 && (
+                      <div className="text-cream/80 text-sm leading-relaxed whitespace-pre-wrap break-words">{safeContent}</div>
+                      {rawAttachments.length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {ann.attachments.map((at: any, i: number) => (
-                            <a
-                              key={i}
-                              href={at.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-2 bg-cream/5 border border-cream/10 rounded-lg px-3 py-2 text-xs font-semibold text-cream/70 hover:bg-cream/10 hover:text-lime transition-all"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
-                              {at.name || "View Attachment"}
-                            </a>
-                          ))}
+                          {rawAttachments.map((at: any, i: number) => {
+                            if (!at) return null;
+                            const atUrl = typeof at === 'string' ? at : at.url || '';
+                            const atName = typeof at === 'string' ? 'View Attachment' : at.name || 'View Attachment';
+                            if (!atUrl) return null;
+                            return (
+                              <a
+                                key={i}
+                                href={atUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-2 bg-cream/5 border border-cream/10 rounded-lg px-3 py-2 text-xs font-semibold text-cream/70 hover:bg-cream/10 hover:text-lime transition-all"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
+                                {atName}
+                              </a>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(ann.id)}
-                    disabled={deletingId === ann.id}
+                    onClick={() => handleDelete(annId)}
+                    disabled={deletingId === annId}
                     className="text-cream/30 hover:text-red-400 transition-colors shrink-0 disabled:opacity-40"
                   >
                     <LuTrash2 className="h-4 w-4" />
