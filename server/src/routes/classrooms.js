@@ -431,10 +431,13 @@ router.get('/r2-proxy', async (req, res, next) => {
 
     const s3Response = await client.send(command);
 
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', "frame-ancestors *;");
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${path.basename(String(key))}"`);
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Access-Control-Allow-Origin', '*');
     if (s3Response.ContentLength) {
       res.setHeader('Content-Length', s3Response.ContentLength);
     }

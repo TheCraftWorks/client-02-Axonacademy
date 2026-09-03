@@ -154,12 +154,24 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         const pdfjs = await loadPdfJs();
         if (isCancelled) return;
 
-        const loadingTask = pdfjs.getDocument({
-          url: url,
-          withCredentials: true,
-        });
+        let pdf: any;
+        try {
+          // Fetch raw PDF bytes directly to avoid cross-origin worker restrictions
+          const response = await fetch(url, { credentials: 'include' });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: Failed to fetch document`);
+          }
+          const arrayBuffer = await response.arrayBuffer();
+          if (isCancelled) return;
 
-        const pdf = await loadingTask.promise;
+          const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+          pdf = await loadingTask.promise;
+        } catch (fetchErr: any) {
+          console.warn('[PDF Viewer] Direct fetch fallback to URL loading:', fetchErr?.message);
+          const loadingTask = pdfjs.getDocument({ url });
+          pdf = await loadingTask.promise;
+        }
+
         if (isCancelled) return;
 
         pdfDocRef.current = pdf;
