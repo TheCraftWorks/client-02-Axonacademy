@@ -434,8 +434,16 @@ router.get('/r2-proxy', async (req, res, next) => {
     res.removeHeader('X-Frame-Options');
     res.setHeader('Content-Security-Policy', "frame-ancestors *;");
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${path.basename(String(key))}"`);
     if (s3Response.ContentLength) {

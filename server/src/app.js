@@ -17,7 +17,14 @@ app.use(compression());
 app.set('trust proxy', 1);
 
 // Security
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: false,
+    frameguard: false,
+  })
+);
 
 // ==================== CORS ====================
 

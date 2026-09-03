@@ -112,8 +112,17 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
       script.async = true;
       script.onload = () => {
         if (window.pdfjsLib) {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          try {
+            // Circumvent cross-origin Worker restriction on mobile by creating an inline Blob
+            const workerBlob = new Blob(
+              ['importScripts("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js");'],
+              { type: 'application/javascript' }
+            );
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
+          } catch {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+              'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          }
           resolve(window.pdfjsLib);
         } else {
           reject(new Error('PDF engine not initialized'));
@@ -216,19 +225,32 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
         let pdf: any;
         try {
-          // Fetch raw PDF bytes directly to bypass worker origin blocks
-          const response = await fetch(url, { credentials: 'include' });
+          // Fetch raw PDF bytes directly. Fall back gracefully if credentials mode is blocked.
+          let response: Response;
+          try {
+            response = await fetch(url);
+          } catch {
+            response = await fetch(url, { credentials: 'include' });
+          }
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: Failed to fetch document`);
           }
           const arrayBuffer = await response.arrayBuffer();
           if (isCancelled) return;
 
-          const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+          const loadingTask = pdfjs.getDocument({
+            data: arrayBuffer,
+            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+            cMapPacked: true,
+          });
           pdf = await loadingTask.promise;
         } catch (fetchErr: any) {
           console.warn('[PDF Viewer] Direct fetch fallback to URL loading:', fetchErr?.message);
-          const loadingTask = pdfjs.getDocument({ url });
+          const loadingTask = pdfjs.getDocument({
+            url,
+            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+            cMapPacked: true,
+          });
           pdf = await loadingTask.promise;
         }
 
@@ -610,10 +632,14 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
           {/* Iframe Fallback */}
           {!loading && !error && useIframeFallback && (
-            <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 m-auto">
+            <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 m-auto flex flex-col">
               <iframe
-                src={`${url}#toolbar=0&navpanes=0&scrollbar=1`}
-                className="w-full h-full border-0"
+                src={
+                  typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+                    ? `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
+                    : `${url}#toolbar=0&navpanes=0&scrollbar=1`
+                }
+                className="w-full flex-1 border-0"
                 title="Document Preview"
                 onContextMenu={(e) => e.preventDefault()}
               />
