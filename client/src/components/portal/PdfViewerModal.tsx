@@ -36,17 +36,31 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [useIframeFallback, setUseIframeFallback] = useState(false);
   const [swipeNotice, setSwipeNotice] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [renderedDimensions, setRenderedDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentAreaRef = useRef<HTMLDivElement | null>(null);
+  const fitScaleRef = useRef<number>(1.0);
 
-  // Touch tracking for swipe & pinch-to-zoom
+  // Mouse pan tracking for desktop
+  const isMouseDownRef = useRef(false);
+  const mouseStartRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number }>({
+    x: 0,
+    y: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
+
+  // Touch tracking for mobile swipe & pinch
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const pinchStartDistanceRef = useRef<number | null>(null);
   const pinchStartScaleRef = useRef<number>(1.0);
+
+  const isZoomed = scale > fitScaleRef.current * 1.08;
 
   // Keyboard shortcut blocker (Ctrl+S, Ctrl+P, Cmd+S, Cmd+P, Esc)
   useEffect(() => {
@@ -114,18 +128,22 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   const computeFitScale = useCallback((page: any): number => {
     const isMobile = window.innerWidth < 640;
     const containerWidth = contentAreaRef.current?.clientWidth || window.innerWidth;
-    const padding = isMobile ? 24 : 48;
+    const padding = isMobile ? 24 : 64;
     const availableWidth = Math.max(260, containerWidth - padding);
 
     const unscaledViewport = page.getViewport({ scale: 1.0 });
     const targetScale = availableWidth / unscaledViewport.width;
 
     // Mobile: clamp between 0.45 and 1.25 for crisp reading without horizontal overflow
+    let computed: number;
     if (isMobile) {
-      return Math.min(Math.max(targetScale, 0.45), 1.25);
+      computed = Math.min(Math.max(targetScale, 0.45), 1.25);
+    } else {
+      computed = Math.min(Math.max(targetScale, 0.75), 1.5);
     }
-    // Desktop: clamp between 0.8 and 1.6
-    return Math.min(Math.max(targetScale, 0.8), 1.6);
+    const rounded = Number(computed.toFixed(2));
+    fitScaleRef.current = rounded;
+    return rounded;
   }, []);
 
   // Render a specific page to the canvas
@@ -145,14 +163,21 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         const context = canvas.getContext('2d');
         if (!context) return;
 
-        const effectiveScale = customScale || scale;
+        const effectiveScale = customScale !== undefined ? customScale : scale;
         const viewport = page.getViewport({ scale: effectiveScale });
         const outputScale = window.devicePixelRatio || 1;
 
+        // Internal pixel resolution (high DPI for retina screens)
         canvas.width = Math.floor(viewport.width * outputScale);
         canvas.height = Math.floor(viewport.height * outputScale);
-        canvas.style.width = `${Math.floor(viewport.width)}px`;
-        canvas.style.height = `${Math.floor(viewport.height)}px`;
+
+        // CSS display size (unconstrained so zoomed document actually expands!)
+        const displayWidth = Math.floor(viewport.width);
+        const displayHeight = Math.floor(viewport.height);
+        canvas.style.width = `${displayWidth}px`;
+        canvas.style.height = `${displayHeight}px`;
+
+        setRenderedDimensions({ width: displayWidth, height: displayHeight });
 
         const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
 
@@ -251,7 +276,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     }
   }, [currentPage, scale, loading, useIframeFallback, renderPage]);
 
-  // Handle window resize / orientation change: re-fit width
+  // Handle window resize / orientation change: re-fit width if not manually zoomed
   useEffect(() => {
     if (!isOpen) return;
 
@@ -259,7 +284,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     const handleResize = async () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(async () => {
-        if (pdfDocRef.current) {
+        if (pdfDocRef.current && !isZoomed) {
           try {
             const page = await pdfDocRef.current.getPage(currentPage);
             const newFit = computeFitScale(page);
@@ -273,7 +298,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isOpen, currentPage, computeFitScale]);
+  }, [isOpen, currentPage, computeFitScale, isZoomed]);
 
   if (!isOpen) return null;
 
@@ -290,11 +315,11 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   };
 
   const handleZoomIn = () => {
-    setScale((s) => Math.min(2.5, Number((s + 0.15).toFixed(2))));
+    setScale((s) => Math.min(3.5, Number((s + 0.25).toFixed(2))));
   };
 
   const handleZoomOut = () => {
-    setScale((s) => Math.max(0.45, Number((s - 0.15).toFixed(2))));
+    setScale((s) => Math.max(0.4, Number((s - 0.25).toFixed(2))));
   };
 
   const handleFitWidth = async () => {
@@ -311,8 +336,38 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     }
   };
 
+  const handleResetZoom = () => {
+    setScale(1.0);
+  };
+
   const toggleFullscreen = () => {
     setIsFullscreen((prev) => !prev);
+  };
+
+  // Mouse pan handlers for desktop when zoomed in
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!isZoomed || !contentAreaRef.current) return;
+    isMouseDownRef.current = true;
+    setIsDragging(true);
+    mouseStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: contentAreaRef.current.scrollLeft,
+      scrollTop: contentAreaRef.current.scrollTop,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isMouseDownRef.current || !contentAreaRef.current) return;
+    const dx = e.clientX - mouseStartRef.current.x;
+    const dy = e.clientY - mouseStartRef.current.y;
+    contentAreaRef.current.scrollLeft = mouseStartRef.current.scrollLeft - dx;
+    contentAreaRef.current.scrollTop = mouseStartRef.current.scrollTop - dy;
+  };
+
+  const handleMouseUp = () => {
+    isMouseDownRef.current = false;
+    setIsDragging(false);
   };
 
   // Touch handlers for mobile swipe & pinch
@@ -338,7 +393,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const ratio = dist / pinchStartDistanceRef.current;
-      const newScale = Math.min(2.5, Math.max(0.45, pinchStartScaleRef.current * ratio));
+      const newScale = Math.min(3.5, Math.max(0.4, pinchStartScaleRef.current * ratio));
       setScale(Number(newScale.toFixed(2)));
     }
   };
@@ -349,6 +404,12 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
       return;
     }
 
+    // If the user is zoomed in, horizontal dragging is for panning the document, NOT flipping pages!
+    if (isZoomed) {
+      touchStartRef.current = null;
+      return;
+    }
+
     if (!touchStartRef.current || e.changedTouches.length !== 1) return;
 
     const touch = e.changedTouches[0];
@@ -356,8 +417,8 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     const deltaY = touch.clientY - touchStartRef.current.y;
     const deltaTime = Date.now() - touchStartRef.current.time;
 
-    // Significant horizontal swipe detection (faster than 600ms, > 40px, more horizontal than vertical)
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2 && deltaTime < 600) {
+    // Significant horizontal swipe detection (faster than 500ms, > 45px, more horizontal than vertical)
+    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3 && deltaTime < 500) {
       if (deltaX < 0) {
         // Swiped Left -> Next page
         handleNextPage();
@@ -384,7 +445,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         {/* Top Header Bar */}
         <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900/95 border-b border-slate-800 text-white shrink-0">
           {/* Left: Document Info */}
-          <div className="flex items-center gap-2 min-w-0 max-w-[180px] sm:max-w-xs md:max-w-md">
+          <div className="flex items-center gap-2 min-w-0 max-w-[170px] sm:max-w-xs md:max-w-md">
             <div className="grid h-7 w-7 sm:h-8 sm:w-8 shrink-0 place-items-center rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
               <LuFileText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </div>
@@ -408,7 +469,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
                   onClick={handlePrevPage}
                   disabled={currentPage <= 1}
                   className="p-1 rounded hover:bg-slate-700 disabled:opacity-30 transition-colors"
-                  title="Previous Page (or swipe right)"
+                  title="Previous Page"
                 >
                   <LuChevronLeft className="h-3.5 w-3.5" />
                 </button>
@@ -419,7 +480,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
                   onClick={handleNextPage}
                   disabled={currentPage >= numPages}
                   className="p-1 rounded hover:bg-slate-700 disabled:opacity-30 transition-colors"
-                  title="Next Page (or swipe left)"
+                  title="Next Page"
                 >
                   <LuChevronRight className="h-3.5 w-3.5" />
                 </button>
@@ -432,26 +493,33 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
                 <button
                   onClick={handleZoomOut}
                   className="p-1 rounded hover:bg-slate-700 transition-colors"
-                  title="Zoom Out"
+                  title="Zoom Out (-25%)"
                 >
                   <LuZoomOut className="h-3.5 w-3.5" />
                 </button>
-                <span className="px-1 text-[10px] sm:text-[11px] font-medium text-slate-300 min-w-[2.4rem] sm:min-w-[2.8rem] text-center">
+                <span className="px-1 text-[10px] sm:text-[11px] font-medium text-slate-300 min-w-[2.5rem] sm:min-w-[2.9rem] text-center">
                   {Math.round(scale * 100)}%
                 </span>
                 <button
                   onClick={handleZoomIn}
                   className="p-1 rounded hover:bg-slate-700 transition-colors"
-                  title="Zoom In"
+                  title="Zoom In (+25%)"
                 >
                   <LuZoomIn className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={handleFitWidth}
                   className="p-1 rounded hover:bg-slate-700 transition-colors ml-0.5 text-slate-400 hover:text-white"
-                  title="Fit to Screen Width"
+                  title="Fit to Width"
                 >
                   <LuScan className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={handleResetZoom}
+                  className="p-1 rounded hover:bg-slate-700 transition-colors text-slate-400 hover:text-white hidden sm:inline-flex"
+                  title="100% Actual Size"
+                >
+                  <LuRotateCcw className="h-3 w-3" />
                 </button>
               </div>
             )}
@@ -476,24 +544,34 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           </div>
         </div>
 
-        {/* Content Area with Touch Handlers */}
+        {/* Content Area with Full Two-Way Scroll & Drag Pan */}
         <div
           ref={contentAreaRef}
-          className="relative flex-1 overflow-auto bg-slate-950 p-2 sm:p-4 flex flex-col items-center justify-start sm:justify-center touch-pan-y"
+          className={`relative flex-1 overflow-x-auto overflow-y-auto bg-slate-950 p-2 sm:p-6 flex flex-col ${
+            isZoomed ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+          }`}
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            touchAction: isZoomed ? 'pan-x pan-y pinch-zoom' : 'pan-y pinch-zoom',
+          }}
           onContextMenu={(e) => e.preventDefault()}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
           {loading && (
-            <div className="flex flex-col items-center gap-3 text-slate-400 my-auto">
+            <div className="flex flex-col items-center gap-3 text-slate-400 m-auto">
               <LuLoader className="h-8 w-8 animate-spin text-blue-400" />
               <p className="text-xs font-medium tracking-wide">Loading protected preview…</p>
             </div>
           )}
 
           {error && (
-            <div className="text-center p-6 max-w-md bg-slate-900/60 border border-slate-800 rounded-2xl my-auto">
+            <div className="text-center p-6 max-w-md bg-slate-900/60 border border-slate-800 rounded-2xl m-auto">
               <LuShieldAlert className="h-8 w-8 text-amber-400 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-200 mb-1">Preview Unavailable</p>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">{error}</p>
@@ -506,12 +584,18 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
             </div>
           )}
 
-          {/* Canvas Rendering Engine */}
+          {/* Canvas Rendering Engine (Unconstrained sizing so zoomed content expands & scrolls!) */}
           {!loading && !error && !useIframeFallback && (
-            <div className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 my-auto bg-white pointer-events-auto max-w-full flex items-center justify-center">
+            <div
+              className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white m-auto shrink-0 transition-[width,height] duration-100"
+              style={{
+                width: renderedDimensions.width > 0 ? `${renderedDimensions.width}px` : 'auto',
+                height: renderedDimensions.height > 0 ? `${renderedDimensions.height}px` : 'auto',
+              }}
+            >
               <canvas
                 ref={canvasRef}
-                className="block select-none max-w-full h-auto object-contain"
+                className="block select-none pointer-events-auto"
                 onContextMenu={(e) => e.preventDefault()}
               />
               {/* Subtle Protected Overlay Watermark */}
@@ -526,7 +610,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
           {/* Iframe Fallback */}
           {!loading && !error && useIframeFallback && (
-            <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800">
+            <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 m-auto">
               <iframe
                 src={`${url}#toolbar=0&navpanes=0&scrollbar=1`}
                 className="w-full h-full border-0"
@@ -537,16 +621,16 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           )}
 
           {/* Swipe Tip Toast on Mobile */}
-          {swipeNotice && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-blue-600/90 text-white text-[11px] font-medium px-3.5 py-1.5 rounded-full shadow-lg pointer-events-none animate-bounce flex items-center gap-1.5 z-10">
+          {swipeNotice && !isZoomed && (
+            <div className="fixed bottom-16 left-1/2 -translate-x-1/2 bg-blue-600/90 text-white text-[11px] font-medium px-3.5 py-1.5 rounded-full shadow-lg pointer-events-none animate-bounce flex items-center gap-1.5 z-20">
               <span>👉 Swipe left or right to flip pages</span>
             </div>
           )}
         </div>
 
-        {/* Mobile Bottom Floating Navigation Bar */}
+        {/* Mobile Bottom Navigation Bar */}
         {!useIframeFallback && numPages > 1 && (
-          <div className="flex sm:hidden items-center justify-between px-4 py-2.5 bg-slate-900/95 border-t border-slate-800 text-white shrink-0">
+          <div className="flex sm:hidden items-center justify-between px-4 py-2 bg-slate-900/95 border-t border-slate-800 text-white shrink-0">
             <button
               onClick={handlePrevPage}
               disabled={currentPage <= 1}
