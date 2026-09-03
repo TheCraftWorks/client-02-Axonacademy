@@ -1243,6 +1243,74 @@ export async function uploadClassroomFileToCloudinary({
 }
 
 /**
+ * Upload an announcement PDF directly to Cloudflare R2.
+ */
+export async function uploadAnnouncementPdf({
+  file,
+  onProgress,
+}: {
+  file: File;
+  onProgress?: (percentage: number) => void;
+}): Promise<{ name: string; url: string; cloudflareKey?: string }> {
+  const accessToken = classroomStore.getState().accessToken;
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/classrooms/upload-asset`);
+
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percentage = Math.round((e.loaded / e.total) * 100);
+        onProgress?.(percentage);
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const resp = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && resp.success) {
+          resolve({
+            name: resp.name || file.name,
+            url: resp.url,
+            cloudflareKey: resp.publicId,
+          });
+        } else {
+          reject(new Error(resp.message || `Upload failed: ${xhr.statusText}`));
+        }
+      } catch (err) {
+        reject(new Error('Failed to parse upload response'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Resolves an attachment URL to a full streamable URL.
+ */
+export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): string {
+  if (!rawUrl && !cloudflareKey) return '';
+  if (rawUrl && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:'))) {
+    return rawUrl;
+  }
+  if (rawUrl && rawUrl.startsWith('/')) {
+    return `${API_BASE}${rawUrl}`;
+  }
+  if (cloudflareKey) {
+    return `${API_BASE}/classrooms/r2-proxy?key=${encodeURIComponent(cloudflareKey)}`;
+  }
+  return rawUrl ? `${API_BASE}/${rawUrl.replace(/^\/+/, '')}` : '';
+}
+
+/**
  * Upload a classroom recording to Cloudflare R2 with automatic retry & smooth chunking.
  *
  * Strategy:

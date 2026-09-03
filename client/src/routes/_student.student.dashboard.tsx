@@ -1,14 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Trophy, Clock, BookOpen, PlayCircle, ChevronRight, CheckCircle2, Radio, Download,
-  Crown, Medal, Sparkles, Award
+  Crown, Medal, Sparkles, Award, FileText, Eye
 } from "lucide-react";
 import { Card, StatTile } from "@/components/portal/PortalShell";
 import { useClassroomStore } from "@/lib/classroomStore";
 import { useQuery } from "@tanstack/react-query";
-import { getMyMeetings, getMyNotifications, getDetailedProgress, getQuizLeaderboard, type PortalNotification } from "@/lib/api";
+import { getMyMeetings, getMyNotifications, getDetailedProgress, getQuizLeaderboard, resolveAttachmentUrl, type PortalNotification } from "@/lib/api";
 import ProgressStats from "@/components/portal/ProgressStats";
+import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
 
 interface MeetingsResponse {
   success: boolean;
@@ -32,6 +33,7 @@ export const Route = createFileRoute("/_student/student/dashboard")({
 
 function Dashboard() {
   const { classrooms, currentUser } = useClassroomStore();
+  const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null);
   const { data } = useQuery<MeetingsResponse>({
     queryKey: ['myMeetings'],
     queryFn: getMyMeetings,
@@ -571,19 +573,25 @@ function Dashboard() {
                 <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-words" style={{color: '#0B1F3A'}}>{a.content}</div>
                 {a.attachments && a.attachments.length > 0 && (
                   <div className="mt-2 flex gap-1.5">
-                  {a.attachments.map((at: any, i: number) => (
-                    <a
-                      key={i}
-                      href={at.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-bold transition-colors"
-                      style={{background: 'rgba(244,180,0,0.12)', color: '#0B1F3A'}}
-                    >
-                      <Download className="h-2.5 w-2.5" />
-                      PDF
-                    </a>
-                  ))}
+                  {a.attachments.map((at: any, i: number) => {
+                    const atUrl = typeof at === 'string' ? at : at.url || '';
+                    const atName = typeof at === 'string' ? 'PDF Document' : at.name || 'PDF Document';
+                    const resolvedUrl = resolveAttachmentUrl(atUrl, at.cloudflareKey);
+                    if (!atUrl && !resolvedUrl) return null;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setPreviewPdf({ url: resolvedUrl, name: atName })}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-bold transition-colors hover:opacity-85 cursor-pointer"
+                        style={{background: 'rgba(45,156,219,0.15)', color: '#0B1F3A'}}
+                      >
+                        <FileText className="h-2.5 w-2.5 text-blue-600" />
+                        <span>PDF</span>
+                        <Eye className="h-2.5 w-2.5 text-slate-500" />
+                      </button>
+                    );
+                  })}
                   </div>
                 )}
               </li>
@@ -592,6 +600,16 @@ function Dashboard() {
           </ul>
         </Card>
       </div>
+
+      {/* In-app secure PDF preview modal */}
+      {previewPdf && (
+        <PdfViewerModal
+          isOpen={!!previewPdf}
+          onClose={() => setPreviewPdf(null)}
+          url={previewPdf.url}
+          title={previewPdf.name}
+        />
+      )}
     </div>
   );
 }

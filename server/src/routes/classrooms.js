@@ -409,7 +409,7 @@ const getStudentRefId = (studentRef) => {
 
 // GET /files → Proxy file from Cloudinary using Admin API
 // Bypasses secured delivery by authenticating with API key/secret server-side
-// GET /r2-proxy → Proxy download from R2 with server-side auth (key passed as query param)
+// GET /r2-proxy → Stream or proxy download from R2 with server-side auth (key passed as query param)
 router.get('/r2-proxy', async (req, res, next) => {
   try {
     const { key } = req.query;
@@ -417,30 +417,32 @@ router.get('/r2-proxy', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Missing key parameter' });
     }
 
-    const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
-    const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+    const { getS3Client, getCloudflareConfig } = require('../config/cloudflare');
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    const path = require('path');
 
-    const s3Client = new S3Client({
-      endpoint: process.env.S3_API,
-      region: 'auto',
-      credentials: {
-        accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
-        secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
-      },
-    });
-
-    const bucket = process.env.CLOUDFLARE_R2_BUCKET;
+    const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
+    const client = getS3Client();
 
     const command = new GetObjectCommand({
-      Bucket: bucket,
+      Bucket: CLOUDFLARE_R2_BUCKET,
       Key: key,
     });
 
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    res.redirect(signedUrl);
+    const s3Response = await client.send(command);
+
+    res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(String(key))}"`);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    if (s3Response.ContentLength) {
+      res.setHeader('Content-Length', s3Response.ContentLength);
+    }
+
+    s3Response.Body.pipe(res);
   } catch (error) {
     console.error('[R2 Proxy] Error:', error);
-    if (error.name === 'NoSuchKey') {
+    if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
       return res.status(404).json({ success: false, message: 'File not found' });
     }
     next(error);
@@ -541,60 +543,33 @@ function pipeFileResponse(sourceRes, targetRes) {
   sourceRes.pipe(targetRes);
 }
 
-// POST /upload-asset → Admin: Upload a classroom asset (PDF) to Cloudflare R2
+// POST /upload-asset → Admin/Faculty: Upload a classroom asset (PDF) to Cloudflare R2
 router.post('/upload-asset', protect, restrictTo('admin', 'superadmin', 'faculty'), r2Upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    // Upload to Cloudflare R2 using AWS SDK v3 S3Client
-    const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-    const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+    const { uploadFileToCloudflareR2 } = require('../config/cloudflare');
+    const originalName = req.file.originalname || 'document.pdf';
+    const safeFilename = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const objectKey = `announcements/${Date.now()}-${safeFilename}`;
 
-    // R2 is S3-compatible
-    const s3Client = new S3Client({
-      endpoint: process.env.S3_API,
-      region: 'auto',
-      credentials: {
-        accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
-        secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
-      },
-    });
-
-    const bucket = process.env.CLOUDFLARE_R2_BUCKET;
-    const objectKey = `classroom-assets/${Date.now()}-${req.file.originalname}`;
-
-    // Upload to R2 using PutObjectCommand
-    await s3Client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: objectKey,
-      Body: req.file.buffer,
-      ContentType: req.file.mimetype,
-      ACL: 'public-read',
-    }));
-
-    // Generate presigned download URL (valid for 7 days)
-    // R2 buckets don't have public-read by default, so we use presigned URLs
-    const downloadUrl = await getSignedUrl(
-      s3Client,
-      new GetObjectCommand({
-        Bucket: bucket,
-        Key: objectKey,
-      }),
-      { expiresIn: 7 * 24 * 60 * 60 } // 7 days
+    await uploadFileToCloudflareR2(
+      req.file.buffer,
+      objectKey,
+      req.file.mimetype || 'application/pdf'
     );
 
-    // Return R2 proxy URL (frontend will use /classrooms/r2-proxy?key=...)
     const proxyUrl = `/classrooms/r2-proxy?key=${encodeURIComponent(objectKey)}`;
 
     console.log('[Upload Asset] Uploaded to R2, objectKey:', objectKey);
-    console.log('[Upload Asset] Proxy URL:', proxyUrl);
 
     res.json({
       success: true,
       url: proxyUrl,
-      publicId: objectKey
+      publicId: objectKey,
+      name: originalName
     });
   } catch (error) {
     console.error('[Upload Asset] Error:', error);
