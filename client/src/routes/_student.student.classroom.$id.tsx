@@ -837,9 +837,9 @@ function SecurePlayer({
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 z-20 pointer-events-none backdrop-blur-[2px] transition-all duration-300">
               <div className="w-14 h-14 border-[5px] border-lime/20 border-t-lime rounded-full animate-spin" />
               <span className="text-white text-xs font-bold tracking-wider uppercase mt-4 drop-shadow-md animate-pulse">
-                Buffering video...
+                Loading video...
               </span>
-            </div>
+            </div> 
           )}
 
           {/* Gesture Ripple Overlay */}

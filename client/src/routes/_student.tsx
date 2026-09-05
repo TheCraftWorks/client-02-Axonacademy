@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, Navigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import {
   LayoutDashboard, BookOpen, PlayCircle, ClipboardList,
   Award, User as UserIcon, Calendar, MessageCircle, School,
@@ -7,6 +7,8 @@ import {
 import { PortalShell } from "@/components/portal/PortalShell";
 import { classroomActions, useClassroomStore } from "@/lib/classroomStore";
 import { getMyClassrooms } from "@/lib/api";
+
+export const StudentLayoutContext = createContext({ isLoadingClassrooms: false });
 
 const NAV = [
   { label: "Dashboard", to: "/student/dashboard", icon: LayoutDashboard },
@@ -28,6 +30,7 @@ function StudentLayout() {
   const { currentUser } = useClassroomStore();
   const [loadError, setLoadError] = useState("");
   const [hasMounted, setHasMounted] = useState(false);
+  const [isLoadingClassrooms, setIsLoadingClassrooms] = useState(false);
 
   useEffect(() => {
     setHasMounted(true);
@@ -37,6 +40,7 @@ function StudentLayout() {
     let active = true;
     const loadMyClassrooms = async () => {
       if (!currentUser || currentUser.role !== "student") return;
+      setIsLoadingClassrooms(true);
       try {
         const classrooms = await getMyClassrooms();
         if (!active) return;
@@ -45,6 +49,8 @@ function StudentLayout() {
       } catch (err) {
         if (!active) return;
         setLoadError(err instanceof Error ? err.message : "Could not load your classrooms");
+      } finally {
+        if (active) setIsLoadingClassrooms(false);
       }
     };
 
@@ -63,22 +69,28 @@ function StudentLayout() {
   }
 
   return (
-    <PortalShell
-      variant="student"
-      brand="Axon Med Academy"
-      nav={NAV}
-      user={{
-        name: currentUser.name,
-        role: "Student",
-        initials: currentUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
-      }}
-    >
-      {loadError && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
-          {loadError}
-        </div>
-      )}
-      <Outlet />
-    </PortalShell>
+    <StudentLayoutContext.Provider value={{ isLoadingClassrooms }}>
+      <PortalShell
+        variant="student"
+        brand="Axon Med Academy"
+        nav={NAV}
+        user={{
+          name: currentUser.name,
+          role: "Student",
+          initials: currentUser.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
+        }}
+      >
+        {loadError && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
+            {loadError}
+          </div>
+        )}
+        <Outlet />
+      </PortalShell>
+    </StudentLayoutContext.Provider>
   );
+}
+
+export function useStudentLayout() {
+  return useContext(StudentLayoutContext);
 }
