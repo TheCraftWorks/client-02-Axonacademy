@@ -617,6 +617,47 @@ function ClassroomCard({ cls, onEdit, onArchive }: { cls: Classroom; onEdit: (cl
   );
 }
 
+// ── Shimmer skeleton for an admin classroom card ───────────────────────────
+function AdminClassroomCardSkeleton() {
+  return (
+    <div className="rounded-2xl bg-[#1A0F33] border border-cream/10 overflow-hidden animate-pulse">
+      <div className="h-2 bg-gradient-to-r from-cream/20 to-cream/5" />
+      <div className="p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-2 flex-1">
+            <div className="h-5 w-3/4 rounded-md bg-cream/10" />
+            <div className="h-3 w-1/4 rounded-md bg-cream/5" />
+          </div>
+          <div className="h-5 w-16 rounded-full bg-cream/10 shrink-0" />
+        </div>
+
+        <div className="space-y-2">
+          <div className="h-3 w-full rounded bg-cream/5" />
+          <div className="h-3 w-4/5 rounded bg-cream/5" />
+        </div>
+
+        <div className="grid grid-cols-4 gap-2">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-cream/5 rounded-lg p-2 text-center space-y-1.5">
+              <div className="h-3.5 w-3.5 rounded-full bg-cream/10 mx-auto" />
+              <div className="h-4 w-6 rounded bg-cream/10 mx-auto" />
+              <div className="h-2 w-8 rounded bg-cream/5 mx-auto" />
+            </div>
+          ))}
+        </div>
+
+        <div className="h-3 w-1/2 rounded bg-cream/5" />
+
+        <div className="flex gap-2 pt-1">
+          <div className="flex-1 h-8 rounded-full bg-cream/10" />
+          <div className="h-8 w-8 rounded-full bg-cream/10" />
+          <div className="h-8 w-8 rounded-full bg-cream/10" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Module-level list cache ─────────────────────────────────────────────────
 // Prevents the classrooms list from refetching every time the admin navigates
 // back from a classroom detail page. Same 60-second staleness window as detail pages.
@@ -735,12 +776,6 @@ function AdminClassrooms() {
         </div>
       )}
 
-      {loadingBackend && (
-        <div className="flex items-center gap-2 rounded-xl border border-cream/10 bg-[#1A0F33]/60 px-4 py-2 text-xs text-cream/70 w-fit">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-lime" />
-          <span>Updating classrooms...</span>
-        </div>
-      )}
       {backendError && <p className="text-sm text-red-400">Error loading classrooms: {backendError}</p>}
 
       <div className="flex items-end justify-between flex-wrap gap-3">
@@ -769,7 +804,11 @@ function AdminClassrooms() {
         ].map((s) => (
           <div key={s.label} className="rounded-2xl bg-[#1A0F33] border border-cream/10 p-4">
             <div className="text-[10px] uppercase tracking-widest text-cream/60">{s.label}</div>
-            <div className="font-display text-2xl font-bold mt-1 text-cream">{s.value}</div>
+            {loadingBackend && sourceClassrooms.length === 0 ? (
+              <div className="h-7 w-16 rounded-md bg-cream/10 animate-pulse mt-1.5" />
+            ) : (
+              <div className="font-display text-2xl font-bold mt-1 text-cream">{s.value}</div>
+            )}
           </div>
         ))}
       </div>
@@ -807,7 +846,13 @@ function AdminClassrooms() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {loadingBackend && sourceClassrooms.length === 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {[...Array(6)].map((_, i) => (
+            <AdminClassroomCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <DarkCard className="text-center py-16">
           <School className="h-12 w-12 text-cream/20 mx-auto mb-3" />
           <p className="text-cream/60 text-sm">No classrooms found. Create one to get started.</p>

@@ -155,6 +155,49 @@ function DarkTabSkeletonLoader({ type = "rows" }: { type?: "rows" | "grid" | "ca
   );
 }
 
+function AdminClassroomDetailSkeleton() {
+  return (
+    <div className="space-y-6 text-cream animate-pulse">
+      {/* Header skeleton */}
+      <div className="flex items-start gap-4">
+        <div className="h-5 w-5 rounded bg-cream/10 mt-1 shrink-0" />
+        <div className="flex-1 space-y-2.5">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-64 rounded-lg bg-cream/10" />
+            <div className="h-5 w-16 rounded bg-cream/10" />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="h-3.5 w-20 rounded bg-cream/5" />
+            <div className="h-3.5 w-24 rounded bg-cream/5" />
+            <div className="h-3.5 w-28 rounded bg-cream/5" />
+          </div>
+        </div>
+        <div className="h-9 w-28 rounded-full bg-cream/10 shrink-0" />
+      </div>
+
+      {/* Tabs bar skeleton */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3.5 max-w-2xl mx-auto my-6">
+        {[...Array(6)].map((_, i) => (
+          <div
+            key={i}
+            className="aspect-square rounded-2xl bg-[#1A0F33] border border-cream/10 p-3 flex flex-col items-center justify-center space-y-2.5"
+          >
+            <div className="h-8 w-8 rounded-lg bg-cream/10" />
+            <div className="h-3 w-12 rounded bg-cream/5" />
+          </div>
+        ))}
+      </div>
+
+      {/* Tab content area skeleton */}
+      <div className="border-t border-cream/10 pt-6 space-y-4">
+        <div className="h-28 rounded-2xl bg-[#1A0F33] border border-cream/10" />
+        <div className="h-36 rounded-2xl bg-[#1A0F33] border border-cream/10" />
+        <div className="h-36 rounded-2xl bg-[#1A0F33] border border-cream/10" />
+      </div>
+    </div>
+  );
+}
+
 // ─── Announcements Tab ────────────────────────────────────────────────────────
 
 function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom>; isFetching?: boolean }) {
@@ -3678,11 +3721,7 @@ function AdminClassroomDetail() {
   );
 
   if (isLoading && !classroom) {
-    return (
-      <div className="text-cream text-center py-20">
-        <p className="text-cream/60">Loading classroom...</p>
-      </div>
-    );
+    return <AdminClassroomDetailSkeleton />;
   }
 
 
