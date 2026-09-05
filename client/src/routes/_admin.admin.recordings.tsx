@@ -703,7 +703,6 @@ function GlobalRecordingsLibrary() {
               <video 
                 ref={videoRef}
                 src={resolvedStreamUrl} 
-                crossOrigin="anonymous"
                 controls 
                 autoPlay 
                 onError={handleVideoError}

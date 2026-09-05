@@ -425,6 +425,13 @@ function SecurePlayer({
     }
   }, [recordingId, accessToken, isRefreshingUrl]);
 
+  // Eagerly resolve the direct signed Cloudflare URL on mount if not already present
+  useEffect(() => {
+    if (!isDirectSignedUrl && recordingId) {
+      void refreshPlaybackUrl();
+    }
+  }, [isDirectSignedUrl, recordingId, refreshPlaybackUrl]);
+
   useEffect(() => {
     totalWatchedRef.current = recording.viewStats?.find((v) => v.studentId === currentUser?.id)?.totalWatchedSec || 0;
   }, [currentUser?.id, recordingId]);
@@ -774,7 +781,6 @@ function SecurePlayer({
             <video
               ref={videoRef}
               src={resolvedStreamUrl}
-              crossOrigin="anonymous"
               className="w-full h-full max-h-full object-contain bg-black no-select select-none pointer-events-auto"
               controls
               autoPlay

@@ -1302,10 +1302,14 @@ export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): st
     return rawUrl;
   }
   if (rawUrl && rawUrl.startsWith('/')) {
-    return `${API_BASE}${rawUrl}`;
+    const sep = rawUrl.includes('?') ? '&' : '?';
+    const withStream = rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')
+      ? `${rawUrl}${sep}stream=true`
+      : rawUrl;
+    return `${API_BASE}${withStream}`;
   }
   if (cloudflareKey) {
-    return `${API_BASE}/classrooms/r2-proxy?key=${encodeURIComponent(cloudflareKey)}`;
+    return `${API_BASE}/classrooms/r2-proxy?key=${encodeURIComponent(cloudflareKey)}&stream=true`;
   }
   return rawUrl ? `${API_BASE}/${rawUrl.replace(/^\/+/, '')}` : '';
 }

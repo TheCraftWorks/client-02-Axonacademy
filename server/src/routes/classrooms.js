@@ -444,9 +444,10 @@ router.get('/r2-proxy', async (req, res, next) => {
     } else {
       res.setHeader('Access-Control-Allow-Origin', '*');
     }
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Accept-Ranges, Content-Range, Content-Type, ETag');
 
-    // Default: Fast 307 redirect to presigned R2 URL (0ms server load, zero socket timeouts)
-    if (stream !== 'true') {
+    // Only redirect if explicitly requested with redirect=true or stream=false
+    if (stream === 'false' || req.query.redirect === 'true') {
       const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
         responseContentType: 'application/pdf',
         responseContentDisposition: disposition,
@@ -454,23 +455,35 @@ router.get('/r2-proxy', async (req, res, next) => {
       return res.redirect(307, presignedUrl);
     }
 
-    // Explicit stream fallback
+    // Direct stream from R2 with Range support (avoids cross-origin 307 redirect CORS issues)
     const { GetObjectCommand } = require('@aws-sdk/client-s3');
     const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
     const client = getS3Client();
 
-    const command = new GetObjectCommand({
+    const range = req.headers.range;
+    const s3Params = {
       Bucket: CLOUDFLARE_R2_BUCKET,
       Key: objectKey,
-    });
+    };
+    if (range) {
+      s3Params.Range = range;
+    }
 
+    const command = new GetObjectCommand(s3Params);
     const s3Response = await client.send(command);
 
+    res.status(s3Response.$metadata?.httpStatusCode || (range ? 206 : 200));
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
     res.setHeader('Content-Disposition', disposition);
     if (s3Response.ContentLength) {
       res.setHeader('Content-Length', s3Response.ContentLength);
+    }
+    if (s3Response.ContentRange) {
+      res.setHeader('Content-Range', s3Response.ContentRange);
+    }
+    if (s3Response.ETag) {
+      res.setHeader('ETag', s3Response.ETag);
     }
 
     req.on('close', () => {
