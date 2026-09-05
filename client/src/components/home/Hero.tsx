@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Play, Sparkles, Activity, HeartPulse, Pill, Microscope } from "lucide-react";
@@ -6,29 +7,65 @@ const stats = [
   { v: "1,000+", l: "Sidhha Aspirants Mentored " },
   { v: "15,000", l: "MCQs Practiced" },
   { v: "70+", l: "PG Rank holders / AMO selection" },
-  
 ];
 
 export function Hero() {
+  const [mobileVideoLoaded, setMobileVideoLoaded] = useState(false);
+  const [desktopVideoLoaded, setDesktopVideoLoaded] = useState(false);
+
   return (
-    <section className="relative overflow-hidden pt-6 lg:pt-3 pb-2 lg:pb-16">
-      {/* Background Video */}
+    <section className="relative overflow-hidden pt-6 lg:pt-3 pb-6 lg:pb-16">
+      {/* Fallback solid theme background to avoid any white/broken flash */}
+      <div className="absolute inset-0 -z-30 bg-gradient-to-b from-navy via-[#0A1D36] to-navy" />
+
+      {/* Poster placeholder image displayed instantly while video streams */}
+      <img
+        src="/hero-poster-mobile.jpg"
+        alt="Hero preview"
+        className={`absolute inset-0 -z-20 w-full h-full object-cover scale-x-[1.24] scale-y-[1.04] origin-center md:hidden transition-opacity duration-700 ${
+          mobileVideoLoaded ? "opacity-0 pointer-events-none" : "opacity-100"
+        }`}
+      />
+      <img
+        src="/hero-poster.jpg"
+        alt="Hero preview"
+        className={`absolute inset-0 -z-20 w-full h-full object-cover hidden md:block transition-opacity duration-700 ${
+          desktopVideoLoaded ? "opacity-0 pointer-events-none" : "opacity-100"
+        }`}
+      />
+
+      {/* Background Videos: gentle horizontal scaling trims the side black space without cutting off the person */}
       <video
         src="/doctormobile.mp4"
+        poster="/hero-poster-mobile.jpg"
         autoPlay
         loop
         muted
         playsInline
-        className="absolute inset-0 -z-10 w-full h-full object-cover md:hidden"
+        preload="auto"
+        onLoadedData={() => setMobileVideoLoaded(true)}
+        onCanPlay={() => setMobileVideoLoaded(true)}
+        className={`absolute inset-0 -z-10 w-full h-full object-cover scale-x-[1.24] scale-y-[1.04] origin-center md:hidden transition-opacity duration-700 ${
+          mobileVideoLoaded ? "opacity-100" : "opacity-0"
+        }`}
       />
       <video
         src="/doctorforlaptop.mp4"
+        poster="/hero-poster.jpg"
         autoPlay
         loop
         muted
         playsInline
-        className="absolute inset-0 -z-10 w-full h-full object-cover hidden md:block"
+        preload="auto"
+        onLoadedData={() => setDesktopVideoLoaded(true)}
+        onCanPlay={() => setDesktopVideoLoaded(true)}
+        className={`absolute inset-0 -z-10 w-full h-full object-cover hidden md:block transition-opacity duration-700 ${
+          desktopVideoLoaded ? "opacity-100" : "opacity-0"
+        }`}
       />
+
+      {/* Dark gradient overlay for text readability */}
+      <div className="absolute inset-0 -z-10 bg-gradient-to-r from-navy/70 via-navy/50 to-navy/20 md:from-navy/85 md:via-navy/50 md:to-transparent" />
 
       <div className="relative z-10 mx-auto w-full max-w-[1400px] px-5 lg:px-8">
         <div className="grid md:grid-cols-12 gap-6 md:gap-8 lg:gap-12 items-center">
