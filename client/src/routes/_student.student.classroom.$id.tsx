@@ -791,7 +791,7 @@ function SecurePlayer({
               ref={videoRef}
               src={resolvedStreamUrl}
               className="w-full h-full max-h-full object-contain bg-black no-select select-none pointer-events-auto"
-              controls
+              controls={!isBuffering}
               autoPlay
               onError={handleVideoError}
               controlsList="nodownload noremoteplayback"
