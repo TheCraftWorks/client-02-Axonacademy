@@ -412,24 +412,26 @@ const getStudentRefId = (studentRef) => {
 // GET /r2-proxy → Stream or proxy download from R2 with server-side auth (key passed as query param)
 router.get('/r2-proxy', async (req, res, next) => {
   try {
-    const { key } = req.query;
+    const { key, download, stream } = req.query;
     if (!key) {
       return res.status(400).json({ success: false, message: 'Missing key parameter' });
     }
 
-    const { getS3Client, getCloudflareConfig } = require('../config/cloudflare');
-    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    let objectKey = String(key).trim();
+    if (objectKey.includes('%')) {
+      try {
+        objectKey = decodeURIComponent(objectKey);
+      } catch {
+        // ignore malformed URI error
+      }
+    }
+
+    const { generatePresignedGetUrl, getS3Client, getCloudflareConfig } = require('../config/cloudflare');
     const path = require('path');
-
-    const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
-    const client = getS3Client();
-
-    const command = new GetObjectCommand({
-      Bucket: CLOUDFLARE_R2_BUCKET,
-      Key: key,
-    });
-
-    const s3Response = await client.send(command);
+    const filename = path.basename(objectKey) || 'document.pdf';
+    const disposition = download === 'true'
+      ? `attachment; filename="${encodeURIComponent(filename)}"`
+      : `inline; filename="${encodeURIComponent(filename)}"`;
 
     res.removeHeader('X-Frame-Options');
     res.setHeader('Content-Security-Policy', "frame-ancestors *;");
@@ -443,12 +445,39 @@ router.get('/r2-proxy', async (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
     }
 
+    // Default: Fast 307 redirect to presigned R2 URL (0ms server load, zero socket timeouts)
+    if (stream !== 'true') {
+      const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
+        responseContentType: 'application/pdf',
+        responseContentDisposition: disposition,
+      });
+      return res.redirect(307, presignedUrl);
+    }
+
+    // Explicit stream fallback
+    const { GetObjectCommand } = require('@aws-sdk/client-s3');
+    const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
+    const client = getS3Client();
+
+    const command = new GetObjectCommand({
+      Bucket: CLOUDFLARE_R2_BUCKET,
+      Key: objectKey,
+    });
+
+    const s3Response = await client.send(command);
+
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(String(key))}"`);
+    res.setHeader('Content-Disposition', disposition);
     if (s3Response.ContentLength) {
       res.setHeader('Content-Length', s3Response.ContentLength);
     }
+
+    req.on('close', () => {
+      if (!res.writableEnded && s3Response.Body?.destroy) {
+        s3Response.Body.destroy();
+      }
+    });
 
     s3Response.Body.pipe(res);
   } catch (error) {

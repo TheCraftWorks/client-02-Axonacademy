@@ -233,7 +233,19 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
             response = await fetch(url, { credentials: 'include' });
           }
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: Failed to fetch document`);
+            let errorMsg = `HTTP ${response.status}: Failed to fetch document`;
+            try {
+              const errJson = await response.json();
+              if (errJson?.message) errorMsg = errJson.message;
+            } catch {
+              // Not JSON
+            }
+            throw new Error(errorMsg);
+          }
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.message || 'Server returned invalid file format');
           }
           const arrayBuffer = await response.arrayBuffer();
           if (isCancelled) return;
@@ -246,6 +258,9 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           pdf = await loadingTask.promise;
         } catch (fetchErr: any) {
           console.warn('[PDF Viewer] Direct fetch fallback to URL loading:', fetchErr?.message);
+          if (fetchErr?.message?.includes('HTTP') || fetchErr?.message?.includes('Server returned')) {
+            throw fetchErr;
+          }
           const loadingTask = pdfjs.getDocument({
             url,
             cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
@@ -273,10 +288,14 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           setTimeout(() => setSwipeNotice(false), 3000);
         }
       } catch (err: any) {
-        console.warn('[PDF Viewer] Canvas render failed, falling back to secure frame:', err?.message);
+        console.warn('[PDF Viewer] Error loading PDF:', err?.message);
         if (!isCancelled) {
           setLoading(false);
-          setUseIframeFallback(true);
+          if (err?.message?.includes('HTTP') || err?.message?.includes('Server returned') || err?.message?.includes('Failed to fetch')) {
+            setError(err.message || 'Document preview is currently unavailable.');
+          } else {
+            setUseIframeFallback(true);
+          }
         }
       }
     }

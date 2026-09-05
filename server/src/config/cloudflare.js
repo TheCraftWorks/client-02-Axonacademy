@@ -50,8 +50,8 @@ function getS3Client() {
     forcePathStyle: true,
     maxAttempts: 3,
     requestHandler: new NodeHttpHandler({
-      connectionTimeout: 10000,
-      requestTimeout: 25000,
+      connectionTimeout: 30000,
+      requestTimeout: 60000,
     }),
   });
 
@@ -270,14 +270,23 @@ async function abortMultipartUpload(objectKey, uploadId) {
  * @param {number} expiresIn   - Seconds until the URL expires (default 604800 = 7 days)
  * @returns {Promise<string>} presigned GET URL
  */
-async function generatePresignedGetUrl(objectKey, expiresIn = 604800) {
+async function generatePresignedGetUrl(objectKey, expiresIn = 604800, options = {}) {
   const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
   const client = getS3Client();
 
-  const command = new GetObjectCommand({
+  const commandParams = {
     Bucket: CLOUDFLARE_R2_BUCKET,
     Key: objectKey,
-  });
+  };
+
+  if (options.responseContentType) {
+    commandParams.ResponseContentType = options.responseContentType;
+  }
+  if (options.responseContentDisposition) {
+    commandParams.ResponseContentDisposition = options.responseContentDisposition;
+  }
+
+  const command = new GetObjectCommand(commandParams);
 
   return getSignedUrl(client, command, { expiresIn });
 }
