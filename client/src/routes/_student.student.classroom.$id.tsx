@@ -403,8 +403,13 @@ function SecurePlayer({
     }
   }, [useProxyFallback, initialStreamUrl, recordingId, accessToken]);
 
+  // Use a ref to track in-progress state so it doesn't cause useCallback to
+  // recreate on every toggle (which would cause an infinite effect loop).
+  const isRefreshingUrlRef = useRef(false);
+
   const refreshPlaybackUrl = useCallback(async () => {
-    if (isRefreshingUrl) return;
+    if (isRefreshingUrlRef.current) return;
+    isRefreshingUrlRef.current = true;
     setIsRefreshingUrl(true);
     try {
       const res = await api.get(`/recordings/classroom/${recordingId}`) as any;
@@ -421,16 +426,20 @@ function SecurePlayer({
       const tokenQuery = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
       setResolvedStreamUrl(`${getRecordingStreamUrl(recordingId)}${tokenQuery}`);
     } finally {
+      isRefreshingUrlRef.current = false;
       setIsRefreshingUrl(false);
     }
-  }, [recordingId, accessToken, isRefreshingUrl]);
+  }, [recordingId, accessToken]);
 
-  // Eagerly resolve the direct signed Cloudflare URL on mount if not already present
+  // Eagerly resolve a fresh signed Cloudflare URL on mount if one isn't already embedded.
+  // NOTE: refreshPlaybackUrl is stable (no isRefreshingUrl in deps) so this only fires
+  // when recordingId actually changes — no infinite loop.
   useEffect(() => {
     if (!isDirectSignedUrl && recordingId) {
       void refreshPlaybackUrl();
     }
-  }, [isDirectSignedUrl, recordingId, refreshPlaybackUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirectSignedUrl, recordingId]);
 
   useEffect(() => {
     totalWatchedRef.current = recording.viewStats?.find((v) => v.studentId === currentUser?.id)?.totalWatchedSec || 0;
