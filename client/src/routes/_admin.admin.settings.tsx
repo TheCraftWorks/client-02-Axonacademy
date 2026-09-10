@@ -924,18 +924,22 @@ function Settings() {
                             <span className="inline-flex items-center gap-0.5 text-lime"><Star className="h-3 w-3 fill-lime" /> {f.rating}</span>
                           </div>
                         </div>
-                        <div className="absolute top-4 right-4 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-3 right-3 flex items-center gap-1.5">
                           <button
+                            type="button"
                             onClick={() => {
                               setEditingFaculty(f);
                               setFacultyPhotoFile(null);
                               setFacultyPhotoPreview(null);
                             }}
-                            className="p-1 hover:bg-cream/10 rounded text-cream/80"
+                            className="p-1.5 rounded-lg bg-cream/10 hover:bg-cream/20 text-cream hover:text-lime transition-colors"
+                            title="Edit Faculty"
+                            aria-label="Edit Faculty"
                           >
-                            <Edit2 className="h-3 w-3" />
+                            <Edit2 className="h-3.5 w-3.5" />
                           </button>
                           <button
+                            type="button"
                             onClick={async () => {
                               if (confirm(`Remove ${f.name} from faculty?`)) {
                                 try {
@@ -949,9 +953,11 @@ function Settings() {
                                 }
                               }
                             }}
-                            className="p-1 hover:bg-red-500/20 rounded text-red-400"
+                            className="p-1.5 rounded-lg bg-cream/10 hover:bg-red-500/20 text-cream/80 hover:text-red-400 transition-colors"
+                            title="Delete Faculty"
+                            aria-label="Delete Faculty"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>

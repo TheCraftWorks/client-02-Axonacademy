@@ -156,16 +156,22 @@ function AdminFaculty() {
                   <div className="font-display font-bold truncate">{f.name}</div>
                   <div className="text-xs text-cream/60">{f.role} · {f.specialty}</div>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1.5 shrink-0 items-center">
                   <button 
+                    type="button"
                     onClick={() => handleOpenEdit(f)}
-                    className="p-2 rounded-lg hover:bg-white/10 text-cream/70 hover:text-lime transition-colors"
+                    className="p-2 rounded-lg bg-cream/10 hover:bg-cream/20 text-cream hover:text-lime transition-colors"
+                    title="Edit Faculty"
+                    aria-label="Edit Faculty"
                   >
                     <Edit2 className="h-4 w-4" />
                   </button>
                   <button 
+                    type="button"
                     onClick={() => handleDelete(f._id)}
-                    className="p-2 rounded-lg hover:bg-white/10 text-cream/70 hover:text-red-400 transition-colors"
+                    className="p-2 rounded-lg bg-cream/10 hover:bg-red-500/20 text-cream/80 hover:text-red-400 transition-colors"
+                    title="Delete Faculty"
+                    aria-label="Delete Faculty"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
