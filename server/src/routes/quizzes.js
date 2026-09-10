@@ -1183,7 +1183,7 @@ router.post('/generate-from-pdf', protect, restrictTo('admin', 'superadmin'), up
 
     const prompt = `You are an expert educational content extractor. I am providing a PDF document that contains quiz/exam questions.
 The document might be in a regional language like Tamil or English.
-Your task is to extract ALL the questions, options, and determine the correct answer based on your knowledge base.
+Your task is to extract ALL the questions and options. Do not determine or select any correct answers, and do not generate any definitions or explanations.
 
 Format your response exactly as a JSON array of objects, where each object matches this structure:
 {
@@ -1192,15 +1192,15 @@ Format your response exactly as a JSON array of objects, where each object match
   "marks": 1,
   "options": [
     { "label": "A", "text": "Option A text", "isCorrect": false },
-    { "label": "B", "text": "Option B text", "isCorrect": true }
+    { "label": "B", "text": "Option B text", "isCorrect": false }
     // Add all options available
-  ],
-  "explanation": "A brief explanation of why the selected answer is correct (optional)"
+  ]
 }
 
 Important:
 - YOU MUST return ONLY the JSON array. Do not include markdown code blocks like \`\`\`json.
-- YOU MUST automatically select the correct answer(s) by setting "isCorrect": true.
+- DO NOT select or mark any answer as correct. Set "isCorrect": false for every option.
+- DO NOT generate explanations, definitions, or solutions.
 - If the language is Tamil, preserve the Tamil text exactly.`;
 
     // Execute with retry logic
@@ -1223,7 +1223,18 @@ Important:
     // Strip markdown formatting if the model still includes it
     textResponse = textResponse.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
 
-    const questions = JSON.parse(textResponse);
+    const rawQuestions = JSON.parse(textResponse);
+    const questions = Array.isArray(rawQuestions) ? rawQuestions.map(q => ({
+      text: q.text || '',
+      type: q.type || 'mcq',
+      marks: q.marks || 1,
+      options: (q.options || []).map(opt => ({
+        label: opt.label || '',
+        text: opt.text || '',
+        isCorrect: false
+      })),
+      explanation: ''
+    })) : [];
 
     res.json({ success: true, questions });
   } catch (error) {

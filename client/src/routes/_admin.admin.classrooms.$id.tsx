@@ -2080,13 +2080,13 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
           id: uid(),
           type: q.type || "mcq",
           text: q.text,
-          marks: q.marks || 1,
-          explanation: q.explanation || "",
+          marks: q.marks || (bulkMarksEnabled ? bulkMarksValue : 1),
+          explanation: "",
           order: quiz.questions.length + i + 1,
           options: (q.options || []).map((o: any) => ({
             label: o.label,
             text: o.text,
-            isCorrect: !!o.isCorrect
+            isCorrect: false
           }))
         }));
 
