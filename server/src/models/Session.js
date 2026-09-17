@@ -10,7 +10,6 @@ const sessionSchema = new mongoose.Schema({
 
 // Index to efficiently purge expired sessions
 sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-sessionSchema.index({ tokenHash: 1 });
 
 // Helper to hash token deterministically
 const hashToken = (token) => {

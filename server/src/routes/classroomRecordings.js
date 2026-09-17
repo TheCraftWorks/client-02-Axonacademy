@@ -993,7 +993,7 @@ router.get('/:id/analytics', protect, restrictTo('admin', 'superadmin'), async (
 router.post('/:id/progress', protect, async (req, res, next) => {
   try {
     const { position, watchedSec, completed } = req.body;
-    const recording = await ClassroomRecording.findById(req.params.id);
+    const recording = await ClassroomRecording.findById(req.params.id).select('classroom duration');
     if (!recording) {
       return res.status(404).json({ success: false, message: 'Recording not found' });
     }
@@ -1005,45 +1005,119 @@ router.post('/:id/progress', protect, async (req, res, next) => {
     const safePosition = Math.max(0, Number(position) || 0);
     const safeWatchedSec = Math.min(300, Math.max(0, Number(watchedSec) || 0));
     const isCompleted = !!completed || (recording.duration > 0 && safePosition >= recording.duration * 0.9);
+    const now = new Date();
+    const sessionEntry = {
+      startedAt: new Date(Date.now() - safeWatchedSec * 1000),
+      endedAt: now,
+      watchedSec: safeWatchedSec
+    };
 
-    let userStatsIndex = recording.viewStats.findIndex(
-      (v) => v.student.toString() === req.user._id.toString()
-    );
-
-    if (userStatsIndex === -1) {
-      recording.viewStats.push({
-        student: req.user._id,
-        totalWatchedSec: safeWatchedSec,
-        lastPosition: safePosition,
-        rewatchCount: isCompleted ? 1 : 0,
-        completedAt: isCompleted ? new Date() : null,
-        sessions: [{
-          startedAt: new Date(Date.now() - safeWatchedSec * 1000),
-          endedAt: new Date(),
-          watchedSec: safeWatchedSec
-        }]
-      });
-      userStatsIndex = recording.viewStats.length - 1;
-    } else {
-      const stats = recording.viewStats[userStatsIndex];
-      stats.lastPosition = safePosition;
-      stats.totalWatchedSec += safeWatchedSec;
-      if (isCompleted && !stats.completedAt) {
-        stats.completedAt = new Date();
-        stats.rewatchCount += 1;
+    const updateOps = {
+      $set: {
+        'viewStats.$.lastPosition': safePosition
+      },
+      $inc: {
+        'viewStats.$.totalWatchedSec': safeWatchedSec
+      },
+      $push: {
+        'viewStats.$.sessions': sessionEntry
       }
-      stats.sessions.push({
-        startedAt: new Date(Date.now() - safeWatchedSec * 1000),
-        endedAt: new Date(),
-        watchedSec: safeWatchedSec
-      });
+    };
+
+    let updated = null;
+
+    // 1. If completed and not marked completed before, atomically set completedAt and increment rewatchCount
+    if (isCompleted) {
+      updated = await ClassroomRecording.findOneAndUpdate(
+        {
+          _id: recording._id,
+          viewStats: {
+            $elemMatch: {
+              student: req.user._id,
+              $or: [{ completedAt: null }, { completedAt: { $exists: false } }]
+            }
+          }
+        },
+        {
+          ...updateOps,
+          $set: {
+            ...updateOps.$set,
+            'viewStats.$.completedAt': now
+          },
+          $inc: {
+            ...updateOps.$inc,
+            'viewStats.$.rewatchCount': 1
+          }
+        },
+        {
+          new: true,
+          select: { viewStats: { $elemMatch: { student: req.user._id } } }
+        }
+      );
     }
 
-    await recording.save();
+    // 2. If not completed or was already marked completed, run standard atomic update
+    if (!updated) {
+      updated = await ClassroomRecording.findOneAndUpdate(
+        {
+          _id: recording._id,
+          'viewStats.student': req.user._id
+        },
+        updateOps,
+        {
+          new: true,
+          select: { viewStats: { $elemMatch: { student: req.user._id } } }
+        }
+      );
+    }
+
+    // 3. If student entry doesn't exist yet, insert a new entry atomically
+    if (!updated || !updated.viewStats || updated.viewStats.length === 0) {
+      updated = await ClassroomRecording.findOneAndUpdate(
+        {
+          _id: recording._id,
+          'viewStats.student': { $ne: req.user._id }
+        },
+        {
+          $push: {
+            viewStats: {
+              student: req.user._id,
+              totalWatchedSec: safeWatchedSec,
+              lastPosition: safePosition,
+              rewatchCount: isCompleted ? 1 : 0,
+              completedAt: isCompleted ? now : null,
+              sessions: [sessionEntry]
+            }
+          }
+        },
+        {
+          new: true,
+          select: { viewStats: { $elemMatch: { student: req.user._id } } }
+        }
+      );
+
+      // Handle race condition where another concurrent request just created the student entry
+      if (!updated || !updated.viewStats || updated.viewStats.length === 0) {
+        updated = await ClassroomRecording.findOneAndUpdate(
+          {
+            _id: recording._id,
+            'viewStats.student': req.user._id
+          },
+          updateOps,
+          {
+            new: true,
+            select: { viewStats: { $elemMatch: { student: req.user._id } } }
+          }
+        );
+      }
+    }
+
+    const progress = updated?.viewStats?.[0] || null;
+
     res.json({
       success: true,
       message: 'Watch progress updated',
-      progress: recording.viewStats[userStatsIndex]
+      progress
     });
   } catch (error) {
     next(error);
