@@ -24,7 +24,7 @@ import {
   type Option,
   type QuizAttempt,
 } from "@/lib/classroomStore";
-import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl } from "@/lib/api";
+import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl } from "@/lib/api";
 import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnswerSheetModal";
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
@@ -202,6 +202,7 @@ function AdminClassroomDetailSkeleton() {
 
 function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classroom: Classroom; refreshClassroom: () => Promise<Classroom>; isFetching?: boolean }) {
   const cls = classroom;
+  const { classrooms } = useClassroomStore();
   const [text, setText] = useState("");
   const [isPosting, setIsPosting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -211,6 +212,19 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
   const [uploadProgress, setUploadProgress] = useState(0);
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Push reuse (duplicate to other classrooms) states
+  const [duplicateAnnouncement, setDuplicateAnnouncement] = useState<any | null>(null);
+  const [selectedTargetClassrooms, setSelectedTargetClassrooms] = useState<string[]>([]);
+  const [isDuplicating, setIsDuplicating] = useState(false);
+
+  // Pull reuse (import from another classroom) states
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [sourceClassroomId, setSourceClassroomId] = useState("");
+  const [sourceAnnouncements, setSourceAnnouncements] = useState<any[]>([]);
+  const [isLoadingSource, setIsLoadingSource] = useState(false);
+  const [selectedSourceAnnoIds, setSelectedSourceAnnoIds] = useState<string[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
 
   const announcements = cls.announcements || [];
 
@@ -286,6 +300,105 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
     }
   };
 
+  // Push reuse handler: duplicate announcement to selected target classrooms
+  const handleDuplicateConfirm = async () => {
+    if (!duplicateAnnouncement || selectedTargetClassrooms.length === 0) return;
+    setIsDuplicating(true);
+    try {
+      const attachments = Array.isArray(duplicateAnnouncement.attachments) ? duplicateAnnouncement.attachments : [];
+      for (const targetId of selectedTargetClassrooms) {
+        await createClassroomAnnouncement(targetId, duplicateAnnouncement.content, attachments);
+      }
+      toast.success("Announcement duplicated successfully to selected class(es)!");
+      setDuplicateAnnouncement(null);
+      setSelectedTargetClassrooms([]);
+      await refreshClassroom();
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Duplication failed");
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
+  // Pull reuse handler: fetch announcements from chosen source classroom
+  const fetchSourceAnnouncements = async (classroomIdToFetch: string) => {
+    if (!classroomIdToFetch) {
+      setSourceAnnouncements([]);
+      setSelectedSourceAnnoIds([]);
+      return;
+    }
+    setIsLoadingSource(true);
+    try {
+      const list = await getClassroomAnnouncements(classroomIdToFetch);
+      setSourceAnnouncements(list);
+      setSelectedSourceAnnoIds([]);
+    } catch (err: any) {
+      toast.error("Failed to load announcements from selected classroom");
+      setSourceAnnouncements([]);
+    } finally {
+      setIsLoadingSource(false);
+    }
+  };
+
+  const handleSourceClassroomChange = (newSourceId: string) => {
+    setSourceClassroomId(newSourceId);
+    if (newSourceId) {
+      fetchSourceAnnouncements(newSourceId);
+    } else {
+      setSourceAnnouncements([]);
+      setSelectedSourceAnnoIds([]);
+    }
+  };
+
+  // Pull reuse handler: clone selected source announcements into current classroom
+  const handleImportConfirm = async () => {
+    if (selectedSourceAnnoIds.length === 0) {
+      toast.error("Please select at least one announcement to reuse");
+      return;
+    }
+    setIsImporting(true);
+    try {
+      const selectedAnnos = sourceAnnouncements.filter((a) =>
+        selectedSourceAnnoIds.includes(a.id || a._id)
+      );
+      for (const ann of selectedAnnos) {
+        await createClassroomAnnouncement(cls.id, ann.content, ann.attachments || []);
+      }
+      toast.success(`Successfully reused ${selectedAnnos.length} announcement${selectedAnnos.length > 1 ? 's' : ''}!`);
+      setShowImportModal(false);
+      setSourceClassroomId("");
+      setSourceAnnouncements([]);
+      setSelectedSourceAnnoIds([]);
+      await refreshClassroom();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reuse announcements");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Pull reuse handler: load selected announcement into composer editor
+  const handleLoadIntoEditor = (ann: any) => {
+    setText(ann.content || "");
+    if (ann.attachments && ann.attachments.length > 0) {
+      const firstPdf = ann.attachments.find((at: any) => at.type === "pdf" || at.url?.endsWith(".pdf") || at.name?.endsWith(".pdf"));
+      if (firstPdf) {
+        setAttachedPdf({
+          name: firstPdf.name || "Reused PDF",
+          url: firstPdf.url,
+          cloudflareKey: firstPdf.cloudflareKey,
+        });
+      }
+      const extLink = ann.attachments.find((at: any) => at !== firstPdf);
+      if (extLink?.url) {
+        setDriveLink(extLink.url);
+      }
+    }
+    setShowImportModal(false);
+    toast.success("Loaded announcement into editor!");
+  };
+
   return (
     <div className="space-y-4">
       {/* Hidden PDF file input */}
@@ -309,9 +422,25 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
 
       {/* Compose */}
       <DarkCard>
-        <h3 className="font-display font-bold text-sm text-cream mb-3 flex items-center gap-2">
-          <LuMegaphone className="h-4 w-4 text-lime" /> Post Announcement
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-display font-bold text-sm text-cream flex items-center gap-2">
+            <LuMegaphone className="h-4 w-4 text-lime" /> Post Announcement
+          </h3>
+          <button
+            type="button"
+            onClick={() => {
+              setShowImportModal(true);
+              if (sourceClassroomId) {
+                fetchSourceAnnouncements(sourceClassroomId);
+              }
+            }}
+            disabled={isPosting || isUploadingPdf}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cream/10 hover:bg-cream/15 text-cream text-xs font-semibold border border-cream/15 transition-colors disabled:opacity-50"
+            title="Reuse announcement from another classroom"
+          >
+            <LuCopy className="h-3.5 w-3.5 text-lime" /> Reuse from Class
+          </button>
+        </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -472,17 +601,297 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDelete(annId)}
-                    disabled={deletingId === annId}
-                    className="text-cream/30 hover:text-red-400 transition-colors shrink-0 disabled:opacity-40"
-                  >
-                    <LuTrash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDuplicateAnnouncement(ann);
+                        setSelectedTargetClassrooms([]);
+                      }}
+                      className="rounded-full bg-cream/10 text-cream px-2.5 py-1 text-xs font-semibold flex items-center gap-1 hover:bg-cream/20 transition-colors"
+                      title="Reuse/Duplicate to another class"
+                    >
+                      <LuCopy className="h-3 w-3" /> Reuse
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(annId)}
+                      disabled={deletingId === annId}
+                      className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-1.5 disabled:opacity-40 transition-colors"
+                      title="Delete announcement"
+                    >
+                      <LuTrash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </DarkCard>
             );
           })}
+        </div>
+      )}
+
+      {/* Push Reuse Modal: duplicate current announcement to other classrooms (matches Quiz reuse pattern) */}
+      {duplicateAnnouncement && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#1A0F33] border border-cream/10 rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-cream/10 flex items-center justify-between">
+              <h3 className="font-display font-bold text-cream">Reuse Announcement in other Classes</h3>
+              <button
+                type="button"
+                onClick={() => setDuplicateAnnouncement(null)}
+                className="text-cream/50 hover:text-cream p-1 rounded-full hover:bg-cream/5"
+              >
+                <LuX className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="p-3 bg-cream/5 rounded-xl border border-cream/10">
+                <div className="text-[10px] uppercase tracking-widest text-cream/40 font-bold mb-1">Announcement Preview</div>
+                <p className="text-xs text-cream/80 line-clamp-3 whitespace-pre-wrap">{duplicateAnnouncement.content}</p>
+                {Array.isArray(duplicateAnnouncement.attachments) && duplicateAnnouncement.attachments.length > 0 && (
+                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-lime font-medium">
+                    <LuFileText className="h-3 w-3" />
+                    <span>{duplicateAnnouncement.attachments.length} attachment(s) will be included</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="text-sm text-cream/70">
+                Duplicate to the following classroom(s):
+              </div>
+              <div className="space-y-2">
+                {classrooms
+                  .filter((c) => c.id !== cls.id && c.status === "active")
+                  .map((targetCls) => {
+                    const isChecked = selectedTargetClassrooms.includes(targetCls.id);
+                    return (
+                      <label
+                        key={targetCls.id}
+                        className="flex items-center gap-3 bg-cream/5 border border-cream/10 rounded-xl p-3 cursor-pointer hover:border-lime/30 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedTargetClassrooms([...selectedTargetClassrooms, targetCls.id]);
+                            } else {
+                              setSelectedTargetClassrooms(selectedTargetClassrooms.filter((id) => id !== targetCls.id));
+                            }
+                          }}
+                          className="accent-lime h-4 w-4"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-cream">{targetCls.name}</div>
+                          <div className="text-[10px] font-mono text-cream/50 uppercase tracking-widest">{targetCls.code} &middot; {targetCls.program}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                {classrooms.filter((c) => c.id !== cls.id && c.status === "active").length === 0 && (
+                  <p className="text-xs text-cream/40 text-center py-4">No other active classes available.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDuplicateAnnouncement(null)}
+                disabled={isDuplicating}
+                className="flex-1 rounded-full bg-cream/10 text-cream py-2.5 text-sm font-semibold disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDuplicateConfirm}
+                disabled={selectedTargetClassrooms.length === 0 || isDuplicating}
+                className="flex-1 rounded-full bg-lime text-plum-dark py-2.5 text-sm font-bold disabled:opacity-40"
+              >
+                {isDuplicating ? "Duplicating…" : "Confirm Duplicate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pull Reuse Modal: import announcements from other classrooms (matches Video Recordings reuse pattern) */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#1A0F33] border border-cream/10 rounded-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-5 py-4 border-b border-cream/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-bold text-cream">Reuse Announcements from other Classes</h3>
+                {isLoadingSource && (
+                  <div className="w-3.5 h-3.5 border-2 border-lime border-t-transparent rounded-full animate-spin" />
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {sourceClassroomId && (
+                  <button
+                    type="button"
+                    onClick={() => fetchSourceAnnouncements(sourceClassroomId)}
+                    disabled={isLoadingSource || isImporting}
+                    title="Refresh announcements"
+                    className="text-cream/50 hover:text-cream text-xs flex items-center gap-1 p-1 rounded hover:bg-cream/5 disabled:opacity-40 transition-colors"
+                  >
+                    <LuRefreshCw className={`h-3.5 w-3.5 ${isLoadingSource ? 'animate-spin' : ''}`} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="text-cream/50 hover:text-cream"
+                  disabled={isImporting}
+                >
+                  <LuX className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">Select Source Classroom</label>
+                <select
+                  value={sourceClassroomId}
+                  onChange={(e) => handleSourceClassroomChange(e.target.value)}
+                  disabled={isImporting}
+                  className="w-full bg-[#1A0F33] border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50"
+                >
+                  <option value="">-- Choose a Class --</option>
+                  {classrooms
+                    .filter((c) => c.id !== cls.id)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                    ))}
+                </select>
+              </div>
+
+              {sourceClassroomId && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] uppercase tracking-widest text-cream/50 font-bold">Available Announcements</div>
+                    {sourceAnnouncements.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedSourceAnnoIds.length === sourceAnnouncements.length) {
+                            setSelectedSourceAnnoIds([]);
+                          } else {
+                            setSelectedSourceAnnoIds(sourceAnnouncements.map((a) => a.id || a._id));
+                          }
+                        }}
+                        className="text-[10px] text-lime font-bold hover:underline"
+                      >
+                        {selectedSourceAnnoIds.length === sourceAnnouncements.length ? "Deselect All" : "Select All"}
+                      </button>
+                    )}
+                  </div>
+
+                  {isLoadingSource ? (
+                    <div className="py-12 flex flex-col items-center justify-center gap-3">
+                      <div className="w-8 h-8 border-3 border-lime/30 border-t-lime rounded-full animate-spin" />
+                      <p className="text-xs text-cream/70 font-medium">Loading announcements...</p>
+                    </div>
+                  ) : sourceAnnouncements.length === 0 ? (
+                    <div className="p-6 text-center border border-cream/10 rounded-xl bg-cream/2">
+                      <p className="text-xs text-cream/40">No announcements found in this classroom.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {sourceAnnouncements.map((ann) => {
+                        const annId = ann.id || ann._id;
+                        const isChecked = selectedSourceAnnoIds.includes(annId);
+                        const author = typeof ann.author === "object" && ann.author !== null ? (ann.author.fullName || ann.author.name || "Admin") : (ann.author || "Admin");
+                        const rawAttachments = Array.isArray(ann.attachments) ? ann.attachments : [];
+
+                        return (
+                          <div
+                            key={annId}
+                            className={`border rounded-xl p-3 transition-colors ${
+                              isChecked ? "border-lime/40 bg-lime/5" : "border-cream/10 bg-cream/2 hover:bg-cream/5"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSourceAnnoIds((prev) => [...prev, annId]);
+                                  } else {
+                                    setSelectedSourceAnnoIds((prev) => prev.filter((id) => id !== annId));
+                                  }
+                                }}
+                                className="accent-lime h-4 w-4 mt-1"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="text-xs font-semibold text-cream truncate">{author}</span>
+                                  <span className="text-[10px] text-cream/40 shrink-0">{timeAgo(ann.createdAt)}</span>
+                                </div>
+                                <p className="text-xs text-cream/80 line-clamp-3 whitespace-pre-wrap mb-2">{ann.content}</p>
+                                {rawAttachments.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mb-2">
+                                    {rawAttachments.map((at: any, i: number) => {
+                                      const name = typeof at === "string" ? "Attachment" : at.name || "Attachment";
+                                      return (
+                                        <span
+                                          key={i}
+                                          className="inline-flex items-center gap-1 text-[10px] text-lime bg-lime/10 border border-lime/20 px-2 py-0.5 rounded"
+                                        >
+                                          <LuFileText className="h-3 w-3" />
+                                          <span className="truncate max-w-[150px]">{name}</span>
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                <div className="flex justify-end pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleLoadIntoEditor(ann)}
+                                    className="text-[10px] text-lime hover:underline font-semibold flex items-center gap-1"
+                                    title="Load this text into your compose editor"
+                                  >
+                                    <LuCopy className="h-3 w-3" /> Load into Editor
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                disabled={isImporting}
+                className="flex-1 rounded-full bg-cream/10 text-cream py-2.5 text-sm font-semibold disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleImportConfirm}
+                disabled={selectedSourceAnnoIds.length === 0 || isImporting}
+                className="flex-1 rounded-full bg-lime text-plum-dark py-2.5 text-sm font-bold disabled:opacity-40"
+              >
+                {isImporting ? "Reusing…" : `Import Selected (${selectedSourceAnnoIds.length})`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

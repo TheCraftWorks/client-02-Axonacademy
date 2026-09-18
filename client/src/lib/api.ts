@@ -552,6 +552,13 @@ export async function deleteClassroomAnnouncement(classroomId: string, announcem
   );
 }
 
+export async function getClassroomAnnouncements(classroomId: string) {
+  const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/announcements`);
+  return Array.isArray(payload.announcements)
+    ? payload.announcements.map(normalizeBackendAnnouncement)
+    : [];
+}
+
 export async function createQuiz(classroomId: string, quiz: any) {
   const payload = await fetchJson('/quizzes', {
     method: 'POST',
