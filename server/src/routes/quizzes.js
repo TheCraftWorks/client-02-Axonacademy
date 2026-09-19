@@ -126,7 +126,9 @@ function shuffleArray(array) {
 // GET /classroom/:classroomId → Get all quizzes for a classroom
 router.get('/classroom/:classroomId', protect, async (req, res, next) => {
   try {
-    const classroom = await Classroom.findById(req.params.classroomId);
+    const classroom = await Classroom.findById(req.params.classroomId)
+      .select('_id instructors students')
+      .lean();
     if (!classroom) {
       return res.status(404).json({ success: false, message: 'Classroom not found' });
     }
@@ -143,22 +145,17 @@ router.get('/classroom/:classroomId', protect, async (req, res, next) => {
       filter.status = { $in: ['published', 'closed'] };
     }
 
-    // Project out correct options for students
-    let quizzes = await Quiz.find(filter).sort({ createdAt: -1 });
+    // Project out correct options for students using lean to avoid massive Mongoose document overhead
+    let quizzes = await Quiz.find(filter).sort({ createdAt: -1 }).lean();
 
     if (!isStaff) {
-      quizzes = quizzes.map(quiz => {
-        const qObj = quiz.toObject();
-        qObj.questions = qObj.questions.map(q => {
-          q.options = q.options.map(opt => {
-            const { isCorrect, ...rest } = opt;
-            return rest;
-          });
-          delete q.explanation;
-          return q;
-        });
-        return qObj;
-      });
+      quizzes = quizzes.map(quiz => ({
+        ...quiz,
+        questions: (quiz.questions || []).map(({ explanation, ...q }) => ({
+          ...q,
+          options: (q.options || []).map(({ isCorrect, ...opt }) => opt)
+        }))
+      }));
     }
 
     res.json({ success: true, quizzes });
@@ -170,12 +167,14 @@ router.get('/classroom/:classroomId', protect, async (req, res, next) => {
 // GET /:id → Get quiz detail
 router.get('/:id', protect, async (req, res, next) => {
   try {
-    const quiz = await Quiz.findById(req.params.id);
+    const quiz = await Quiz.findById(req.params.id).lean();
     if (!quiz) {
       return res.status(404).json({ success: false, message: 'Quiz not found' });
     }
 
-    const classroom = await Classroom.findById(quiz.classroom);
+    const classroom = await Classroom.findById(quiz.classroom)
+      .select('_id instructors students')
+      .lean();
     if (!classroom || !verifyClassroomAccess(classroom, req.user, false)) {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
@@ -185,17 +184,16 @@ router.get('/:id', protect, async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Quiz is not available yet' });
     }
 
-    let quizResponse = quiz.toObject();
-    // Hide correct answers and explanations for students
+    let quizResponse = quiz;
+    // Hide correct answers and explanations for students without using delete operator
     if (!isStaff) {
-      quizResponse.questions = quizResponse.questions.map(q => {
-        q.options = q.options.map(opt => {
-          const { isCorrect, ...rest } = opt;
-          return rest;
-        });
-        delete q.explanation;
-        return q;
-      });
+      quizResponse = {
+        ...quiz,
+        questions: (quiz.questions || []).map(({ explanation, ...q }) => ({
+          ...q,
+          options: (q.options || []).map(({ isCorrect, ...opt }) => opt)
+        }))
+      };
     }
 
     res.json({ success: true, quiz: quizResponse });
@@ -693,7 +691,7 @@ router.get('/:id/attempt/my-result', protect, async (req, res, next) => {
 // GET /:id/leaderboard → Get leaderboard if enabled or if user is admin/faculty
 router.get('/:id/leaderboard', protect, async (req, res, next) => {
   try {
-    const quiz = await Quiz.findById(req.params.id);
+    const quiz = await Quiz.findById(req.params.id).lean();
     if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
 
     if (!(await verifyClassroomAccessById(quiz.classroom, req.user, false))) {
@@ -845,11 +843,12 @@ router.post('/', async (req, res, next) => {
     let formattedQuestions = [];
     if (questions && Array.isArray(questions)) {
       formattedQuestions = questions.map(q => {
-        const questionData = { ...q };
-        if (q.id && mongoose.Types.ObjectId.isValid(q.id)) {
-          questionData._id = q.id;
-        } else {
-          delete questionData._id;
+        const { _id, id, ...rest } = q;
+        const questionData = { ...rest };
+        if (id && mongoose.Types.ObjectId.isValid(id)) {
+          questionData._id = id;
+        } else if (_id && mongoose.Types.ObjectId.isValid(_id)) {
+          questionData._id = _id;
         }
         return questionData;
       });
@@ -902,11 +901,12 @@ router.put('/:id', async (req, res, next) => {
     // Map question 'id' to '_id' for database compatibility
     if (req.body.questions && Array.isArray(req.body.questions)) {
       req.body.questions = req.body.questions.map(q => {
-        const questionData = { ...q };
-        if (q.id && mongoose.Types.ObjectId.isValid(q.id)) {
-          questionData._id = q.id;
-        } else {
-          delete questionData._id;
+        const { _id, id, ...rest } = q;
+        const questionData = { ...rest };
+        if (id && mongoose.Types.ObjectId.isValid(id)) {
+          questionData._id = id;
+        } else if (_id && mongoose.Types.ObjectId.isValid(_id)) {
+          questionData._id = _id;
         }
         return questionData;
       });
@@ -1095,15 +1095,17 @@ router.get('/:id/report/export', async (req, res, next) => {
     }
 
     const attempts = await QuizAttempt.find({ quiz: req.params.id, status: 'submitted' })
-      .populate('student', 'fullName email');
+      .populate('student', 'fullName email')
+      .lean();
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=quiz-${req.params.id}-report.csv`);
 
     let csvContent = 'Student Name,Email,Attempt No,Raw Score,Total Marks,Percentage,Passed,Submitted Time\n';
     attempts.forEach(a => {
-      const name = a.student.fullName;
-      csvContent += `"${name}","${a.student.email}",${a.attemptNo},${a.score.rawMarks},${a.score.totalMarks},${a.score.percentage.toFixed(2)}%,${a.score.passed ? 'Yes' : 'No'},"${a.submittedAt.toISOString()}"\n`;
+      const name = a.student ? a.student.fullName : 'Student';
+      const email = a.student ? a.student.email : '';
+      csvContent += `"${name}","${email}",${a.attemptNo},${a.score.rawMarks},${a.score.totalMarks},${a.score.percentage.toFixed(2)}%,${a.score.passed ? 'Yes' : 'No'},"${a.submittedAt ? new Date(a.submittedAt).toISOString() : ''}"\n`;
     });
 
     res.send(csvContent);
@@ -1115,14 +1117,14 @@ router.get('/:id/report/export', async (req, res, next) => {
 // GET /:id/analytics → Admin: question analytics (identify weak topics)
 router.get('/:id/analytics', async (req, res, next) => {
   try {
-    const quiz = await Quiz.findById(req.params.id);
+    const quiz = await Quiz.findById(req.params.id).lean();
     if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
 
     if (!(await verifyClassroomAccessById(quiz.classroom, req.user, true))) {
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
-    const attempts = await QuizAttempt.find({ quiz: req.params.id, status: 'submitted' });
+    const attempts = await QuizAttempt.find({ quiz: req.params.id, status: 'submitted' }).lean();
     const totalAttempts = attempts.length;
 
     // Compile analytics per question
