@@ -438,6 +438,9 @@ router.get('/r2-proxy', async (req, res, next) => {
     res.removeHeader('X-Frame-Options');
     res.setHeader('Content-Security-Policy', "frame-ancestors *;");
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+    res.removeHeader('Pragma');
+    res.removeHeader('Expires');
 
     const origin = req.headers.origin;
     if (origin) {
@@ -446,7 +449,7 @@ router.get('/r2-proxy', async (req, res, next) => {
     } else {
       res.setHeader('Access-Control-Allow-Origin', '*');
     }
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Accept-Ranges, Content-Range, Content-Type, ETag');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Accept-Ranges, Content-Range, Content-Type, ETag, Cache-Control');
 
     // Only redirect if explicitly requested with redirect=true or stream=false
     if (stream === 'false' || req.query.redirect === 'true') {
@@ -478,6 +481,7 @@ router.get('/r2-proxy', async (req, res, next) => {
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
     res.setHeader('Content-Disposition', disposition);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
     if (s3Response.ContentLength) {
       res.setHeader('Content-Length', s3Response.ContentLength);
     }

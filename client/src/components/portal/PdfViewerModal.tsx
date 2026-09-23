@@ -270,22 +270,42 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
     async function loadDocument() {
       try {
-        // Step 1: Attempt to fetch bytes directly with timeout
-        let arrayBuffer: ArrayBuffer | null = null;
-        const controller = new AbortController();
-        const fetchTimeout = setTimeout(() => controller.abort(), 12000);
+        // Step 1: Load PDF.js engine first
+        const pdfjs = await loadPdfJsEngine();
+        if (isCancelled) return;
 
+        const accessToken = classroomStore.getState?.()?.accessToken;
+        const httpHeaders: Record<string, string> = {};
+        if (accessToken) {
+          httpHeaders['Authorization'] = `Bearer ${accessToken}`;
+        }
+
+        let pdf: any;
+
+        // Step 2: Try fast progressive Range Streaming on URL (fetches header & Page 1 in <1s)
         try {
-          const accessToken = classroomStore.getState?.()?.accessToken;
-          const headers: Record<string, string> = {};
-          if (accessToken) {
-            headers['Authorization'] = `Bearer ${accessToken}`;
-          }
+          const loadingTask = pdfjs.getDocument({
+            url,
+            httpHeaders,
+            withCredentials: true,
+            rangeChunkSize: 65536,
+            disableAutoFetch: true,  // Stream pages on-demand rather than downloading whole 38MB upfront
+            disableStream: false,    // Progressive stream
+            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+            cMapPacked: true,
+          });
+          pdf = await loadingTask.promise;
+        } catch (streamErr: any) {
+          console.warn('[PDF Viewer] Range streaming failed, falling back to full byte fetch:', streamErr?.message);
+
+          // Fallback: Fetch raw bytes with timeout if range streaming failed
+          const controller = new AbortController();
+          const fetchTimeout = setTimeout(() => controller.abort(), 15000);
 
           let response: Response;
           try {
             response = await fetch(url, {
-              headers,
+              headers: httpHeaders,
               credentials: 'include',
               signal: controller.signal,
             });
@@ -301,7 +321,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               const errJson = await response.json();
               if (errJson?.message) errorMsg = errJson.message;
             } catch {
-              // ignore non-json
+              // ignore
             }
             throw new Error(errorMsg);
           }
@@ -312,33 +332,11 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
             throw new Error(errData.message || 'Server returned invalid file format');
           }
 
-          arrayBuffer = await response.arrayBuffer();
-        } catch (fetchErr: any) {
-          clearTimeout(fetchTimeout);
-          console.warn('[PDF Viewer] Direct fetch fallback to URL loading:', fetchErr?.message);
-          if (fetchErr?.message?.includes('HTTP 40') || fetchErr?.message?.includes('HTTP 50') || fetchErr?.message?.includes('File not found')) {
-            throw fetchErr;
-          }
-        }
+          const arrayBuffer = await response.arrayBuffer();
+          if (isCancelled) return;
 
-        if (isCancelled) return;
-
-        // Step 2: Load PDF.js engine
-        const pdfjs = await loadPdfJsEngine();
-        if (isCancelled) return;
-
-        // Step 3: Parse PDF document
-        let pdf: any;
-        if (arrayBuffer && arrayBuffer.byteLength > 0) {
           const loadingTask = pdfjs.getDocument({
             data: arrayBuffer,
-            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
-            cMapPacked: true,
-          });
-          pdf = await loadingTask.promise;
-        } else {
-          const loadingTask = pdfjs.getDocument({
-            url,
             cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
             cMapPacked: true,
           });
@@ -357,7 +355,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
         setLoading(false);
 
-        // Render page 1
+        // Render page 1 immediately
         await renderPage(1, pdf, fitScale);
 
         if (typeof window !== 'undefined' && window.innerWidth < 640 && (pdf.numPages || 1) > 1) {
