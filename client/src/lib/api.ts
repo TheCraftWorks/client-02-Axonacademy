@@ -1305,20 +1305,50 @@ export async function uploadAnnouncementPdf({
  */
 export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): string {
   if (!rawUrl && !cloudflareKey) return '';
-  if (rawUrl && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:'))) {
+
+  // Already a full absolute URL or blob/data
+  if (rawUrl && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:') || rawUrl.startsWith('data:'))) {
+    if (rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')) {
+      const sep = rawUrl.includes('?') ? '&' : '?';
+      return `${rawUrl}${sep}stream=true`;
+    }
     return rawUrl;
   }
+
+  // Base API without trailing /api/v1 if the path already starts with /api/v1
+  const cleanApiBase = (API_BASE || '/api/v1').replace(/\/+$/, '');
+  const rootBase = cleanApiBase.replace(/\/api\/v1\/?$/, '');
+
+  if (rawUrl && (rawUrl.startsWith('/api/v1/') || rawUrl.startsWith('/api/v1?'))) {
+    const sep = rawUrl.includes('?') ? '&' : '?';
+    const withStream = rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')
+      ? `${rawUrl}${sep}stream=true`
+      : rawUrl;
+    return `${rootBase}${withStream}`;
+  }
+
   if (rawUrl && rawUrl.startsWith('/')) {
     const sep = rawUrl.includes('?') ? '&' : '?';
     const withStream = rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')
       ? `${rawUrl}${sep}stream=true`
       : rawUrl;
-    return `${API_BASE}${withStream}`;
+    return `${cleanApiBase}${withStream}`;
   }
+
   if (cloudflareKey) {
-    return `${API_BASE}/classrooms/r2-proxy?key=${encodeURIComponent(cloudflareKey)}&stream=true`;
+    return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(cloudflareKey)}&stream=true`;
   }
-  return rawUrl ? `${API_BASE}/${rawUrl.replace(/^\/+/, '')}` : '';
+
+  if (rawUrl) {
+    const cleaned = rawUrl.replace(/^\/+/, '');
+    const sep = cleaned.includes('?') ? '&' : '?';
+    const withStream = cleaned.includes('r2-proxy') && !cleaned.includes('stream=')
+      ? `${cleaned}${sep}stream=true`
+      : cleaned;
+    return `${cleanApiBase}/${withStream}`;
+  }
+
+  return '';
 }
 
 /**

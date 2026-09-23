@@ -418,11 +418,13 @@ router.get('/r2-proxy', async (req, res, next) => {
     }
 
     let objectKey = String(key).trim();
-    if (objectKey.includes('%')) {
+    while (objectKey.includes('%')) {
       try {
-        objectKey = decodeURIComponent(objectKey);
+        const decoded = decodeURIComponent(objectKey);
+        if (decoded === objectKey) break;
+        objectKey = decoded;
       } catch {
-        // ignore malformed URI error
+        break;
       }
     }
 
@@ -498,7 +500,9 @@ router.get('/r2-proxy', async (req, res, next) => {
     if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
       return res.status(404).json({ success: false, message: 'File not found' });
     }
-    next(error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: error.message || 'Failed to stream document' });
+    }
   }
 });
 

@@ -12,7 +12,9 @@ import {
   LuMaximize2,
   LuMinimize2,
   LuScan,
+  LuExternalLink,
 } from 'react-icons/lu';
+import { classroomStore } from '@/lib/classroomStore';
 
 interface PdfViewerModalProps {
   isOpen: boolean;
@@ -25,6 +27,81 @@ declare global {
   interface Window {
     pdfjsLib?: any;
   }
+}
+
+// Module-level singleton loader for PDF.js CDN script
+let pdfjsPromise: Promise<any> | null = null;
+
+function loadPdfJsEngine(): Promise<any> {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Window not available'));
+  }
+  if (window.pdfjsLib) {
+    return Promise.resolve(window.pdfjsLib);
+  }
+  if (pdfjsPromise) {
+    return pdfjsPromise;
+  }
+
+  pdfjsPromise = new Promise((resolve, reject) => {
+    if (window.pdfjsLib) {
+      resolve(window.pdfjsLib);
+      return;
+    }
+
+    const SCRIPT_ID = 'pdfjs-cdn-script';
+    const existingScript = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+
+    const timeout = setTimeout(() => {
+      pdfjsPromise = null;
+      reject(new Error('PDF engine load timed out'));
+    }, 10000);
+
+    const onScriptLoaded = () => {
+      clearTimeout(timeout);
+      if (window.pdfjsLib) {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        } catch {
+          // ignore
+        }
+        resolve(window.pdfjsLib);
+      } else {
+        pdfjsPromise = null;
+        reject(new Error('PDF engine not initialized'));
+      }
+    };
+
+    const onScriptError = () => {
+      clearTimeout(timeout);
+      pdfjsPromise = null;
+      reject(new Error('Failed to load PDF engine from CDN'));
+    };
+
+    if (existingScript) {
+      if ((existingScript as any).dataset?.loaded === 'true' || window.pdfjsLib) {
+        onScriptLoaded();
+      } else {
+        existingScript.addEventListener('load', onScriptLoaded, { once: true });
+        existingScript.addEventListener('error', onScriptError, { once: true });
+      }
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = SCRIPT_ID;
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      onScriptLoaded();
+    };
+    script.onerror = onScriptError;
+    document.head.appendChild(script);
+  });
+
+  return pdfjsPromise;
 }
 
 export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalProps) {
@@ -92,58 +169,16 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [isOpen, onClose, numPages]);
 
-  // Load PDF.js script dynamically from CDN
-  const loadPdfJs = useCallback(async (): Promise<any> => {
-    if (window.pdfjsLib) {
-      return window.pdfjsLib;
-    }
-
-    return new Promise((resolve, reject) => {
-      const existingScript = document.getElementById('pdfjs-cdn-script');
-      if (existingScript) {
-        existingScript.addEventListener('load', () => resolve(window.pdfjsLib));
-        existingScript.addEventListener('error', () => reject(new Error('Failed to load PDF engine')));
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.id = 'pdfjs-cdn-script';
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      script.async = true;
-      script.onload = () => {
-        if (window.pdfjsLib) {
-          try {
-            // Circumvent cross-origin Worker restriction on mobile by creating an inline Blob
-            const workerBlob = new Blob(
-              ['importScripts("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js");'],
-              { type: 'application/javascript' }
-            );
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
-          } catch {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-              'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          }
-          resolve(window.pdfjsLib);
-        } else {
-          reject(new Error('PDF engine not initialized'));
-        }
-      };
-      script.onerror = () => reject(new Error('Failed to load PDF engine from CDN'));
-      document.body.appendChild(script);
-    });
-  }, []);
-
   // Compute optimal fit-width scale based on screen/container
   const computeFitScale = useCallback((page: any): number => {
-    const isMobile = window.innerWidth < 640;
-    const containerWidth = contentAreaRef.current?.clientWidth || window.innerWidth;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    const containerWidth = contentAreaRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 800);
     const padding = isMobile ? 24 : 64;
     const availableWidth = Math.max(260, containerWidth - padding);
 
     const unscaledViewport = page.getViewport({ scale: 1.0 });
     const targetScale = availableWidth / unscaledViewport.width;
 
-    // Mobile: clamp between 0.45 and 1.25 for crisp reading without horizontal overflow
     let computed: number;
     if (isMobile) {
       computed = Math.min(Math.max(targetScale, 0.45), 1.25);
@@ -158,33 +193,45 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   // Render a specific page to the canvas
   const renderPage = useCallback(
     async (pageNum: number, pdf: any, customScale?: number) => {
-      if (!pdf || !canvasRef.current) return;
+      if (!pdf) return;
+
+      // Allow a microtask if canvas is currently mounting
+      let canvas = canvasRef.current;
+      if (!canvas) {
+        await new Promise((r) => requestAnimationFrame(r));
+        canvas = canvasRef.current;
+      }
+      if (!canvas) return;
 
       try {
         if (renderTaskRef.current) {
-          renderTaskRef.current.cancel();
+          try {
+            renderTaskRef.current.cancel();
+          } catch {
+            // ignore
+          }
         }
 
         const page = await pdf.getPage(pageNum);
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        const currentCanvas = canvasRef.current;
+        if (!currentCanvas) return;
 
-        const context = canvas.getContext('2d');
+        const context = currentCanvas.getContext('2d');
         if (!context) return;
 
         const effectiveScale = customScale !== undefined ? customScale : scale;
         const viewport = page.getViewport({ scale: effectiveScale });
-        const outputScale = window.devicePixelRatio || 1;
+        const outputScale = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
         // Internal pixel resolution (high DPI for retina screens)
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
+        currentCanvas.width = Math.floor(viewport.width * outputScale);
+        currentCanvas.height = Math.floor(viewport.height * outputScale);
 
-        // CSS display size (unconstrained so zoomed document actually expands!)
+        // CSS display size
         const displayWidth = Math.floor(viewport.width);
         const displayHeight = Math.floor(viewport.height);
-        canvas.style.width = `${displayWidth}px`;
-        canvas.style.height = `${displayHeight}px`;
+        currentCanvas.style.width = `${displayWidth}px`;
+        currentCanvas.style.height = `${displayHeight}px`;
 
         setRenderedDimensions({ width: displayWidth, height: displayHeight });
 
@@ -210,7 +257,10 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
   // Load the PDF document
   useEffect(() => {
-    if (!isOpen || !url) return;
+    if (!isOpen || !url) {
+      setLoading(false);
+      return;
+    }
 
     let isCancelled = false;
     setLoading(true);
@@ -220,47 +270,73 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
     async function loadDocument() {
       try {
-        const pdfjs = await loadPdfJs();
-        if (isCancelled) return;
+        // Step 1: Attempt to fetch bytes directly with timeout
+        let arrayBuffer: ArrayBuffer | null = null;
+        const controller = new AbortController();
+        const fetchTimeout = setTimeout(() => controller.abort(), 12000);
 
-        let pdf: any;
         try {
-          // Fetch raw PDF bytes directly. Fall back gracefully if credentials mode is blocked.
+          const accessToken = classroomStore.getState?.()?.accessToken;
+          const headers: Record<string, string> = {};
+          if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+          }
+
           let response: Response;
           try {
-            response = await fetch(url);
+            response = await fetch(url, {
+              headers,
+              credentials: 'include',
+              signal: controller.signal,
+            });
           } catch {
-            response = await fetch(url, { credentials: 'include' });
+            response = await fetch(url, { signal: controller.signal });
           }
+
+          clearTimeout(fetchTimeout);
+
           if (!response.ok) {
             let errorMsg = `HTTP ${response.status}: Failed to fetch document`;
             try {
               const errJson = await response.json();
               if (errJson?.message) errorMsg = errJson.message;
             } catch {
-              // Not JSON
+              // ignore non-json
             }
             throw new Error(errorMsg);
           }
+
           const contentType = response.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.message || 'Server returned invalid file format');
           }
-          const arrayBuffer = await response.arrayBuffer();
-          if (isCancelled) return;
 
+          arrayBuffer = await response.arrayBuffer();
+        } catch (fetchErr: any) {
+          clearTimeout(fetchTimeout);
+          console.warn('[PDF Viewer] Direct fetch fallback to URL loading:', fetchErr?.message);
+          if (fetchErr?.message?.includes('HTTP 40') || fetchErr?.message?.includes('HTTP 50') || fetchErr?.message?.includes('File not found')) {
+            throw fetchErr;
+          }
+        }
+
+        if (isCancelled) return;
+
+        // Step 2: Load PDF.js engine
+        const pdfjs = await loadPdfJsEngine();
+        if (isCancelled) return;
+
+        // Step 3: Parse PDF document
+        let pdf: any;
+        if (arrayBuffer && arrayBuffer.byteLength > 0) {
           const loadingTask = pdfjs.getDocument({
             data: arrayBuffer,
             cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
             cMapPacked: true,
           });
           pdf = await loadingTask.promise;
-        } catch (fetchErr: any) {
-          console.warn('[PDF Viewer] Direct fetch fallback to URL loading:', fetchErr?.message);
-          if (fetchErr?.message?.includes('HTTP') || fetchErr?.message?.includes('Server returned')) {
-            throw fetchErr;
-          }
+        } else {
           const loadingTask = pdfjs.getDocument({
             url,
             cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
@@ -272,7 +348,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         if (isCancelled) return;
 
         pdfDocRef.current = pdf;
-        setNumPages(pdf.numPages);
+        setNumPages(pdf.numPages || 1);
 
         // Calculate initial auto-fit scale
         const firstPage = await pdf.getPage(1);
@@ -280,18 +356,19 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         setScale(fitScale);
 
         setLoading(false);
+
+        // Render page 1
         await renderPage(1, pdf, fitScale);
 
-        // Show a brief swipe tip on mobile if multi-page
-        if (window.innerWidth < 640 && pdf.numPages > 1) {
+        if (typeof window !== 'undefined' && window.innerWidth < 640 && (pdf.numPages || 1) > 1) {
           setSwipeNotice(true);
           setTimeout(() => setSwipeNotice(false), 3000);
         }
       } catch (err: any) {
-        console.warn('[PDF Viewer] Error loading PDF:', err?.message);
+        console.warn('[PDF Viewer] Error loading PDF engine/doc:', err?.message);
         if (!isCancelled) {
           setLoading(false);
-          if (err?.message?.includes('HTTP') || err?.message?.includes('Server returned') || err?.message?.includes('Failed to fetch')) {
+          if (err?.message?.includes('HTTP 40') || err?.message?.includes('File not found')) {
             setError(err.message || 'Document preview is currently unavailable.');
           } else {
             setUseIframeFallback(true);
@@ -305,10 +382,14 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     return () => {
       isCancelled = true;
       if (renderTaskRef.current) {
-        renderTaskRef.current.cancel();
+        try {
+          renderTaskRef.current.cancel();
+        } catch {
+          // ignore
+        }
       }
     };
-  }, [isOpen, url, loadPdfJs, computeFitScale]);
+  }, [isOpen, url, computeFitScale, renderPage]);
 
   // Re-render when page or scale changes
   useEffect(() => {
@@ -330,7 +411,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
             const page = await pdfDocRef.current.getPage(currentPage);
             const newFit = computeFitScale(page);
             setScale(newFit);
-          } catch (e) {
+          } catch {
             // ignore
           }
         }
@@ -383,6 +464,12 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
   const toggleFullscreen = () => {
     setIsFullscreen((prev) => !prev);
+  };
+
+  const handleOpenExternal = () => {
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   // Mouse pan handlers for desktop when zoomed in
@@ -445,7 +532,6 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
       return;
     }
 
-    // If the user is zoomed in, horizontal dragging is for panning the document, NOT flipping pages!
     if (isZoomed) {
       touchStartRef.current = null;
       return;
@@ -458,19 +544,18 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     const deltaY = touch.clientY - touchStartRef.current.y;
     const deltaTime = Date.now() - touchStartRef.current.time;
 
-    // Significant horizontal swipe detection (faster than 500ms, > 45px, more horizontal than vertical)
     if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3 && deltaTime < 500) {
       if (deltaX < 0) {
-        // Swiped Left -> Next page
         handleNextPage();
       } else {
-        // Swiped Right -> Previous page
         handlePrevPage();
       }
     }
 
     touchStartRef.current = null;
   };
+
+  const isPublicHttpUrl = typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('localhost') && !url.includes('127.0.0.1');
 
   return (
     <div
@@ -565,6 +650,15 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               </div>
             )}
 
+            {/* Open in new tab fallback */}
+            <button
+              onClick={handleOpenExternal}
+              className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+              title="Open in new window"
+            >
+              <LuExternalLink className="h-3.5 w-3.5" />
+            </button>
+
             {/* Fullscreen Toggle */}
             <button
               onClick={toggleFullscreen}
@@ -616,16 +710,24 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               <LuShieldAlert className="h-8 w-8 text-amber-400 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-200 mb-1">Preview Unavailable</p>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">{error}</p>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors"
-              >
-                Close
-              </button>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={handleOpenExternal}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5"
+                >
+                  <LuExternalLink className="h-3.5 w-3.5" /> Open Document
+                </button>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Canvas Rendering Engine (Unconstrained sizing so zoomed content expands & scrolls!) */}
+          {/* Canvas Rendering Engine */}
           {!loading && !error && !useIframeFallback && (
             <div
               className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white m-auto shrink-0 transition-[width,height] duration-100"
@@ -654,7 +756,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
             <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 m-auto flex flex-col">
               <iframe
                 src={
-                  typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+                  isPublicHttpUrl && typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
                     ? `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
                     : `${url}#toolbar=0&navpanes=0&scrollbar=1`
                 }
