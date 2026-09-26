@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { useClassroomStore } from "@/lib/classroomStore";
-import { api, getAssetUrl } from "@/lib/api";
+import { api, getAssetUrl, uploadReviewVideoToCloudflare } from "@/lib/api";
 import {
   Save,
   Plus,
@@ -1863,13 +1863,13 @@ function Settings() {
                             try {
                               if (isAddingVideo) {
                                 setIsUploadingVideo(true);
-                                const fd = new FormData();
-                                fd.append("title", editingVideo.title);
-                                fd.append("studentName", editingVideo.studentName || "");
-                                fd.append("roll", editingVideo.roll || "");
-                                fd.append("video", videoFile!);
-                                const res = await api.multipart("/admin/review-videos", "POST", fd);
-                                if (res.success) {
+                                const res = await uploadReviewVideoToCloudflare({
+                                  file: videoFile!,
+                                  title: editingVideo.title,
+                                  studentName: editingVideo.studentName || "",
+                                  roll: editingVideo.roll || "",
+                                });
+                                if (res.success || res.video) {
                                   showToast("Review video uploaded to Cloudflare R2!");
                                   fetchReviewVideos();
                                 }

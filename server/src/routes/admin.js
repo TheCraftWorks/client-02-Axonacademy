@@ -18,6 +18,7 @@ const ReviewVideo = require('../models/ReviewVideo');
 const {
   uploadFileToCloudflareR2,
   deleteFileFromCloudflareR2,
+  generatePresignedUploadUrl,
 } = require('../config/cloudflare');
 const { sendWelcomeEmail, sendFacultyWelcomeEmail } = require('../services/emailService');
 const { protect, restrictTo } = require('../middleware/auth');
@@ -917,7 +918,42 @@ router.get('/review-videos', protect, restrictTo('admin', 'superadmin'), async (
   }
 });
 
-// POST /review-videos → Create & upload to R2
+// POST /review-videos/presigned-url → Get presigned URL for direct R2 review video upload
+router.post('/review-videos/presigned-url', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+  try {
+    const { filename, contentType } = req.body;
+    if (!filename) return res.status(400).json({ success: false, message: 'filename is required' });
+    const safeName = filename.replace(/[/\\]/g, '_');
+    const objectKey = `review-videos/${Date.now()}-${safeName}`;
+    const { uploadUrl, publicUrl } = await generatePresignedUploadUrl(objectKey, contentType || 'video/mp4', 3600);
+    res.json({ success: true, uploadUrl, objectKey, publicUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /review-videos/save-video → Save review video metadata after direct R2 upload
+router.post('/review-videos/save-video', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+  try {
+    const { title, studentName, roll, objectKey, publicUrl } = req.body;
+    if (!title || !objectKey) {
+      return res.status(400).json({ success: false, message: 'Title and objectKey are required' });
+    }
+    const { getR2ObjectUrl } = require('../config/cloudflare');
+    const video = await ReviewVideo.create({
+      title,
+      studentName,
+      roll,
+      videoUrl: publicUrl || getR2ObjectUrl(objectKey),
+      cloudflareKey: objectKey,
+    });
+    res.status(201).json({ success: true, message: 'Review video saved successfully', video });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /review-videos → Create & upload to R2 (legacy multipart fallback)
 router.post('/review-videos', protect, restrictTo('admin', 'superadmin'), videoUpload.single('video'), async (req, res, next) => {
   try {
     const { title, studentName, roll } = req.body;

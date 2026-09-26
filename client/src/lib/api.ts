@@ -2193,10 +2193,99 @@ export async function sendMessage(receiverId: string, message: string): Promise<
 
 function getNormalizedVideoContentType(file: File): string {
   const name = file.name.toLowerCase();
-  if (name.endsWith('.mov') || name.endsWith('.qt') || file.type === 'video/quicktime' || !file.type) {
-    return 'video/mp4';
-  }
-  return file.type;
+  if (name.endsWith('.mp4') || name.endsWith('.m4v')) return 'video/mp4';
+  if (name.endsWith('.mov') || name.endsWith('.qt') || file.type === 'video/quicktime') return 'video/quicktime';
+  if (name.endsWith('.webm')) return 'video/webm';
+  if (name.endsWith('.mkv')) return 'video/x-matroska';
+  if (name.endsWith('.avi')) return 'video/x-msvideo';
+  return file.type || 'video/mp4';
+}
+
+export async function uploadReviewVideoToCloudflare({
+  file,
+  title,
+  studentName = '',
+  roll = '',
+  signal,
+  onProgress,
+}: {
+  file: File;
+  title: string;
+  studentName?: string;
+  roll?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: VideoUploadProgress) => void;
+}) {
+  const authHeaders = getDevAuthUserHeaders();
+  const accessToken = classroomStore.getState().accessToken;
+  const baseHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...authHeaders,
+  };
+
+  const videoContentType = getNormalizedVideoContentType(file);
+
+  const reportProgress = (
+    loaded: number,
+    total: number,
+    statusText?: string,
+  ) => {
+    onProgress?.({
+      loaded,
+      total,
+      percentage: total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0,
+      statusText,
+    });
+  };
+
+  reportProgress(0, file.size, 'Requesting upload URL...');
+
+  const presignData = await fetchJsonWithTimeout<{
+    uploadUrl: string;
+    objectKey: string;
+    publicUrl: string;
+  }>(
+    `${API_BASE}/admin/review-videos/presigned-url`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
+    },
+    25000,
+    3,
+    signal
+  );
+
+  const { uploadUrl, objectKey, publicUrl } = presignData;
+
+  await uploadSingleFileToR2WithRetry({
+    getPresignedUrl: async () => uploadUrl,
+    file,
+    contentType: videoContentType,
+    signal,
+    onProgress: (loaded, total) => {
+      reportProgress(loaded, total, 'Uploading video to Cloudflare R2...');
+    },
+  });
+
+  reportProgress(file.size, file.size, 'Saving video details...');
+
+  const saveData = await fetchJsonWithTimeout(
+    `${API_BASE}/admin/review-videos/save-video`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: baseHeaders,
+      body: JSON.stringify({ title, studentName, roll, objectKey, publicUrl }),
+    },
+    25000,
+    3,
+    signal
+  );
+
+  return saveData;
 }
 
 export async function uploadLibraryRecordingToCloudflare({

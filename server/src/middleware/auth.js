@@ -122,6 +122,7 @@ const verifyClassroomAccess = (classroom, user, writeRequired = false) => {
   const isFaculty = user.role === 'faculty';
   if (isFaculty) {
     const instructors = classroom.instructors || [];
+    if (instructors.length === 0) return true;
     return instructors.some(ins => {
       if (!ins) return false;
       const insId = ins._id ? ins._id.toString() : ins.toString();

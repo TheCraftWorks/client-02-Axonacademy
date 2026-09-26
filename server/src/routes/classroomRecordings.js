@@ -112,8 +112,8 @@ router.get('/classroom/:classroomId', protect, async (req, res, next) => {
   }
 });
 
-// GET /classroom/:classroomId/analytics → Admin: all recordings' stats for classroom
-router.get('/classroom/:classroomId/analytics', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+// GET /classroom/:classroomId/analytics → Admin/Faculty: all recordings' stats for classroom
+router.get('/classroom/:classroomId/analytics', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const recordings = await ClassroomRecording.find({ classroom: req.params.classroomId })
       .populate('viewStats.student', 'fullName email');
@@ -123,8 +123,8 @@ router.get('/classroom/:classroomId/analytics', protect, restrictTo('admin', 'su
   }
 });
 
-// POST /upload-url → Admin: Get Mux direct upload URL or mock
-router.post('/upload-url', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+// POST /upload-url → Admin/Faculty: Get Mux direct upload URL or mock
+router.post('/upload-url', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     res.json({
       success: true,
@@ -138,10 +138,10 @@ router.post('/upload-url', protect, restrictTo('admin', 'superadmin'), async (re
   }
 });
 
-// POST /presigned-url → Admin: Generate a presigned R2 PUT URL for direct browser upload
+// POST /presigned-url → Admin/Faculty: Generate a presigned R2 PUT URL for direct browser upload
 // The video is uploaded directly from the browser to Cloudflare R2 — Railway is NOT involved
 // in transferring the bytes, so there are no timeouts even for 3 GB files.
-router.post('/presigned-url', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+router.post('/presigned-url', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { classroom, filename, contentType } = req.body;
 
@@ -174,8 +174,8 @@ router.post('/presigned-url', protect, restrictTo('admin', 'superadmin'), async 
 // Railway only orchestrates (tiny JSON) — never touches the video bytes.
 // =============================================================================
 
-// POST /multipart/initiate → Admin: start a multipart upload, get uploadId + objectKey
-router.post('/multipart/initiate', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+// POST /multipart/initiate → Admin/Faculty: start a multipart upload, get uploadId + objectKey
+router.post('/multipart/initiate', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { classroom, filename, contentType } = req.body;
 
@@ -200,8 +200,8 @@ router.post('/multipart/initiate', protect, restrictTo('admin', 'superadmin'), a
   }
 });
 
-// POST /multipart/presign-part → Admin: get a presigned URL for one chunk (partNumber)
-router.post('/multipart/presign-part', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+// POST /multipart/presign-part → Admin/Faculty: get a presigned URL for one chunk (partNumber)
+router.post('/multipart/presign-part', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { objectKey, uploadId, partNumber } = req.body;
 
@@ -223,8 +223,8 @@ router.post('/multipart/presign-part', protect, restrictTo('admin', 'superadmin'
   }
 });
 
-// POST /multipart/complete → Admin: tell R2 to assemble all uploaded parts
-router.post('/multipart/complete', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+// POST /multipart/complete → Admin/Faculty: tell R2 to assemble all uploaded parts
+router.post('/multipart/complete', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { objectKey, uploadId, parts } = req.body;
 
@@ -243,8 +243,8 @@ router.post('/multipart/complete', protect, restrictTo('admin', 'superadmin'), a
   }
 });
 
-// POST /multipart/abort → Admin: cancel upload and free partial storage on R2
-router.post('/multipart/abort', protect, restrictTo('admin', 'superadmin'), async (req, res, next) => {
+// POST /multipart/abort → Admin/Faculty: cancel upload and free partial storage on R2
+router.post('/multipart/abort', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { objectKey, uploadId } = req.body;
 
