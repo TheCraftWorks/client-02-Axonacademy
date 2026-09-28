@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   Trophy, Clock, BookOpen, PlayCircle, ChevronRight, CheckCircle2, Radio, Download,
-  Crown, Medal, Sparkles, Award, FileText, Eye
+  Crown, Medal, Sparkles, Award, FileText, Eye, Megaphone
 } from "lucide-react";
 import { Card, StatTile } from "@/components/portal/PortalShell";
 import { useClassroomStore } from "@/lib/classroomStore";
@@ -74,8 +74,37 @@ function Dashboard() {
   const totalQuizzes = enrolledClassrooms.reduce((s, c) => s + c.quizzes.filter(q => q.status === 'published').length, 0);
   const totalSubmissions = enrolledClassrooms.reduce((s, c) => s + c.quizzes.reduce((ss, q) => ss + q.attempts.filter(a => a.studentId === studentId && a.status === 'submitted').length, 0), 0);
   
-  const studentAnnouncements = enrolledClassrooms.flatMap(c => c.announcements.map(a => ({ ...a, classroomName: c.name }))).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3);
-  const upcomingEvents = allMeetings.filter(m => m.status === 'scheduled' || m.status === 'live').sort((a,b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()).slice(0, 3);
+  const allStudentAnnouncements = enrolledClassrooms.flatMap(c =>
+    c.announcements.map(a => ({
+      ...a,
+      classroomName: c.name,
+      classroomId: c.id || (c as any)._id
+    }))
+  ).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const studentAnnouncements = allStudentAnnouncements.slice(0, 4);
+
+  const allStudentPdfs = enrolledClassrooms.flatMap((c) =>
+    (c.announcements || []).flatMap((a: any) =>
+      (Array.isArray(a.attachments) ? a.attachments : []).map((at: any, idx: number) => {
+        const atUrl = typeof at === 'string' ? at : at?.url || '';
+        const atName = typeof at === 'string' ? `Document_${idx + 1}.pdf` : at?.name || `Document_${idx + 1}.pdf`;
+        const resolvedUrl = resolveAttachmentUrl(atUrl, at?.cloudflareKey);
+        return {
+          id: `${a.id || a._id || ''}-${idx}`,
+          name: atName,
+          url: resolvedUrl,
+          cloudflareKey: at?.cloudflareKey,
+          classroomName: c.name,
+          classroomId: c.id || (c as any)._id,
+          createdAt: a.createdAt,
+          content: a.content,
+        };
+      }).filter((item: any) => !!item.url)
+    )
+  ).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const studentPdfs = allStudentPdfs.slice(0, 4);
+
+  const upcomingEvents = allMeetings.filter(m => m.status === 'scheduled' || m.status === 'live').sort((a,b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()).slice(0, 4);
   const nextClassText = nextLiveMeeting ? timeUntil(nextLiveMeeting.scheduledAt) : "No classes scheduled";
 
   const totalWatchedSeconds = enrolledClassrooms.reduce((s, c) => {
@@ -519,85 +548,136 @@ function Dashboard() {
         </Card>
       </div>
 
-      {/* Upcoming + Announcements */}
-      <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2">
-        <Card className="sm:col-span-2 lg:col-span-1">
-          <h3 className="font-display text-base sm:text-lg font-bold" style={{color: '#0B1F3A'}}>Live Sessions</h3>
-          <ul className="mt-3 sm:mt-4 space-y-2 sm:space-y-3">
-            {upcomingEvents.length > 0 ? upcomingEvents.map((e) => (
-              <li key={e.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
-                <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${e.status === 'live' ? 'bg-red-100 text-red-600' : ''}`} style={e.status !== 'live' ? {background: 'rgba(45,156,219,0.1)', color: '#2D9CDB'} : {}}>
-                  {e.status === 'live' ? <Radio className="h-4 w-4 animate-pulse" /> : <Clock className="h-4 w-4" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm font-semibold truncate" style={{color: '#0B1F3A'}}>{e.title}</div>
-                    {e.status === 'live' && <span className="text-[10px] font-bold uppercase tracking-widest text-red-600 bg-red-50 px-1.5 py-0.5 rounded">LIVE</span>}
+      {/* Live Sessions + Text Announcements + PDF Documents */}
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-3">
+        {/* Box 1: Live Sessions */}
+        <Card className="flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+              <div className="flex items-center gap-2">
+                <Radio className="h-4 w-4 text-red-600" />
+                <h3 className="font-display text-base font-bold" style={{color: '#0B1F3A'}}>Live Sessions</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                {upcomingEvents.length}
+              </span>
+            </div>
+            <ul className="space-y-2.5">
+              {upcomingEvents.length > 0 ? upcomingEvents.map((e) => (
+                <li key={e.id} className="flex items-center gap-3 rounded-xl border border-border p-3 hover:border-slate-300 transition-all">
+                  <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${e.status === 'live' ? 'bg-red-100 text-red-600' : ''}`} style={e.status !== 'live' ? {background: 'rgba(45,156,219,0.1)', color: '#2D9CDB'} : {}}>
+                    {e.status === 'live' ? <Radio className="h-4 w-4 animate-pulse" /> : <Clock className="h-4 w-4" />}
                   </div>
-                  <div className="text-xs text-muted-foreground truncate">{e.classroomName}</div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
-                    {new Date(e.scheduledAt).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
-                    {' '}· {new Date(e.scheduledAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-semibold truncate" style={{color: '#0B1F3A'}}>{e.title}</div>
+                      {e.status === 'live' && <span className="text-[10px] font-bold uppercase tracking-widest text-red-600 bg-red-50 px-1.5 py-0.5 rounded">LIVE</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">{e.classroomName}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {new Date(e.scheduledAt).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
+                      {' '}· {new Date(e.scheduledAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
+                    </div>
                   </div>
-                </div>
-              </li>
-            )) : (
-              <li className="text-sm text-muted-foreground py-2">No upcoming classes.</li>
-            )}
-            {joinableNotifications.length > 0 && upcomingEvents.length > 0 && (
-              <li className="border-t border-border my-2" />
-            )}
-            {joinableNotifications.map((notif) => (
-              <li key={notif._id} className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/50 p-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-100 text-red-600">
-                  <Radio className="h-4 w-4 animate-pulse" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-plum-dark truncate">{notif.title}</div>
-                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{notif.message}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+                </li>
+              )) : (
+                <li className="text-xs text-muted-foreground py-4 text-center">No upcoming classes.</li>
+              )}
+              {joinableNotifications.map((notif) => (
+                <li key={notif._id} className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50/50 p-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-100 text-red-600">
+                    <Radio className="h-4 w-4 animate-pulse" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-plum-dark truncate">{notif.title}</div>
+                    <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{notif.message}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </Card>
 
-        <Card>
-          <h3 className="font-display text-lg font-bold" style={{color: '#0B1F3A'}}>Announcements</h3>
-          <ul className="mt-4 space-y-3">
-            {studentAnnouncements.map((a) => (
-              <li key={a.id} className="rounded-xl p-3.5" style={{background: 'rgba(45,156,219,0.07)', border: '1px solid rgba(45,156,219,0.15)'}}>
-                <div className="flex justify-between items-start mb-0.5">
-                  <div className="text-[10px] uppercase tracking-widest font-semibold" style={{color: '#2D9CDB'}}>{a.classroomName}</div>
-                  <div className="text-[9px] text-muted-foreground">{timeAgoDate(a.createdAt)}</div>
-                </div>
-                <div className="text-sm font-medium leading-relaxed whitespace-pre-wrap break-words" style={{color: '#0B1F3A'}}>{a.content}</div>
-                {a.attachments && a.attachments.length > 0 && (
-                  <div className="mt-2 flex gap-1.5">
-                  {a.attachments.map((at: any, i: number) => {
-                    const atUrl = typeof at === 'string' ? at : at.url || '';
-                    const atName = typeof at === 'string' ? 'PDF Document' : at.name || 'PDF Document';
-                    const resolvedUrl = resolveAttachmentUrl(atUrl, at.cloudflareKey);
-                    if (!atUrl && !resolvedUrl) return null;
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setPreviewPdf({ url: resolvedUrl, name: atName })}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10px] font-bold transition-colors hover:opacity-85 cursor-pointer"
-                        style={{background: 'rgba(45,156,219,0.15)', color: '#0B1F3A'}}
-                      >
-                        <FileText className="h-2.5 w-2.5 text-blue-600" />
-                        <span>PDF</span>
-                        <Eye className="h-2.5 w-2.5 text-slate-500" />
-                      </button>
-                    );
-                  })}
+        {/* Box 2: Text Announcements */}
+        <Card className="flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+              <div className="flex items-center gap-2">
+                <Megaphone className="h-4 w-4 text-blue-600" />
+                <h3 className="font-display text-base font-bold" style={{color: '#0B1F3A'}}>Announcements</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                {allStudentAnnouncements.length}
+              </span>
+            </div>
+            <ul className="space-y-2.5">
+              {studentAnnouncements.map((a) => (
+                <li key={a.id} className="rounded-xl p-3 bg-blue-50/50 border border-blue-100 hover:border-blue-200 transition-all">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-blue-600">{a.classroomName}</span>
+                    <span className="text-[10px] text-slate-400">{timeAgoDate(a.createdAt)}</span>
                   </div>
-                )}
-              </li>
-            ))}
-            {studentAnnouncements.length === 0 && <li className="text-sm text-muted-foreground">No announcements.</li>}
-          </ul>
+                  <p className="text-xs font-medium text-slate-800 line-clamp-2 leading-relaxed">{a.content}</p>
+                  <Link
+                    to="/student/classroom/$id"
+                    params={{ id: a.classroomId }}
+                    search={{ tab: "announcements" }}
+                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 font-semibold hover:underline mt-2 cursor-pointer"
+                  >
+                    <span>View notice</span>
+                    <ChevronRight className="h-3 w-3" />
+                  </Link>
+                </li>
+              ))}
+              {studentAnnouncements.length === 0 && (
+                <li className="text-xs text-muted-foreground py-4 text-center">No announcements posted.</li>
+              )}
+            </ul>
+          </div>
+        </Card>
+
+        {/* Box 3: PDF Documents */}
+        <Card className="flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-rose-600" />
+                <h3 className="font-display text-base font-bold" style={{color: '#0B1F3A'}}>PDF Documents</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-700">
+                {allStudentPdfs.length}
+              </span>
+            </div>
+            <ul className="space-y-2.5">
+              {studentPdfs.map((pdf) => (
+                <li key={pdf.id} className="rounded-xl p-3 bg-rose-50/50 border border-rose-100 hover:border-rose-200 transition-all">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-rose-600">{pdf.classroomName}</span>
+                    <span className="text-[10px] text-slate-400">{timeAgoDate(pdf.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-4 w-4 text-rose-600 shrink-0" />
+                      <span className="text-xs font-bold text-slate-800 truncate" title={pdf.name}>
+                        {pdf.name}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPdf({ url: pdf.url, name: pdf.name })}
+                      className="inline-flex items-center gap-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 text-[10px] font-bold transition-colors cursor-pointer shrink-0"
+                    >
+                      <Eye className="h-2.5 w-2.5" />
+                      <span>View</span>
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {studentPdfs.length === 0 && (
+                <li className="text-xs text-muted-foreground py-4 text-center">No PDF documents uploaded.</li>
+              )}
+            </ul>
+          </div>
         </Card>
       </div>
 

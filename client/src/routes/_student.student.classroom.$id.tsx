@@ -1,12 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, Megaphone, Video, BookOpen, ClipboardList,
   Play, Check, X, Clock, Calendar, ChevronRight,
   Trophy, Radio, Lock, ShieldAlert, Download,
   DollarSign, FileText, MessageSquare, HelpCircle, LifeBuoy,
-  Pause, RotateCcw, RotateCw, Settings, Gauge, Loader2, Eye
+  Pause, RotateCcw, RotateCw, Settings, Gauge, Loader2, Eye, Search
 } from "lucide-react";
 import {
   LuArrowLeft, LuMegaphone, LuVideo, LuBookOpen, LuClipboardList,
@@ -42,7 +42,7 @@ import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { QuizQuestionReviewTabs } from "@/components/quiz/QuizQuestionReviewTabs";
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
 
-export type TabKey = "announcements" | "live" | "recordings" | "tests";
+export type TabKey = "announcements" | "documents" | "live" | "recordings" | "tests";
 
 export interface ClassroomSearchParams {
   tab?: TabKey;
@@ -94,14 +94,57 @@ interface TabConfig {
   text: string;
   border: string;
   iconColor: string;
+  ringColor: string;
+  badgeBg: string;
   isLive?: boolean;
 }
 
 const TABS: readonly TabConfig[] = [
-  { key: "announcements", label: "Announcements", icon: BookOpen, bg: "bg-[#DBEAFE]", text: "text-[#1E40AF]", border: "border-[#93C5FD]", iconColor: "#2563EB" },
-  { key: "live", label: "Live Class", icon: Video, bg: "bg-[#FFE4E6]", text: "text-[#9F1239]", border: "border-[#FDA4AF]", iconColor: "#E11D48", isLive: true },
-  { key: "recordings", label: "Recording", icon: Play, bg: "bg-[#FFEDD5]", text: "text-[#9A3412]", border: "border-[#FED7AA]", iconColor: "#EA580C" },
-  { key: "tests", label: "Smart Test", icon: ClipboardList, bg: "bg-[#E0F2FE]", text: "text-[#075985]", border: "border-[#7DD3FC]", iconColor: "#0284C7" },
+  {
+    key: "announcements",
+    label: "Announcements",
+    icon: Megaphone,
+    bg: "bg-[#EFF6FF]",
+    text: "text-[#1E40AF]",
+    border: "border-[#BFDBFE]",
+    iconColor: "#2563EB",
+    ringColor: "ring-[#2563EB]",
+    badgeBg: "bg-[#2563EB] text-white",
+  },
+  {
+    key: "live",
+    label: "Live Class",
+    icon: Video,
+    bg: "bg-[#FEF2F2]",
+    text: "text-[#991B1B]",
+    border: "border-[#FCA5A5]",
+    iconColor: "#DC2626",
+    ringColor: "ring-[#DC2626]",
+    badgeBg: "bg-[#DC2626] text-white",
+    isLive: true,
+  },
+  {
+    key: "recordings",
+    label: "Recording",
+    icon: Play,
+    bg: "bg-[#FFF7ED]",
+    text: "text-[#9A3412]",
+    border: "border-[#FED7AA]",
+    iconColor: "#EA580C",
+    ringColor: "ring-[#EA580C]",
+    badgeBg: "bg-[#EA580C] text-white",
+  },
+  {
+    key: "tests",
+    label: "Smart Test",
+    icon: ClipboardList,
+    bg: "bg-[#F0F9FF]",
+    text: "text-[#075985]",
+    border: "border-[#BAE6FD]",
+    iconColor: "#0284C7",
+    ringColor: "ring-[#0284C7]",
+    badgeBg: "bg-[#0284C7] text-white",
+  },
 ];
 
 // ─── Skeleton Loaders ─────────────────────────────────────────────────────────
@@ -132,14 +175,80 @@ function TabSkeletonLoader({ type = "cards" }: { type?: "cards" | "grid" | "rows
   );
 }
 
-// ─── Announcements Tab ────────────────────────────────────────────────────────
+// ─── Announcements Tab (with Text & PDF Sub-tabs in Square Boxes) ────────────
 
-function AnnouncementsTab({ classroomId, isFetching }: { classroomId: string; isFetching?: boolean }) {
+function AnnouncementsTab({
+  classroomId,
+  isFetching,
+  initialSubTab = "text",
+}: {
+  classroomId: string;
+  isFetching?: boolean;
+  initialSubTab?: "text" | "pdf";
+}) {
+  const [subTab, setSubTab] = useState<"text" | "pdf">(initialSubTab);
   const { classrooms } = useClassroomStore();
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const announcements = cls?.announcements || [];
+
+  // Extract all PDF attachments from all announcements in this classroom
+  const allPdfs = useMemo(() => {
+    const list: Array<{
+      id: string;
+      name: string;
+      url: string;
+      cloudflareKey?: string;
+      announcementContent: string;
+      authorName: string;
+      createdAt: string;
+    }> = [];
+
+    announcements.forEach((ann: any, annIdx: number) => {
+      const rawAttachments = Array.isArray(ann?.attachments) ? ann.attachments : [];
+      const authorName = typeof ann?.author === 'object' && ann?.author !== null
+        ? (ann.author.fullName || ann.author.name || 'Faculty / Admin')
+        : (typeof ann?.author === 'string' && ann.author.trim() ? ann.author : 'Faculty / Admin');
+      
+      const safeContent = typeof ann?.content === 'string' ? ann.content : String(ann?.content || '');
+
+      rawAttachments.forEach((at: any, atIdx: number) => {
+        if (!at) return;
+        const atUrl = typeof at === 'string' ? at : at.url || '';
+        const atName = typeof at === 'string' ? `Document_${annIdx + 1}_${atIdx + 1}.pdf` : at.name || `Document_${annIdx + 1}_${atIdx + 1}.pdf`;
+        const resolvedUrl = resolveAttachmentUrl(atUrl, at.cloudflareKey);
+        if (!atUrl && !resolvedUrl) return;
+
+        list.push({
+          id: `${ann.id || ann._id || annIdx}-${atIdx}`,
+          name: atName,
+          url: resolvedUrl,
+          cloudflareKey: at.cloudflareKey,
+          announcementContent: safeContent,
+          authorName: String(authorName),
+          createdAt: ann.createdAt || new Date().toISOString(),
+        });
+      });
+    });
+
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [announcements]);
+
+  const filteredPdfs = useMemo(() => {
+    if (!searchQuery.trim()) return allPdfs;
+    const q = searchQuery.toLowerCase().trim();
+    return allPdfs.filter(
+      (doc) =>
+        doc.name.toLowerCase().includes(q) ||
+        doc.announcementContent.toLowerCase().includes(q) ||
+        doc.authorName.toLowerCase().includes(q)
+    );
+  }, [allPdfs, searchQuery]);
+
+  const textAnnouncementsCount = announcements.length;
+  const pdfDocumentsCount = allPdfs.length;
 
   if (isFetching && announcements.length === 0) {
     return <TabSkeletonLoader type="rows" />;
@@ -148,7 +257,7 @@ function AnnouncementsTab({ classroomId, isFetching }: { classroomId: string; is
   if (!cls) return null;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       {/* In-app secure PDF preview modal */}
       {previewPdf && (
         <PdfViewerModal
@@ -159,69 +268,233 @@ function AnnouncementsTab({ classroomId, isFetching }: { classroomId: string; is
         />
       )}
 
-      {announcements.length === 0 && !isFetching && (
-        <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
-          <Megaphone className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-slate-500 text-sm">No announcements yet. Check back later.</p>
+      {/* Two Distinct Square Boxes for Text Announcements & PDF Documents */}
+      <div className="grid grid-cols-2 gap-3.5 sm:gap-5 max-w-sm sm:max-w-md mx-auto">
+        {/* Square Box 1: Text Announcements */}
+        <button
+          type="button"
+          onClick={() => setSubTab("text")}
+          className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all relative overflow-hidden group aspect-square shadow-xs cursor-pointer ${
+            subTab === "text"
+              ? "bg-[#EFF6FF] border-[#93C5FD] text-[#1E40AF] scale-[1.03] ring-2 ring-[#2563EB] ring-offset-2 ring-offset-slate-50 shadow-md"
+              : "bg-white border-slate-200 text-slate-700 hover:bg-blue-50/50 hover:border-blue-200 hover:scale-[1.01]"
+          }`}
+        >
+          {textAnnouncementsCount > 0 && (
+            <span className="absolute top-2.5 right-2.5 min-w-[22px] h-5.5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-black shadow-2xs bg-[#2563EB] text-white">
+              {textAnnouncementsCount > 99 ? "99+" : textAnnouncementsCount}
+            </span>
+          )}
+          <Megaphone className={`w-8 h-8 mb-2 transition-transform group-hover:scale-110 ${subTab === 'text' ? 'text-[#2563EB]' : 'text-slate-500 group-hover:text-blue-600'}`} />
+          <span className="text-xs sm:text-sm font-black tracking-tight text-center">Text Announcements</span>
+          <span className="text-[10px] text-slate-400 mt-1 font-medium">{textAnnouncementsCount} {textAnnouncementsCount === 1 ? 'notice' : 'notices'}</span>
+        </button>
+
+        {/* Square Box 2: PDF Documents */}
+        <button
+          type="button"
+          onClick={() => setSubTab("pdf")}
+          className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all relative overflow-hidden group aspect-square shadow-xs cursor-pointer ${
+            subTab === "pdf"
+              ? "bg-[#FFF1F2] border-[#FECDD3] text-[#9F1239] scale-[1.03] ring-2 ring-[#E11D48] ring-offset-2 ring-offset-slate-50 shadow-md"
+              : "bg-white border-slate-200 text-slate-700 hover:bg-rose-50/50 hover:border-rose-200 hover:scale-[1.01]"
+          }`}
+        >
+          {pdfDocumentsCount > 0 && (
+            <span className="absolute top-2.5 right-2.5 min-w-[22px] h-5.5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-black shadow-2xs bg-[#E11D48] text-white">
+              {pdfDocumentsCount > 99 ? "99+" : pdfDocumentsCount}
+            </span>
+          )}
+          <FileText className={`w-8 h-8 mb-2 transition-transform group-hover:scale-110 ${subTab === 'pdf' ? 'text-[#E11D48]' : 'text-slate-500 group-hover:text-rose-600'}`} />
+          <span className="text-xs sm:text-sm font-black tracking-tight text-center">PDF Documents</span>
+          <span className="text-[10px] text-slate-400 mt-1 font-medium">{pdfDocumentsCount} {pdfDocumentsCount === 1 ? 'document' : 'documents'}</span>
+        </button>
+      </div>
+
+      {/* Sub-tab 1: Text Announcements Content */}
+      {subTab === "text" && (
+        <div className="space-y-4 pt-2">
+          {announcements.length === 0 && !isFetching && (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center shadow-xs">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-blue-500 mx-auto mb-3 border border-blue-100">
+                <Megaphone className="h-7 w-7" />
+              </div>
+              <h4 className="text-slate-800 font-bold text-base mb-1">No Text Announcements Yet</h4>
+              <p className="text-slate-500 text-xs max-w-sm mx-auto">
+                Faculty and administrators post important announcements, deadlines, and notices here.
+              </p>
+            </div>
+          )}
+
+          {announcements.map((ann: any, idx: number) => {
+            if (!ann) return null;
+            const authorName = typeof ann.author === 'object' && ann.author !== null
+              ? (ann.author.fullName || ann.author.name || 'Faculty / Admin')
+              : (typeof ann.author === 'string' && ann.author.trim() ? ann.author : 'Faculty / Admin');
+            const safeAuthorName = String(authorName || 'Faculty / Admin');
+            const initials = safeAuthorName
+              .split(/\s+/)
+              .filter(Boolean)
+              .map((w: string) => w[0])
+              .join("")
+              .slice(0, 2) || "FA";
+
+            const rawAttachments = Array.isArray(ann.attachments) ? ann.attachments : [];
+            const safeContent = typeof ann.content === 'string' ? ann.content : (typeof ann.content === 'object' && ann.content !== null ? JSON.stringify(ann.content) : String(ann.content || ''));
+            const annId = ann.id || ann._id || `ann-${idx}`;
+
+            return (
+              <div key={annId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:border-blue-200 transition-all">
+                <div className="flex items-start gap-3.5">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-slate-900 to-blue-900 text-white font-bold text-xs shadow-2xs">
+                    {initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-900 text-sm font-bold">{safeAuthorName}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100">
+                          Instructor
+                        </span>
+                      </div>
+                      <span className="text-slate-400 text-xs font-medium">{timeAgo(ann.createdAt)}</span>
+                    </div>
+                    <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap break-words">{safeContent}</div>
+
+                    {/* Quick switch to PDF tab if attachment exists */}
+                    {rawAttachments.length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs text-slate-500 font-medium">
+                          📎 {rawAttachments.length} PDF {rawAttachments.length === 1 ? "document" : "documents"} attached
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSubTab("pdf")}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-all cursor-pointer"
+                        >
+                          <FileText className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                          <span>View in PDF Documents</span>
+                          <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
-      {announcements.map((ann: any, idx: number) => {
-        if (!ann) return null;
-        const authorName = typeof ann.author === 'object' && ann.author !== null
-          ? (ann.author.fullName || ann.author.name || 'Admin')
-          : (typeof ann.author === 'string' && ann.author.trim() ? ann.author : 'Admin');
-        const safeAuthorName = String(authorName || 'Admin');
-        const initials = safeAuthorName
-          .split(/\s+/)
-          .filter(Boolean)
-          .map((w: string) => w[0])
-          .join("")
-          .slice(0, 2) || "A";
 
-        const rawAttachments = Array.isArray(ann.attachments) ? ann.attachments : [];
-        const safeContent = typeof ann.content === 'string' ? ann.content : (typeof ann.content === 'object' && ann.content !== null ? JSON.stringify(ann.content) : String(ann.content || ''));
-        const annId = ann.id || ann._id || `ann-${idx}`;
-
-        return (
-          <div key={annId} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
-            <div className="flex items-start gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-plum-dark text-cream font-bold text-xs">
-                {initials}
+      {/* Sub-tab 2: PDF Documents Content */}
+      {subTab === "pdf" && (
+        <div className="space-y-4 pt-2">
+          {/* Top Banner & Search Filter Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600 border border-rose-100">
+                <FileText className="h-5 w-5" />
               </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-plum-dark text-sm font-semibold">{safeAuthorName}</span>
-                  <span className="text-slate-400 text-xs">{timeAgo(ann.createdAt)}</span>
-                </div>
-                <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap break-words">{safeContent}</div>
-                {rawAttachments.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {rawAttachments.map((at: any, i: number) => {
-                      if (!at) return null;
-                      const atUrl = typeof at === 'string' ? at : at.url || '';
-                      const atName = typeof at === 'string' ? 'View Document' : at.name || 'View Document';
-                      const resolvedUrl = resolveAttachmentUrl(atUrl, at.cloudflareKey);
-                      if (!atUrl && !resolvedUrl) return null;
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setPreviewPdf({ url: resolvedUrl, name: atName })}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 transition-all cursor-pointer shadow-2xs"
-                        >
-                          <FileText className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                          <span className="truncate max-w-[200px]">{atName}</span>
-                          <Eye className="h-3 w-3 text-slate-400 ml-0.5 shrink-0" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Classroom PDF Repository</h3>
+                <p className="text-xs text-slate-500">
+                  {allPdfs.length} {allPdfs.length === 1 ? "document" : "documents"} available
+                </p>
               </div>
             </div>
+
+            {allPdfs.length > 0 && (
+              <div className="relative min-w-[220px] sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search PDF documents..."
+                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-rose-400 focus:bg-white transition-all text-slate-800 placeholder-slate-400"
+                />
+              </div>
+            )}
           </div>
-        );
-      })}
+
+          {/* Empty States */}
+          {allPdfs.length === 0 && !isFetching && (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center shadow-xs">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-rose-50 text-rose-500 mx-auto mb-3 border border-rose-100">
+                <FileText className="h-7 w-7" />
+              </div>
+              <h4 className="text-slate-800 font-bold text-base mb-1">No PDF Documents Yet</h4>
+              <p className="text-slate-500 text-xs max-w-sm mx-auto">
+                Faculty study materials, lecture slides, assignments, and PDF notices uploaded for this classroom will appear here.
+              </p>
+            </div>
+          )}
+
+          {allPdfs.length > 0 && filteredPdfs.length === 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
+              <p className="text-slate-600 text-sm font-medium">No PDF documents match &quot;{searchQuery}&quot;</p>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="mt-2 text-xs text-rose-600 hover:text-rose-700 font-semibold cursor-pointer underline"
+              >
+                Clear search filter
+              </button>
+            </div>
+          )}
+
+          {/* PDF Grid Cards */}
+          {filteredPdfs.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredPdfs.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4.5 hover:border-rose-300 hover:shadow-md transition-all"
+                >
+                  <div>
+                    <div className="flex items-start gap-3">
+                      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs">
+                        <FileText className="h-6 w-6" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700">
+                            PDF
+                          </span>
+                          <span className="text-[11px] text-slate-400">{timeAgo(doc.createdAt)}</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-900 mt-1 truncate" title={doc.name}>
+                          {doc.name}
+                        </h4>
+                      </div>
+                    </div>
+
+                    {doc.announcementContent && (
+                      <p className="mt-2.5 text-xs text-slate-600 line-clamp-2 leading-relaxed bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+                        {doc.announcementContent}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div className="text-[11px] text-slate-500 truncate">
+                      By <span className="font-medium text-slate-700">{doc.authorName}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPdf({ url: doc.url, name: doc.name })}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>View PDF</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1801,15 +2074,17 @@ function StudentClassroomDetail() {
   const queryAction = (search?.action as "start" | "result" | undefined) || (typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get("action") as "start" | "result") : null);
   const queryAttemptId = (search?.attemptId as string | undefined) || (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get("attemptId") : null);
 
+  const validTabs: TabKey[] = ["announcements", "documents", "live", "recordings", "tests"];
+
   const [tab, setTab] = useState<TabKey>(() => {
-    if (queryTab && ["announcements", "live", "recordings", "tests"].includes(queryTab)) {
+    if (queryTab && validTabs.includes(queryTab)) {
       return queryTab;
     }
     return "live";
   });
 
   useEffect(() => {
-    if (queryTab && ["announcements", "live", "recordings", "tests"].includes(queryTab)) {
+    if (queryTab && validTabs.includes(queryTab)) {
       setTab(queryTab);
     }
   }, [queryTab]);
@@ -1883,7 +2158,7 @@ function StudentClassroomDetail() {
     return (
       <div className="text-center py-20">
         <p className="text-red-500 text-sm">Error loading classroom: {loadError}</p>
-        <button onClick={() => navigate({ to: "/student/classrooms" })} className="mt-5 rounded-full bg-plum-dark text-cream px-6 py-2.5 text-sm font-bold">
+        <button onClick={() => navigate({ to: "/student/classrooms" })} className="mt-5 rounded-full bg-plum-dark text-cream px-6 py-2.5 text-sm font-bold cursor-pointer">
           ← My Classrooms
         </button>
       </div>
@@ -1896,18 +2171,29 @@ function StudentClassroomDetail() {
         <Lock className="h-12 w-12 text-slate-300 mx-auto mb-3" />
         <h2 className="font-display font-bold text-plum-dark text-xl">Access Denied</h2>
         <p className="text-slate-500 text-sm mt-2">You are not enrolled in this classroom.</p>
-        <button onClick={() => navigate({ to: "/student/classrooms" })} className="mt-5 rounded-full bg-plum-dark text-cream px-6 py-2.5 text-sm font-bold">
+        <button onClick={() => navigate({ to: "/student/classrooms" })} className="mt-5 rounded-full bg-plum-dark text-cream px-6 py-2.5 text-sm font-bold cursor-pointer">
           ← My Classrooms
         </button>
       </div>
     );
   }
 
+  // Count items for tab notification badges
+  const announcementsCount = (cls.announcements || []).length;
+  const pdfDocumentsCount = (cls.announcements || []).reduce((acc: number, a: any) => {
+    const atCount = Array.isArray(a.attachments) ? a.attachments.length : 0;
+    return acc + atCount;
+  }, 0);
+  const liveMeetings = (cls.meetings || []).filter((m) => m.status === "live");
+  const scheduledMeetings = (cls.meetings || []).filter((m) => m.status === "scheduled");
+  const recordingsCount = (cls.recordings || []).filter((r) => r.isPublished).length;
+  const testsCount = (cls.quizzes || []).filter((q) => q.status === "published").length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <button onClick={() => navigate({ to: "/student/classrooms" })} className="text-slate-400 hover:text-plum-dark mt-1 shrink-0">
+        <button onClick={() => navigate({ to: "/student/classrooms" })} className="text-slate-400 hover:text-plum-dark mt-1 shrink-0 cursor-pointer">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
@@ -1935,27 +2221,51 @@ function StudentClassroomDetail() {
         </div>
       </div>
 
-      {/* Grid tab bar */}
+      {/* 4 Square Boxes Tab Bar with Notification Badges */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-xl mx-auto my-6">
         {TABS.map((t) => {
           const isActive = tab === t.key;
+          
+          let badgeCount = 0;
+          let showLivePill = false;
+
+          if (t.key === "announcements") {
+            badgeCount = announcementsCount + pdfDocumentsCount;
+          } else if (t.key === "live") {
+            if (liveMeetings.length > 0) {
+              showLivePill = true;
+            } else {
+              badgeCount = scheduledMeetings.length;
+            }
+          } else if (t.key === "recordings") {
+            badgeCount = recordingsCount;
+          } else if (t.key === "tests") {
+            badgeCount = testsCount;
+          }
+
           return (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`flex flex-col items-center justify-center p-3 rounded-2xl border ${t.bg} ${t.text} ${t.border} transition-all relative overflow-hidden group aspect-square shadow-xs ${isActive
-                  ? `scale-[1.04] ring-2 ring-offset-2 ring-offset-slate-50 shadow-md ${t.key === 'live' ? 'ring-[#E11D48]' : t.key === 'recordings' ? 'ring-[#EA580C]' : t.key === 'announcements' ? 'ring-[#2563EB]' : 'ring-[#059669]'}`
-                  : "hover:scale-[1.02] hover:shadow-sm"
-                }`}
+              className={`flex flex-col items-center justify-center p-3 sm:p-3.5 rounded-2xl border ${t.bg} ${t.text} ${t.border} transition-all relative overflow-hidden group aspect-square shadow-xs cursor-pointer ${
+                isActive
+                  ? `scale-[1.04] ring-2 ring-offset-2 ring-offset-slate-50 shadow-md ${t.ringColor}`
+                  : "hover:scale-[1.02] hover:shadow-sm opacity-90 hover:opacity-100"
+              }`}
             >
-              {t.isLive && (
-                <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-[#E11D48] text-white text-[8px] font-extrabold tracking-wider uppercase animate-pulse">
+              {/* Notification Badges on Square Boxes */}
+              {showLivePill ? (
+                <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-[#E11D48] text-white text-[8px] font-extrabold tracking-wider uppercase animate-pulse shadow-xs">
                   LIVE
                 </span>
-              )}
+              ) : badgeCount > 0 ? (
+                <span className={`absolute top-2 right-2 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full text-[10px] font-black shadow-2xs ${t.badgeBg}`}>
+                  {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
+              ) : null}
 
-              <t.icon className="w-8 h-8 mb-1.5 transition-transform group-hover:scale-110" style={{ color: t.iconColor }} />
-              <span className="text-[10px] sm:text-xs font-black tracking-tight text-center leading-tight">{t.label}</span>
+              <t.icon className="w-7 h-7 sm:w-8 sm:h-8 mb-1.5 transition-transform group-hover:scale-110" style={{ color: t.iconColor }} />
+              <span className="text-[11px] sm:text-xs font-black tracking-tight text-center leading-tight">{t.label}</span>
             </button>
           );
         })}
@@ -1964,14 +2274,23 @@ function StudentClassroomDetail() {
       {/* Tab Contents Area */}
       <div className="border-t border-slate-100 pt-6">
         <h2 className="font-display text-base font-extrabold text-slate-800 mb-4 capitalize">
-          {tab === "announcements" ? "Study Material & Announcements" : tab === "live" ? "Live Classes" : tab === "recordings" ? "Recordings" : "Smart Tests & Quizzes"}
+          {tab === "announcements" ? "Classroom Announcements & Materials"
+           : tab === "live" ? "Live Classes & Interactive Sessions"
+           : tab === "recordings" ? "Video Lecture Recordings"
+           : "Smart Tests & Quizzes"}
         </h2>
 
         {(() => {
           const classroomId = cls.id || (cls as any)._id || '';
           return (
             <>
-              {tab === "announcements" && <AnnouncementsTab classroomId={classroomId} isFetching={isFetching} />}
+              {tab === "announcements" && (
+                <AnnouncementsTab
+                  classroomId={classroomId}
+                  isFetching={isFetching}
+                  initialSubTab={queryTab === "documents" ? "pdf" : "text"}
+                />
+              )}
               {tab === "live" && <LiveClassesTab classroomId={classroomId} isFetching={isFetching} />}
               {tab === "recordings" && <RecordingsTab classroomId={classroomId} isFetching={isFetching} />}
               {tab === "tests" && (
