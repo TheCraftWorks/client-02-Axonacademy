@@ -858,12 +858,12 @@ export async function getQuizReport(quizId: string) {
 
 // ─── Chunk size for multipart uploads ────────────────────────────────────────
 // 10 MB per part (well above Cloudflare R2's 5 MB minimum).
-// Files < 20 MB use single presigned PUT with auto-retry.
-// Files ≥ 20 MB use 10 MB multipart chunks with part-level auto-retry.
+// Files < 100 MB use single presigned PUT with auto-retry.
+// Files ≥ 100 MB use 10 MB multipart chunks with part-level auto-retry.
 // 10 MB chunks give smooth, fast progress updates even on slow/mobile connections
 // and allow quick retries if any single chunk drops.
 const MULTIPART_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
-const SINGLE_UPLOAD_THRESHOLD = 20 * 1024 * 1024; // 20 MB in bytes
+const SINGLE_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB in bytes
 
 export interface VideoUploadProgress {
   loaded: number;
@@ -1022,7 +1022,6 @@ async function uploadPartToR2WithRetry({
         }, 3000);
 
         xhr.open('PUT', presignedUrl, true);
-        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 
         xhr.upload.addEventListener('progress', (e) => {
           lastActivity = Date.now();
@@ -1043,7 +1042,8 @@ async function uploadPartToR2WithRetry({
               xhr.getResponseHeader('etag') ||
               xhr.getResponseHeader('Etag') ||
               '';
-            const etag = rawEtag.trim() || `"${Date.now()}-${partNumber}"`;
+            const cleaned = rawEtag.trim().replace(/^"+|"+$/g, '');
+            const etag = cleaned ? `"${cleaned}"` : `"${Date.now()}-${partNumber}"`;
             resolve(etag);
           } else {
             reject(new Error(`Part ${partNumber} upload failed: HTTP ${xhr.status}`));
@@ -1084,7 +1084,7 @@ async function uploadPartToR2WithRetry({
 }
 
 /**
- * Upload a small file (< 20MB) directly to R2 via single presigned PUT with auto-retry.
+ * Upload a file directly to R2 via single presigned PUT with auto-retry and persistent URL caching.
  */
 async function uploadSingleFileToR2WithRetry({
   getPresignedUrl,
@@ -1102,6 +1102,7 @@ async function uploadSingleFileToR2WithRetry({
   maxRetries?: number;
 }): Promise<void> {
   let lastError: any = null;
+  let cachedUploadUrl: string | null = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     if (signal?.aborted) {
@@ -1114,7 +1115,10 @@ async function uploadSingleFileToR2WithRetry({
         await new Promise((r) => setTimeout(r, delay));
       }
 
-      const uploadUrl = await getPresignedUrl();
+      if (!cachedUploadUrl) {
+        cachedUploadUrl = await getPresignedUrl();
+      }
+      const uploadUrl = cachedUploadUrl;
 
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -1147,7 +1151,9 @@ async function uploadSingleFileToR2WithRetry({
         }, 3000);
 
         xhr.open('PUT', uploadUrl, true);
-        xhr.setRequestHeader('Content-Type', contentType);
+        if (contentType) {
+          xhr.setRequestHeader('Content-Type', contentType);
+        }
 
         xhr.upload.addEventListener('progress', (e) => {
           lastActivity = Date.now();
@@ -1165,6 +1171,7 @@ async function uploadSingleFileToR2WithRetry({
             if (onProgress) onProgress(file.size, file.size);
             resolve();
           } else {
+            if (xhr.status === 403) cachedUploadUrl = null;
             reject(new Error(`R2 upload failed: HTTP ${xhr.status}`));
           }
         });
@@ -1440,10 +1447,10 @@ export async function uploadClassroomRecordingToCloudflare({
     };
 
     const initialPresign = await getPresignedUrl();
-    const { objectKey, publicUrl } = initialPresign;
+    const { uploadUrl, objectKey, publicUrl } = initialPresign;
 
     await uploadSingleFileToR2WithRetry({
-      getPresignedUrl: async () => (await getPresignedUrl()).uploadUrl,
+      getPresignedUrl: async () => uploadUrl,
       file,
       contentType: videoContentType,
       signal,
@@ -2194,10 +2201,9 @@ export async function sendMessage(receiverId: string, message: string): Promise<
 function getNormalizedVideoContentType(file: File): string {
   const name = file.name.toLowerCase();
   if (name.endsWith('.mp4') || name.endsWith('.m4v')) return 'video/mp4';
-  if (name.endsWith('.mov') || name.endsWith('.qt') || file.type === 'video/quicktime') return 'video/quicktime';
   if (name.endsWith('.webm')) return 'video/webm';
-  if (name.endsWith('.mkv')) return 'video/x-matroska';
-  if (name.endsWith('.avi')) return 'video/x-msvideo';
+  if (name.endsWith('.mov') || name.endsWith('.qt') || file.type === 'video/quicktime') return 'video/mp4';
+  if (name.endsWith('.mkv') || name.endsWith('.avi')) return 'video/mp4';
   return file.type || 'video/mp4';
 }
 
@@ -2362,10 +2368,10 @@ export async function uploadLibraryRecordingToCloudflare({
     };
 
     const initialPresign = await getPresignedUrl();
-    const { objectKey, publicUrl } = initialPresign;
+    const { uploadUrl, objectKey, publicUrl } = initialPresign;
 
     await uploadSingleFileToR2WithRetry({
-      getPresignedUrl: async () => (await getPresignedUrl()).uploadUrl,
+      getPresignedUrl: async () => uploadUrl,
       file,
       contentType: videoContentType,
       signal,

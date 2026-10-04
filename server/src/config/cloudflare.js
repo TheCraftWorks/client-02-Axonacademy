@@ -10,6 +10,7 @@ const {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListPartsCommand,
 } = require('@aws-sdk/client-s3');
 const { NodeHttpHandler } = require('@smithy/node-http-handler');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
@@ -229,12 +230,66 @@ async function completeMultipartUpload(objectKey, uploadId, parts) {
   const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
   const client = getS3Client();
 
-  await client.send(new CompleteMultipartUploadCommand({
-    Bucket: CLOUDFLARE_R2_BUCKET,
-    Key: objectKey,
-    UploadId: uploadId,
-    MultipartUpload: { Parts: parts },
-  }));
+  // Normalize parts to ensure PartNumber is integer and ETag is correctly double-quoted
+  let formattedParts = (Array.isArray(parts) ? parts : []).map(p => {
+    let raw = String(p.ETag || '').trim().replace(/^"+|"+$/g, '');
+    return {
+      PartNumber: Number(p.PartNumber),
+      ETag: raw ? `"${raw}"` : '',
+    };
+  }).sort((a, b) => a.PartNumber - b.PartNumber);
+
+  // Check if any ETag is missing or was a synthetic timestamp fallback from browser CORS restrictions
+  const hasInvalidETag = formattedParts.length === 0 || formattedParts.some(p => !p.ETag || p.ETag.includes('-'));
+
+  if (hasInvalidETag) {
+    try {
+      const listRes = await client.send(new ListPartsCommand({
+        Bucket: CLOUDFLARE_R2_BUCKET,
+        Key: objectKey,
+        UploadId: uploadId,
+      }));
+      if (listRes && Array.isArray(listRes.Parts) && listRes.Parts.length > 0) {
+        formattedParts = listRes.Parts.map(p => ({
+          PartNumber: p.PartNumber,
+          ETag: p.ETag.startsWith('"') ? p.ETag : `"${p.ETag}"`,
+        })).sort((a, b) => a.PartNumber - b.PartNumber);
+      }
+    } catch (listErr) {
+      console.warn('[R2] ListParts fallback check warning:', listErr.message);
+    }
+  }
+
+  try {
+    await client.send(new CompleteMultipartUploadCommand({
+      Bucket: CLOUDFLARE_R2_BUCKET,
+      Key: objectKey,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: formattedParts },
+    }));
+  } catch (completeErr) {
+    console.warn('[R2] Initial CompleteMultipartUpload failed, attempting ListParts recovery:', completeErr.message);
+    const listRes = await client.send(new ListPartsCommand({
+      Bucket: CLOUDFLARE_R2_BUCKET,
+      Key: objectKey,
+      UploadId: uploadId,
+    }));
+    if (listRes && Array.isArray(listRes.Parts) && listRes.Parts.length > 0) {
+      const realParts = listRes.Parts.map(p => ({
+        PartNumber: p.PartNumber,
+        ETag: p.ETag.startsWith('"') ? p.ETag : `"${p.ETag}"`,
+      })).sort((a, b) => a.PartNumber - b.PartNumber);
+
+      await client.send(new CompleteMultipartUploadCommand({
+        Bucket: CLOUDFLARE_R2_BUCKET,
+        Key: objectKey,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: realParts },
+      }));
+    } else {
+      throw completeErr;
+    }
+  }
 
   return getR2ObjectUrl(objectKey);
 }
