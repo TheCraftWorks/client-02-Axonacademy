@@ -84,23 +84,39 @@ function Dashboard() {
   const studentAnnouncements = allStudentAnnouncements.slice(0, 4);
 
   const allStudentPdfs = enrolledClassrooms.flatMap((c) =>
-    (c.announcements || []).flatMap((a: any) =>
-      (Array.isArray(a.attachments) ? a.attachments : []).map((at: any, idx: number) => {
-        const atUrl = typeof at === 'string' ? at : at?.url || '';
-        const atName = typeof at === 'string' ? `Document_${idx + 1}.pdf` : at?.name || `Document_${idx + 1}.pdf`;
-        const resolvedUrl = resolveAttachmentUrl(atUrl, at?.cloudflareKey);
+    (c.announcements || []).flatMap((a: any, aIdx: number) => {
+      const rawAttachments = Array.isArray(a.attachments)
+        ? a.attachments
+        : (a.attachment ? [a.attachment] : []);
+
+      if (a?.fileUrl && !rawAttachments.some((x: any) => (typeof x === 'string' ? x : x?.url) === a.fileUrl)) {
+        rawAttachments.push({ name: a.fileName || 'Document.pdf', url: a.fileUrl });
+      }
+      if (a?.pdfUrl && !rawAttachments.some((x: any) => (typeof x === 'string' ? x : x?.url) === a.pdfUrl)) {
+        rawAttachments.push({ name: a.pdfName || 'Document.pdf', url: a.pdfUrl });
+      }
+
+      return rawAttachments.map((at: any, idx: number) => {
+        const atUrl = typeof at === 'string' ? at : (at?.url || at?.fileUrl || at?.secure_url || at?.link || at?.path || '');
+        const cfKey = typeof at === 'object' && at !== null ? (at.cloudflareKey || at.publicId || at.key) : undefined;
+        const resolvedUrl = resolveAttachmentUrl(atUrl, cfKey);
+        if (!atUrl && !resolvedUrl && !cfKey) return null;
+        const rawName = typeof at === 'string' ? '' : (at?.name || at?.filename || at?.title || '');
+        const fallbackName = cfKey ? cfKey.split('/').pop() : (atUrl ? atUrl.split('?')[0].split('/').pop() : `Document_${aIdx + 1}_${idx + 1}.pdf`);
+        const atName = (rawName && rawName.trim()) ? rawName.trim() : (fallbackName || `Document_${aIdx + 1}_${idx + 1}.pdf`);
+
         return {
-          id: `${a.id || a._id || ''}-${idx}`,
+          id: `${a.id || a._id || aIdx}-${idx}`,
           name: atName,
-          url: resolvedUrl,
-          cloudflareKey: at?.cloudflareKey,
+          url: resolvedUrl || atUrl,
+          cloudflareKey: cfKey,
           classroomName: c.name,
           classroomId: c.id || (c as any)._id,
           createdAt: a.createdAt,
           content: a.content,
         };
-      }).filter((item: any) => !!item.url)
-    )
+      }).filter(Boolean);
+    })
   ).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const studentPdfs = allStudentPdfs.slice(0, 4);
 

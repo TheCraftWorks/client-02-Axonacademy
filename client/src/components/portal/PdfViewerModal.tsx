@@ -274,9 +274,14 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         const pdfjs = await loadPdfJsEngine();
         if (isCancelled) return;
 
+        const isRelativeOrSameOrigin =
+          !url.startsWith('http://') &&
+          !url.startsWith('https://') ||
+          (typeof window !== 'undefined' && url.startsWith(window.location.origin));
+
         const accessToken = classroomStore.getState?.()?.accessToken;
         const httpHeaders: Record<string, string> = {};
-        if (accessToken) {
+        if (accessToken && isRelativeOrSameOrigin) {
           httpHeaders['Authorization'] = `Bearer ${accessToken}`;
         }
 
@@ -286,10 +291,10 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         try {
           const loadingTask = pdfjs.getDocument({
             url,
-            httpHeaders,
-            withCredentials: true,
+            httpHeaders: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
+            withCredentials: isRelativeOrSameOrigin,
             rangeChunkSize: 65536,
-            disableAutoFetch: true,  // Stream pages on-demand rather than downloading whole 38MB upfront
+            disableAutoFetch: true,  // Stream pages on-demand rather than downloading whole upfront
             disableStream: false,    // Progressive stream
             cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
             cMapPacked: true,
@@ -305,8 +310,8 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           let response: Response;
           try {
             response = await fetch(url, {
-              headers: httpHeaders,
-              credentials: 'include',
+              headers: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
+              credentials: isRelativeOrSameOrigin ? 'include' : 'omit',
               signal: controller.signal,
             });
           } catch {
@@ -366,11 +371,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         console.warn('[PDF Viewer] Error loading PDF engine/doc:', err?.message);
         if (!isCancelled) {
           setLoading(false);
-          if (err?.message?.includes('HTTP 40') || err?.message?.includes('File not found')) {
-            setError(err.message || 'Document preview is currently unavailable.');
-          } else {
-            setUseIframeFallback(true);
-          }
+          setUseIframeFallback(true);
         }
       }
     }

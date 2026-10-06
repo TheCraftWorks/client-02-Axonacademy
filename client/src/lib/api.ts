@@ -277,13 +277,53 @@ function normalizeBackendClassroom(raw: any) {
 }
 
 function normalizeBackendAnnouncement(raw: any) {
-  const author = raw.author;
+  const author = raw?.author;
+  const authorName = typeof author === 'object' && author !== null
+    ? (author.fullName || author.name || author.email || author.role || 'Admin')
+    : (typeof author === 'string' && author.trim() ? author : 'Admin');
+
+  const rawAttachments = Array.isArray(raw?.attachments)
+    ? raw.attachments
+    : (raw?.attachment ? [raw.attachment] : []);
+
+  const normalizedAttachments = rawAttachments.map((at: any) => {
+    if (typeof at === 'string') {
+      return { name: 'Document.pdf', url: at, type: 'pdf' };
+    }
+    const cfKey = at?.cloudflareKey || at?.publicId || at?.key;
+    const atUrl = at?.url || at?.fileUrl || at?.secure_url || at?.link || at?.path || '';
+    const rawName = at?.name || at?.filename || at?.title;
+    const fallbackName = cfKey ? cfKey.split('/').pop() : (atUrl ? atUrl.split('?')[0].split('/').pop() : 'Document.pdf');
+    return {
+      name: (rawName && String(rawName).trim()) ? String(rawName).trim() : (fallbackName || 'Document.pdf'),
+      url: atUrl,
+      type: at?.type || 'pdf',
+      cloudflareKey: cfKey,
+    };
+  });
+
+  // If announcement has standalone fileUrl or pdfUrl
+  if (raw?.fileUrl && !normalizedAttachments.some((a: any) => a.url === raw.fileUrl)) {
+    normalizedAttachments.push({
+      name: raw.fileName || 'Document.pdf',
+      url: raw.fileUrl,
+      type: 'pdf',
+    });
+  }
+  if (raw?.pdfUrl && !normalizedAttachments.some((a: any) => a.url === raw.pdfUrl)) {
+    normalizedAttachments.push({
+      name: raw.pdfName || 'Document.pdf',
+      url: raw.pdfUrl,
+      type: 'pdf',
+    });
+  }
+
   return {
-    id: raw._id || raw.id,
-    content: raw.content || '',
-    createdAt: raw.createdAt || new Date().toISOString(),
-    author: author?.fullName || author?.email || author?.role || 'Admin',
-    attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
+    id: raw?._id || raw?.id || `ann-${Date.now()}`,
+    content: raw?.content || '',
+    createdAt: raw?.createdAt || new Date().toISOString(),
+    author: authorName,
+    attachments: normalizedAttachments,
   };
 }
 
@@ -1311,47 +1351,50 @@ export async function uploadAnnouncementPdf({
  * Resolves an attachment URL to a full streamable URL.
  */
 export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): string {
-  if (!rawUrl && !cloudflareKey) return '';
+  const key = cloudflareKey || (!rawUrl?.startsWith('http') && rawUrl?.includes('announcements/') ? rawUrl : undefined);
+  if (!rawUrl && !key) return '';
+
+  const cleanUrl = (rawUrl || '').trim();
 
   // Already a full absolute URL or blob/data
-  if (rawUrl && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:') || rawUrl.startsWith('data:'))) {
-    if (rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')) {
-      const sep = rawUrl.includes('?') ? '&' : '?';
-      return `${rawUrl}${sep}stream=true`;
+  if (cleanUrl && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || cleanUrl.startsWith('blob:') || cleanUrl.startsWith('data:'))) {
+    if (cleanUrl.includes('r2-proxy') && !cleanUrl.includes('stream=')) {
+      const sep = cleanUrl.includes('?') ? '&' : '?';
+      return `${cleanUrl}${sep}stream=true`;
     }
-    return rawUrl;
+    return cleanUrl;
   }
 
   // Base API without trailing /api/v1 if the path already starts with /api/v1
   const cleanApiBase = (API_BASE || '/api/v1').replace(/\/+$/, '');
   const rootBase = cleanApiBase.replace(/\/api\/v1\/?$/, '');
 
-  if (rawUrl && (rawUrl.startsWith('/api/v1/') || rawUrl.startsWith('/api/v1?'))) {
-    const sep = rawUrl.includes('?') ? '&' : '?';
-    const withStream = rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')
-      ? `${rawUrl}${sep}stream=true`
-      : rawUrl;
+  if (cleanUrl && (cleanUrl.startsWith('/api/v1/') || cleanUrl.startsWith('/api/v1?'))) {
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const withStream = cleanUrl.includes('r2-proxy') && !cleanUrl.includes('stream=')
+      ? `${cleanUrl}${sep}stream=true`
+      : cleanUrl;
     return `${rootBase}${withStream}`;
   }
 
-  if (rawUrl && rawUrl.startsWith('/')) {
-    const sep = rawUrl.includes('?') ? '&' : '?';
-    const withStream = rawUrl.includes('r2-proxy') && !rawUrl.includes('stream=')
-      ? `${rawUrl}${sep}stream=true`
-      : rawUrl;
+  if (cleanUrl && cleanUrl.startsWith('/')) {
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const withStream = cleanUrl.includes('r2-proxy') && !cleanUrl.includes('stream=')
+      ? `${cleanUrl}${sep}stream=true`
+      : cleanUrl;
     return `${cleanApiBase}${withStream}`;
   }
 
-  if (cloudflareKey) {
-    return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(cloudflareKey)}&stream=true`;
+  if (key) {
+    return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(key)}&stream=true`;
   }
 
-  if (rawUrl) {
-    const cleaned = rawUrl.replace(/^\/+/, '');
+  if (cleanUrl) {
+    const cleaned = cleanUrl.replace(/^\/+/, '');
     const sep = cleaned.includes('?') ? '&' : '?';
     const withStream = cleaned.includes('r2-proxy') && !cleaned.includes('stream=')
       ? `${cleaned}${sep}stream=true`
-      : cleaned;
+      : cleanUrl;
     return `${cleanApiBase}/${withStream}`;
   }
 

@@ -192,6 +192,12 @@ function AnnouncementsTab({
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  useEffect(() => {
+    if (initialSubTab) {
+      setSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
   const announcements = cls?.announcements || [];
 
   // Extract all PDF attachments from all announcements in this classroom
@@ -207,7 +213,18 @@ function AnnouncementsTab({
     }> = [];
 
     announcements.forEach((ann: any, annIdx: number) => {
-      const rawAttachments = Array.isArray(ann?.attachments) ? ann.attachments : [];
+      if (!ann) return;
+      const rawAttachments = Array.isArray(ann?.attachments)
+        ? ann.attachments
+        : (ann?.attachment ? [ann.attachment] : []);
+
+      if (ann?.fileUrl && !rawAttachments.some((x: any) => (typeof x === 'string' ? x : x?.url) === ann.fileUrl)) {
+        rawAttachments.push({ name: ann.fileName || 'Document.pdf', url: ann.fileUrl });
+      }
+      if (ann?.pdfUrl && !rawAttachments.some((x: any) => (typeof x === 'string' ? x : x?.url) === ann.pdfUrl)) {
+        rawAttachments.push({ name: ann.pdfName || 'Document.pdf', url: ann.pdfUrl });
+      }
+
       const authorName = typeof ann?.author === 'object' && ann?.author !== null
         ? (ann.author.fullName || ann.author.name || 'Faculty / Admin')
         : (typeof ann?.author === 'string' && ann.author.trim() ? ann.author : 'Faculty / Admin');
@@ -216,16 +233,29 @@ function AnnouncementsTab({
 
       rawAttachments.forEach((at: any, atIdx: number) => {
         if (!at) return;
-        const atUrl = typeof at === 'string' ? at : at.url || '';
-        const atName = typeof at === 'string' ? `Document_${annIdx + 1}_${atIdx + 1}.pdf` : at.name || `Document_${annIdx + 1}_${atIdx + 1}.pdf`;
-        const resolvedUrl = resolveAttachmentUrl(atUrl, at.cloudflareKey);
-        if (!atUrl && !resolvedUrl) return;
+        const atUrl = typeof at === 'string'
+          ? at
+          : (at.url || at.fileUrl || at.secure_url || at.link || at.path || '');
+        const cfKey = typeof at === 'object' && at !== null
+          ? (at.cloudflareKey || at.publicId || at.key)
+          : undefined;
+        const rawName = typeof at === 'string'
+          ? ''
+          : (at.name || at.filename || at.title || '');
+
+        const resolvedUrl = resolveAttachmentUrl(atUrl, cfKey);
+        if (!resolvedUrl && !atUrl && !cfKey) return;
+
+        const fallbackName = cfKey
+          ? cfKey.split('/').pop()
+          : (atUrl ? atUrl.split('?')[0].split('/').pop() : `Document_${annIdx + 1}_${atIdx + 1}.pdf`);
+        const finalName = (rawName && rawName.trim()) ? rawName.trim() : (fallbackName || `Document_${annIdx + 1}_${atIdx + 1}.pdf`);
 
         list.push({
           id: `${ann.id || ann._id || annIdx}-${atIdx}`,
-          name: atName,
-          url: resolvedUrl,
-          cloudflareKey: at.cloudflareKey,
+          name: finalName,
+          url: resolvedUrl || atUrl,
+          cloudflareKey: cfKey,
           announcementContent: safeContent,
           authorName: String(authorName),
           createdAt: ann.createdAt || new Date().toISOString(),
@@ -361,21 +391,47 @@ function AnnouncementsTab({
                     </div>
                     <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap break-words">{safeContent}</div>
 
-                    {/* Quick switch to PDF tab if attachment exists */}
                     {rawAttachments.length > 0 && (
-                      <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs text-slate-500 font-medium">
-                          📎 {rawAttachments.length} PDF {rawAttachments.length === 1 ? "document" : "documents"} attached
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSubTab("pdf")}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-all cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-                          <span>View in PDF Documents</span>
-                          <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-                        </button>
+                      <div className="mt-4 pt-3 border-t border-slate-100 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
+                            <FileText className="h-3.5 w-3.5 text-rose-500" />
+                            <span>{rawAttachments.length} Attached {rawAttachments.length === 1 ? "Document" : "Documents"}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setSubTab("pdf")}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
+                          >
+                            <span>Open PDF Repository</span>
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {rawAttachments.map((at: any, i: number) => {
+                            if (!at) return null;
+                            const atUrl = typeof at === 'string' ? at : (at.url || at.fileUrl || at.secure_url || at.link || at.path || '');
+                            const cfKey = typeof at === 'object' && at !== null ? (at.cloudflareKey || at.publicId || at.key) : undefined;
+                            const resolvedUrl = resolveAttachmentUrl(atUrl, cfKey);
+                            if (!atUrl && !resolvedUrl && !cfKey) return null;
+                            const rawName = typeof at === 'string' ? '' : (at.name || at.filename || at.title || '');
+                            const fallbackName = cfKey ? cfKey.split('/').pop() : (atUrl ? atUrl.split('?')[0].split('/').pop() : `Document_${i + 1}.pdf`);
+                            const atName = (rawName && rawName.trim()) ? rawName.trim() : (fallbackName || `Document_${i + 1}.pdf`);
+
+                            return (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setPreviewPdf({ url: resolvedUrl || atUrl, name: atName })}
+                                className="inline-flex items-center gap-2 bg-rose-50 hover:bg-rose-100/80 border border-rose-200/80 rounded-xl px-3 py-1.5 text-xs font-bold text-rose-700 hover:text-rose-800 transition-all cursor-pointer shadow-2xs group"
+                              >
+                                <FileText className="h-3.5 w-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
+                                <span className="truncate max-w-[180px] sm:max-w-[240px]">{atName}</span>
+                                <Eye className="h-3 w-3 text-rose-400 ml-0.5" />
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2181,13 +2237,19 @@ function StudentClassroomDetail() {
   // Count items for tab notification badges
   const announcementsCount = (cls.announcements || []).length;
   const pdfDocumentsCount = (cls.announcements || []).reduce((acc: number, a: any) => {
-    const atCount = Array.isArray(a.attachments) ? a.attachments.length : 0;
-    return acc + atCount;
+    const rawAttachments = Array.isArray(a.attachments)
+      ? a.attachments
+      : (a.attachment ? [a.attachment] : []);
+    const directCount = (a.fileUrl && !rawAttachments.some((x: any) => (typeof x === 'string' ? x : x?.url) === a.fileUrl) ? 1 : 0) +
+      (a.pdfUrl && !rawAttachments.some((x: any) => (typeof x === 'string' ? x : x?.url) === a.pdfUrl) ? 1 : 0);
+    return acc + rawAttachments.length + directCount;
   }, 0);
   const liveMeetings = (cls.meetings || []).filter((m) => m.status === "live");
   const scheduledMeetings = (cls.meetings || []).filter((m) => m.status === "scheduled");
   const recordingsCount = (cls.recordings || []).filter((r) => r.isPublished).length;
   const testsCount = (cls.quizzes || []).filter((q) => q.status === "published").length;
+
+  const isAnnouncementsActive = tab === "announcements" || tab === "documents";
 
   return (
     <div className="space-y-6">
@@ -2224,7 +2286,7 @@ function StudentClassroomDetail() {
       {/* 4 Square Boxes Tab Bar with Notification Badges */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-xl mx-auto my-6">
         {TABS.map((t) => {
-          const isActive = tab === t.key;
+          const isActive = t.key === "announcements" ? isAnnouncementsActive : tab === t.key;
           
           let badgeCount = 0;
           let showLivePill = false;
@@ -2274,7 +2336,7 @@ function StudentClassroomDetail() {
       {/* Tab Contents Area */}
       <div className="border-t border-slate-100 pt-6">
         <h2 className="font-display text-base font-extrabold text-slate-800 mb-4 capitalize">
-          {tab === "announcements" ? "Classroom Announcements & Materials"
+          {isAnnouncementsActive ? "Classroom Announcements & Materials"
            : tab === "live" ? "Live Classes & Interactive Sessions"
            : tab === "recordings" ? "Video Lecture Recordings"
            : "Smart Tests & Quizzes"}
@@ -2284,11 +2346,11 @@ function StudentClassroomDetail() {
           const classroomId = cls.id || (cls as any)._id || '';
           return (
             <>
-              {tab === "announcements" && (
+              {isAnnouncementsActive && (
                 <AnnouncementsTab
                   classroomId={classroomId}
                   isFetching={isFetching}
-                  initialSubTab={queryTab === "documents" ? "pdf" : "text"}
+                  initialSubTab={tab === "documents" || queryTab === "documents" ? "pdf" : "text"}
                 />
               )}
               {tab === "live" && <LiveClassesTab classroomId={classroomId} isFetching={isFetching} />}

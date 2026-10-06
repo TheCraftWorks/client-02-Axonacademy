@@ -580,15 +580,18 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                         <div className="mt-3 flex flex-wrap gap-2">
                           {rawAttachments.map((at: any, i: number) => {
                             if (!at) return null;
-                            const atUrl = typeof at === 'string' ? at : at.url || '';
-                            const atName = typeof at === 'string' ? 'View Attachment' : at.name || 'View Attachment';
-                            const resolvedUrl = resolveAttachmentUrl(atUrl, at.cloudflareKey);
-                            if (!atUrl && !resolvedUrl) return null;
+                            const atUrl = typeof at === 'string' ? at : (at?.url || at?.fileUrl || at?.secure_url || at?.link || at?.path || '');
+                            const cfKey = typeof at === 'object' && at !== null ? (at.cloudflareKey || at.publicId || at.key) : undefined;
+                            const resolvedUrl = resolveAttachmentUrl(atUrl, cfKey);
+                            if (!atUrl && !resolvedUrl && !cfKey) return null;
+                            const rawName = typeof at === 'string' ? '' : (at?.name || at?.filename || at?.title || '');
+                            const fallbackName = cfKey ? cfKey.split('/').pop() : (atUrl ? atUrl.split('?')[0].split('/').pop() : `Document_${i + 1}.pdf`);
+                            const atName = (rawName && rawName.trim()) ? rawName.trim() : (fallbackName || `Document_${i + 1}.pdf`);
                             return (
                               <button
                                 key={i}
                                 type="button"
-                                onClick={() => setPreviewPdf({ url: resolvedUrl, name: atName })}
+                                onClick={() => setPreviewPdf({ url: resolvedUrl || atUrl, name: atName })}
                                 className="inline-flex items-center gap-2 bg-cream/5 border border-cream/10 rounded-lg px-3 py-2 text-xs font-semibold text-cream/70 hover:bg-cream/10 hover:text-lime transition-all cursor-pointer"
                               >
                                 <LuFileText className="h-3.5 w-3.5 text-lime" />
