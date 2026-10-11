@@ -61,9 +61,105 @@ const STUDENT_FEEDBACKS_ROW1 = [
     review: "I am very happy with my experience at Axon Academy. The clues and Telegram questions are very useful for improving our knowledge and exam preparation. They help us revise important topics regularly. The regular tests are also very helpful because they improve our confidence, time management, and exam performance.",
     initials: "AA",
   },
+  {
+    name: "SAKTHI SHANMUGI P",
+    roll: "AXP2644",
+    review: "Good evening sir,\nBefore joining this academy, I barely know about what is pg neet and how would be the syllabus. But after joining this academy, I got my full clarity on what is pg neet and how would be the question pattern. I got more clarity about my preparation schedule. Posting questions on Telegram and attending them makes me familiar and confidence over the subject. Attending our weekly test, discussion class gives me the pattern of pg neet and also helps me to correct my mistakes.\n\nI am really thankful that you gave us a restart test option which is very useful for us. Thank you sir for providing us this much guidance🙏🏻",
+    initials: "SS",
+  },
+  {
+    name: "D. Divya",
+    roll: "AXP2678",
+    review: "I’m really thankful to Axon Med Academy for their excellent guidance and support. The teaching is clear, systematic, and easy to understand. The study materials and regular guidance have been very helpful for my preparation. The faculty are supportive, motivating, and always ready to clarify doubts.\n\nThank you for helping me stay confident and focused throughout my preparation.",
+    initials: "DD",
+  },
+  {
+    name: "SANGAVI P",
+    roll: "AX2659",
+    review: "I am truly grateful to you for providing us with the restart test option, which has been very useful for our preparation and revision. Thank you so much, sir, for your continuous guidance, support, and for helping us prepare with more clarity and confidence. 🙏🏻",
+    initials: "SP",
+  },
+  {
+    name: "Aarthi R",
+    roll: "AXP2611",
+    review: "I am very much grateful for sharing my own feedback about axon academy. Its my pleasure to share that my preparations were incomplete without manikandan sir's guidance, the way they guide - the vedios, revision test , questions Posting was very much useful for my preparations. Thank you guiding us through this journey.",
+    initials: "AR",
+  },
+  {
+    name: "SUBHA .M",
+    roll: "AXP26127",
+    review: "In axon academy What I feel the most is the friendly environment which gives stress free study space with kind faculties always encouraging us to take our path in a right way at right time....The recorded classes are very useful for the prep that we can access it any time we want...The questions that we post are that much valuable for our preparation that we get experience and multiple diverse ways of approaching a topic to study....It feels like home that we can ask any doubt at any time explain our difficulties and get clarifications at the time of need...Now it's our duty to utilise all these options and put efforts to reach our goal...Sure sir we ll do our best...Thank you sir...",
+    initials: "SM",
+  },
+  {
+    name: "D. Devadharshini",
+    roll: "AXP26110",
+    review: "Good evening sir,\nIm most thankfull for being a part of axon academy sir,\n\nThe telegram qn sections practiced me to face the difference types of qns and also it boost me to create and think in different angles of qn ..\n\nAfter attending the discussion class i came to know the others perspectives of learning of same topics,.. It was very very usefull to me..\nAnd i request that pls make the discussion class by discussing(weeeknd test papers)not only the reason fo right option and also make clarification why others were wrong..\nAnd the vdo lectures are very usefull with easy pnemonics.\nThank you,",
+    initials: "DD",
+  },
+  {
+    name: "S. Sindhiya",
+    roll: "AXP26123",
+    review: "Firstly, the recorded videos are very helpful for me because whenever I want I can easily access the videos and the mnemonics make the subject easier. The test which is conducted regularly keeps me engaged and makes me to study even when I am lazy and the test results motivates me to study harder and identify my mistakes. The telegram group is also very helpful in revising the studied portions.\n\nThank you sir for the restart test option and I am making use of it .",
+    initials: "SS",
+  },
 ];
 
 const STUDENT_FEEDBACKS_ROW2 = [
+  {
+    name: "Elakkiya.G",
+    roll: "AXP26114",
+    review: "Vedios in axon academy are very useful because we can go through it at any tym ..the mnemonics are very useful makes to remember points easily.\n\nThe telegram group is very useful we can solve questions of the topics we study and we do make questions so we learn topics clearly.\n\nExams helps to understand progress and we can write exam at any time if we unable to write at the time.\n\nThank u so much sir!",
+    initials: "EG",
+  },
+  {
+    name: "ABIVARTHINI.R",
+    roll: "AXP2612",
+    review: "I'm really glad that i have joined in this academy ☺️\nWithout any idea i just attended your orientation program at first and then i got clear idea for exam preparation. Through your guidance and support many of our seniors got MD seat which make more confident that i can also get MD. The regular revision and exam-focused practice helped me to identify my weaknesses, work on them .Eventhough i wasn't able study during the internship period you motivate me to study and not to quit any test.\n\nThe telegram qns poll make me easier to revise the portion and By everyother's qns i get different possibilities . The Restart test series is very helpful,through this i'm able to cover my missed syllabus.\n\nThe mnemonics and AI generated photos make me to learn easily and … I would like to sincerely thank axon med academy for providing such a valuable guidance and support.\n\nThe easy mnemonics for difficult concepts make learning much simpler and help us remember important topics easily and the weekend discussion classes provide a great opportunity to clarify our doubt and understand concepts better. Thank you sir for your continuous guidance , motivation, support. It has made our preparation easier and more effective..",
+    initials: "AR",
+  },
+  {
+    name: "Rasika R",
+    roll: "AXP26135",
+    review: "My experience with Axon Med Academy has been excellent . The video lectures and teaching methods are really good, and the pnemonics and formulas provided by the faculty make it much easier to understand, remember, and revise difficult topics. The regular tests conducted by the academy are extremely helpful in tracking our progress and identifying areas where we need to improve. Overall, the video lectures, regular tests, pnemonics, formulas, and discussion sessions make my PG preparation more effective. I am really happy to be a part of Axon Med Academy and grateful for the continuous support and guidance!\n\nThank Youuu sir!!!💫",
+    initials: "RR",
+  },
+  {
+    name: "S. Harini",
+    roll: "AXP2610",
+    review: "I am very grateful to Axon med academy . This academy teaches and guide us in a proper and easy way to reach our goal. I am thankful to Manikandan sir and all facilities who teaches us . They monitoring every single student regularly . Manikandan sir talk us with a friendly manner so we can ask doubt without fear at any time. Daily question posting and weekly exams are very useful for us . This academy helps us to focusesd our goals and thank you sir for your full support and guidance",
+    initials: "SH",
+  },
+  {
+    name: "Madhumitha.M",
+    roll: "AXP2613",
+    review: "I truly feel lucky to be a student of Axon Academy, where they not only focus on money but also genuinely care about each student’s future and keep motivating us every day.\n\nThe Telegram questions are very useful for revising the topics, and the recorded classes are especially convenient during my internship. Their unique study methods and mnemonics make even the harder topics much simpler and easier to understand.\n\nThank you so much, sir, for your constant guidance, motivation, and support.",
+    initials: "MM",
+  },
+  {
+    name: "Rajalakshmi S",
+    roll: "AXP26112",
+    review: "I personally find the recorded videos in Axon Academy very helpful because I can go back and watch them anytime, especially when I need to revise a topic or clarify something. The mnemonics are one of the things I really like because they make even lengthy topics easier to remember, and they are catchy.\n\nI also feel that the syllabus is covered in a way that makes it easier for me to study . The consistent tests are really useful in helping me check my understanding.\n\nThe Telegram group and DC sessions have also been very helpful . The faculties are approachable whenever I have doubts or need guidance.\n\nI genuinely like the learning environment in Axon Academy. It feels encouraging, supportive, and friendly, which makes me feel comfortable asking questions and continuing to learn with confidence.",
+    initials: "RS",
+  },
+  {
+    name: "RAGUL",
+    roll: "AXP2658",
+    review: "I am really satisfied with the way the academy conducts regular examinations, revision sessions, and discussion classes. The frequent exams help us assess our preparation, identify our weak areas, and improve our performance consistently. The revision classes are well-structured and help us retain important concepts, while the discussion sessions provide a clear understanding of difficult topics and clarify our doubts effectively.\n\nThe guidance and continuous support from the faculty motivate us to stay focused and prepare with confidence. Overall, the academy provides a disciplined and exam-oriented learning environment that is very helpful for achieving our goals. I truly appreciate the efforts of the entire faculty and management.",
+    initials: "RG",
+  },
+  {
+    name: "GOKULA DEEPIKA",
+    roll: "AXP2652",
+    review: "I like Axon Med Academy's video lectures cuz those pnemonics are helping me very much to memorize the syllabus. Weekly test, Telegram quiz bot are useful to monitor our progress. Your sincerity is making us to be consistent. Thankyou so much sir.",
+    initials: "GD",
+  },
+  {
+    name: "Raghavendra Ramanan",
+    roll: "AXP2690",
+    review: "Honestly, attending these sessions has been super helpful for my prep right now.\n\nA big, special thanks to Dr. Manikandan Sir. The way he teaches makes even the toughest topics feel so easy to understand. He explains everything so clearly and keeps us motivated throughout the class.\n\nReally grateful to Sir and the Axon team for such great guidance during this ongoing batch.",
+    initials: "RR",
+  },
   {
     name: "Nandhakumar K",
     roll: "AXP2607",
@@ -315,7 +411,7 @@ export function Testimonials() {
             <div
               className="flex w-max marquee gap-6 hover:[animation-play-state:paused]"
               style={{
-                animationDuration: "55s",
+                animationDuration: "80s",
                 animationPlayState: selectedFeedback ? "paused" : undefined,
               }}
             >
@@ -328,7 +424,7 @@ export function Testimonials() {
             <div
               className="flex w-max marquee-reverse gap-6 hover:[animation-play-state:paused]"
               style={{
-                animationDuration: "55s",
+                animationDuration: "80s",
                 animationPlayState: selectedFeedback ? "paused" : undefined,
               }}
             >
