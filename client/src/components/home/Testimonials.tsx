@@ -37,6 +37,30 @@ const STUDENT_FEEDBACKS = [
     review: "It's the only academy that doesn't focus on payment it focuses only on the way to make each and every one  success, cares individual, efforts to level up all the range of students wheather they are slow learner or smart one ,this academy only focus to level up each and every one.\n\nClasses and pneumonics are good apart from that telegram that created and maintained by the academy was the best one, it contains a lot and alot of questions with different aspects covering almost all the possible ways.\n\nI am very grateful to this academy and to the staffs.",
     initials: "HL",
   },
+  {
+    name: "P. Elakkiya",
+    roll: "AXP26137",
+    review: "I’m really happy that I joined Axon Academy. The Telegram question support, recorded classes, regular tests, and sufficient time for completing the tests are really helpful for our preparation.\n\nThe teaching and guidance are very friendly and supportive. We can ask even small doubts without hesitation, and every doubt is patiently cleared with proper explanation. The interaction feels more like a senior guiding juniors, which makes the learning environment very comfortable.\n\nOverall, I’m really satisfied with the support and guidance provided by the academy. Happy to be a part of Axon Academy! Thank you sir",
+    initials: "PE",
+  },
+  {
+    name: "Swathini",
+    roll: "AXP26120",
+    review: "I'm really grateful for choosing axon academy. You are helping me in being consistent and being confident. Recorded videos are very helpful in a way whenever we can study about particular subject. Telegram quizes are motivating us to keep in touch with the subject and tests also. Thank you sir",
+    initials: "SW",
+  },
+  {
+    name: "ABHISHEK SUMAN .G.P.S.",
+    roll: "AXP26111",
+    review: "I am really happy that I have joined really worthy institute to prepare for AIAPGET and MRB exams.\n\nThe faculty members really giving excellent clue that is very important for keep in memory vast subjects.\n\nThis institute engage me all time, that is very useful for me. I am very thankful for all the staffs, thank you.",
+    initials: "AS",
+  },
+  {
+    name: "Axon Aspirant",
+    roll: "AIAPGET / MRB Batch",
+    review: "I am very happy with my experience at Axon Academy. The clues and Telegram questions are very useful for improving our knowledge and exam preparation. They help us revise important topics regularly. The regular tests are also very helpful because they improve our confidence, time management, and exam performance.",
+    initials: "AA",
+  },
 ];
 
 const FALLBACK_ITEMS = [
