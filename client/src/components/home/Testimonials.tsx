@@ -12,6 +12,33 @@ const API_BASE = (() => {
   return base;
 })();
 
+const STUDENT_FEEDBACKS = [
+  {
+    name: "RANJITH KUMAR S",
+    roll: "AXP26164",
+    review: "Axon Med Academy has been a great support for my preparation! The video lectures are very useful, and the pnemonics  make difficult concepts much easier to remember. The weekend discussion classes are informative, and the staff are very friendly and supportive.The weekly tests are really helpful to track our progress and identify areas that need improvement.",
+    initials: "RK",
+  },
+  {
+    name: "RAJA SANKARI",
+    roll: "AXP2615",
+    review: "I am very happy with the guidance and support provided by Axon med academy. The pneumonics, regular tests, discussion classes, and revision sessions are very helpful in improving my understanding and progress.\n\nThe practice of posting questions regularly keeps us engaged and helps us revise important topics frequently.\n\nThe faculties are very supportive, approachable, and encouraging.\n\nOverall, it is a great learning environment with excellent teaching methods and consistent support. I am truly grateful to all the faculties and the academy for helping me progress in my studies.",
+    initials: "RS",
+  },
+  {
+    name: "G. Naveena",
+    roll: "AXP2622",
+    review: "My experience at Axon Med Academy has been really good. The teaching is clear and easy to understand. The faculty are supportive, approachable, and always willing  to clarify doubts.\n\nThe academy provides a positive learning environment and helps students stay focused and confident in their preparation. The study materials, guidance, and regular support are also very helpful.\n\nI’m grateful to the entire Axon Med Academy team for their continuous support and guidance.🌟📚",
+    initials: "GN",
+  },
+  {
+    name: "HARINI.L",
+    roll: "AXP8269",
+    review: "It's the only academy that doesn't focus on payment it focuses only on the way to make each and every one  success, cares individual, efforts to level up all the range of students wheather they are slow learner or smart one ,this academy only focus to level up each and every one.\n\nClasses and pneumonics are good apart from that telegram that created and maintained by the academy was the best one, it contains a lot and alot of questions with different aspects covering almost all the possible ways.\n\nI am very grateful to this academy and to the staffs.",
+    initials: "HL",
+  },
+];
+
 const FALLBACK_ITEMS = [
   { name: "Priya Krishnan", roll: "Staff Nurse · Apollo Hospitals", review: "From classroom to a top hospital in 8 months. The proctored exams gave my employer real confidence.", initials: "PK", image: null },
   { name: "Arjun Reddy",    roll: "OT Technician · Manipal",review: "The hands-on OT simulation modules made my transition to the operating theatre seamless. Top-tier faculty.", initials: "AR", image: null },
@@ -88,11 +115,15 @@ export function Testimonials() {
     return video.videoUrl || '';
   };
 
-  const displayItems = testimonials.length > 0 ? testimonials : FALLBACK_ITEMS;
+  const allFeedbacks = [
+    ...STUDENT_FEEDBACKS,
+    ...(testimonials.length > 0 ? testimonials : FALLBACK_ITEMS),
+  ];
+  const marqueeItems = [...allFeedbacks, ...allFeedbacks];
 
   return (
     <>
-      <section className="py-10 lg:py-16 bg-light-gray">
+      <section className="py-10 lg:py-16 bg-light-gray overflow-hidden">
         <div className="mx-auto w-full max-w-[1400px] px-5 lg:px-8">
           <div className="flex items-end justify-between flex-wrap gap-6 mb-12">
             <div className="max-w-xl">
@@ -110,27 +141,56 @@ export function Testimonials() {
             </div>
           </div>
 
-          {/* Written testimonials grid */}
-          <div className="grid gap-6 lg:grid-cols-3">
-            {displayItems.slice(0, 3).map((t: any, i: number) => (
-              <div key={t._id || t.name} className={`relative rounded-2xl p-7 border ${i === 1 ? "bg-navy text-white border-navy" : "bg-white border-gray-100"}`}>
-                <Quote className={`h-8 w-8 ${i === 1 ? "text-gold" : "text-navy/20"}`} />
-                <p className={`mt-5 text-base leading-relaxed ${i === 1 ? "text-white/90" : "text-gray-700"}`}>"{t.review}"</p>
-                <div className="mt-8 flex items-center gap-3">
-                  <div className={`h-11 w-11 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-sm shrink-0 ${i === 1 ? "bg-gold text-navy" : "bg-navy text-white"}`}>
-                    {t.image ? (
-                      <img src={t.image} alt={t.name} className="h-full w-full object-cover rounded-full" />
-                    ) : (
-                      t.initials || t.name.charAt(0)
-                    )}
+          {/* Student Feedbacks Right-to-Left Moving Marquee */}
+          <div className="relative -mx-5 lg:-mx-8 overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)] py-4">
+            <div
+              className="flex w-max marquee gap-6 hover:[animation-play-state:paused]"
+              style={{ animationDuration: "50s" }}
+            >
+              {marqueeItems.map((t: any, i: number) => {
+                const isNavy = i % 2 === 1;
+                return (
+                  <div
+                    key={`${t.roll || t.name}-${i}`}
+                    className={`w-[360px] sm:w-[420px] lg:w-[460px] shrink-0 relative rounded-2xl p-7 border flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${
+                      isNavy ? "bg-navy text-white border-navy" : "bg-white text-navy border-gray-100 shadow-sm"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <Quote className={`h-8 w-8 ${isNavy ? "text-gold" : "text-navy/20"}`} />
+                        <div className="flex">
+                          {[...Array(5)].map((_, s) => (
+                            <Star key={s} className="h-3.5 w-3.5 fill-gold text-gold" />
+                          ))}
+                        </div>
+                      </div>
+                      <p className={`text-sm lg:text-base leading-relaxed whitespace-pre-line ${isNavy ? "text-white/90" : "text-gray-700"}`}>
+                        "{t.review}"
+                      </p>
+                    </div>
+
+                    <div className={`mt-8 flex items-center gap-3 pt-5 border-t ${isNavy ? "border-white/10" : "border-gray-100"}`}>
+                      <div
+                        className={`h-11 w-11 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-sm shrink-0 ${
+                          isNavy ? "bg-gold text-navy" : "bg-navy text-white"
+                        }`}
+                      >
+                        {t.image ? (
+                          <img src={t.image} alt={t.name} className="h-full w-full object-cover rounded-full" />
+                        ) : (
+                          t.initials || t.name.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <div className={`font-semibold text-sm ${isNavy ? "text-white" : "text-navy"}`}>{t.name}</div>
+                        <div className={`text-xs ${isNavy ? "text-white/65" : "text-gray-500"}`}>{t.roll}</div>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className={`font-semibold text-sm ${i === 1 ? "text-white" : "text-navy"}`}>{t.name}</div>
-                    <div className={`text-xs ${i === 1 ? "text-white/65" : "text-gray-500"}`}>{t.roll}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
 
           {/* Video testimonial strip */}
