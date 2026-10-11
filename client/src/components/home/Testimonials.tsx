@@ -91,6 +91,7 @@ export function Testimonials() {
   const [testimonials, setTestimonials] = useState<any[]>([]);
   const [reviewVideos, setReviewVideos] = useState<any[]>([]);
   const [activeVideo, setActiveVideo] = useState<any | null>(null);
+  const [selectedFeedback, setSelectedFeedback] = useState<{ feedback: any; isNavy: boolean } | null>(null);
 
   const [videoError, setVideoError] = useState<string | null>(null);
 
@@ -102,6 +103,15 @@ export function Testimonials() {
     api.get("/public/review-videos")
       .then((res) => { if (res.success) setReviewVideos(res.videos || []); })
       .catch(() => {});
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedFeedback(null);
+        setActiveVideo(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Build a streaming URL for the active video using the proxy endpoint
@@ -145,34 +155,57 @@ export function Testimonials() {
           <div className="relative -mx-5 lg:-mx-8 overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)] py-4">
             <div
               className="flex w-max marquee gap-6 hover:[animation-play-state:paused]"
-              style={{ animationDuration: "50s" }}
+              style={{
+                animationDuration: "50s",
+                animationPlayState: selectedFeedback ? "paused" : undefined,
+              }}
             >
               {marqueeItems.map((t: any, i: number) => {
                 const isNavy = i % 2 === 1;
+                const isLong = Boolean(t.review && (t.review.length > 170 || t.review.includes("\n")));
                 return (
                   <div
                     key={`${t.roll || t.name}-${i}`}
-                    className={`w-[360px] sm:w-[420px] lg:w-[460px] shrink-0 relative rounded-2xl p-7 border flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${
+                    onClick={() => setSelectedFeedback({ feedback: t, isNavy })}
+                    className={`w-[340px] sm:w-[380px] lg:w-[400px] h-[280px] shrink-0 relative rounded-2xl p-6 border flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer select-none group ${
                       isNavy ? "bg-navy text-white border-navy" : "bg-white text-navy border-gray-100 shadow-sm"
                     }`}
                   >
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <Quote className={`h-8 w-8 ${isNavy ? "text-gold" : "text-navy/20"}`} />
-                        <div className="flex">
-                          {[...Array(5)].map((_, s) => (
-                            <Star key={s} className="h-3.5 w-3.5 fill-gold text-gold" />
-                          ))}
-                        </div>
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-3 shrink-0">
+                      <Quote className={`h-7 w-7 ${isNavy ? "text-gold" : "text-navy/20"}`} />
+                      <div className="flex">
+                        {[...Array(5)].map((_, s) => (
+                          <Star key={s} className="h-3.5 w-3.5 fill-gold text-gold" />
+                        ))}
                       </div>
-                      <p className={`text-sm lg:text-base leading-relaxed whitespace-pre-line ${isNavy ? "text-white/90" : "text-gray-700"}`}>
-                        "{t.review}"
-                      </p>
                     </div>
 
-                    <div className={`mt-8 flex items-center gap-3 pt-5 border-t ${isNavy ? "border-white/10" : "border-gray-100"}`}>
+                    {/* Review text with consistent clamp */}
+                    <div className="relative flex-1 overflow-hidden my-1 flex flex-col justify-start">
+                      <p className={`text-sm leading-relaxed line-clamp-4 ${isNavy ? "text-white/90" : "text-gray-700"}`}>
+                        "{t.review.replace(/\n+/g, " ")}"
+                      </p>
+                      {isLong && (
+                        <div className="mt-auto pt-1 flex items-center justify-between">
+                          <span className={`text-xs font-semibold flex items-center gap-1 transition-colors ${
+                            isNavy ? "text-gold group-hover:underline" : "text-navy group-hover:text-gold group-hover:underline"
+                          }`}>
+                            Read full feedback &rarr;
+                          </span>
+                          <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
+                            isNavy ? "bg-white/10 text-white/80" : "bg-gray-100 text-gray-600"
+                          }`}>
+                            Tap to view
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer with avatar & info */}
+                    <div className={`mt-3 flex items-center gap-3 pt-3 border-t shrink-0 ${isNavy ? "border-white/10" : "border-gray-100"}`}>
                       <div
-                        className={`h-11 w-11 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-sm shrink-0 ${
+                        className={`h-10 w-10 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-xs shrink-0 ${
                           isNavy ? "bg-gold text-navy" : "bg-navy text-white"
                         }`}
                       >
@@ -182,9 +215,9 @@ export function Testimonials() {
                           t.initials || t.name.charAt(0)
                         )}
                       </div>
-                      <div>
-                        <div className={`font-semibold text-sm ${isNavy ? "text-white" : "text-navy"}`}>{t.name}</div>
-                        <div className={`text-xs ${isNavy ? "text-white/65" : "text-gray-500"}`}>{t.roll}</div>
+                      <div className="min-w-0">
+                        <div className={`font-semibold text-sm truncate ${isNavy ? "text-white" : "text-navy"}`}>{t.name}</div>
+                        <div className={`text-xs truncate ${isNavy ? "text-white/65" : "text-gray-500"}`}>{t.roll}</div>
                       </div>
                     </div>
                   </div>
@@ -288,6 +321,84 @@ export function Testimonials() {
                   {activeVideo.studentName}{activeVideo.roll ? ` · ${activeVideo.roll}` : ""}
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full feedback modal with matching card CSS and smooth normal animation */}
+      {selectedFeedback && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedFeedback(null)}
+        >
+          <div
+            className={`relative w-full max-w-lg rounded-2xl p-7 sm:p-8 border shadow-2xl animate-feedback-modal ${
+              selectedFeedback.isNavy
+                ? "bg-navy text-white border-navy"
+                : "bg-white text-navy border-gray-200"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header: Quote + 5 Stars + Close Button */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Quote className={`h-8 w-8 ${selectedFeedback.isNavy ? "text-gold" : "text-navy/20"}`} />
+                <div className="flex">
+                  {[...Array(5)].map((_, s) => (
+                    <Star key={s} className="h-4 w-4 fill-gold text-gold" />
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedFeedback(null)}
+                className={`h-9 w-9 rounded-full flex items-center justify-center transition-colors ${
+                  selectedFeedback.isNavy
+                    ? "bg-white/10 text-white hover:bg-white/20"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Review Text */}
+            <div className="my-5 max-h-[55vh] overflow-y-auto pr-2">
+              <p className={`text-base leading-relaxed whitespace-pre-line ${
+                selectedFeedback.isNavy ? "text-white/95" : "text-gray-700"
+              }`}>
+                "{selectedFeedback.feedback.review}"
+              </p>
+            </div>
+
+            {/* Footer: Avatar + Name + Roll */}
+            <div className={`pt-5 border-t flex items-center gap-3.5 ${
+              selectedFeedback.isNavy ? "border-white/10" : "border-gray-100"
+            }`}>
+              <div
+                className={`h-11 w-11 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-sm shrink-0 ${
+                  selectedFeedback.isNavy ? "bg-gold text-navy" : "bg-navy text-white"
+                }`}
+              >
+                {selectedFeedback.feedback.image ? (
+                  <img
+                    src={selectedFeedback.feedback.image}
+                    alt={selectedFeedback.feedback.name}
+                    className="h-full w-full object-cover rounded-full"
+                  />
+                ) : (
+                  selectedFeedback.feedback.initials || selectedFeedback.feedback.name.charAt(0)
+                )}
+              </div>
+              <div>
+                <div className={`font-semibold text-base ${selectedFeedback.isNavy ? "text-white" : "text-navy"}`}>
+                  {selectedFeedback.feedback.name}
+                </div>
+                <div className={`text-xs ${selectedFeedback.isNavy ? "text-white/65" : "text-gray-500"}`}>
+                  {selectedFeedback.feedback.roll}
+                </div>
+              </div>
             </div>
           </div>
         </div>
