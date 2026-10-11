@@ -12,7 +12,7 @@ const API_BASE = (() => {
   return base;
 })();
 
-const STUDENT_FEEDBACKS = [
+const STUDENT_FEEDBACKS_ROW1 = [
   {
     name: "RANJITH KUMAR S",
     roll: "AXP26164",
@@ -63,10 +63,52 @@ const STUDENT_FEEDBACKS = [
   },
 ];
 
-const FALLBACK_ITEMS = [
-  { name: "Priya Krishnan", roll: "Staff Nurse · Apollo Hospitals", review: "From classroom to a top hospital in 8 months. The proctored exams gave my employer real confidence.", initials: "PK", image: null },
-  { name: "Arjun Reddy",    roll: "OT Technician · Manipal",review: "The hands-on OT simulation modules made my transition to the operating theatre seamless. Top-tier faculty.", initials: "AR", image: null },
-  { name: "Sneha Pillai",   roll: "Lab Technician · Fortis",review: "I started with ₹999/month EMI and now earn 6× that monthly. The placement team was relentlessly supportive.", initials: "SP", image: null },
+const STUDENT_FEEDBACKS_ROW2 = [
+  {
+    name: "Axon Med Student",
+    roll: "Axon Med Academy",
+    review: "My experience with axon med academy has been good, i am able to contact manikandan sir for every minor doubts, this is more of a senior junior interaction which makes me feel free to ask even silly doubts...he has guided me in the correct way ..he understands every students situation and still manages to motivate us all to study no matter what, also the recorded classes are very much useful although the classes are of longer duration it covers half of the topics which makes us easy to study those topics again....the possibility to ask any doubts any time, the comfort manikandan sir has given so that we can be confident that sir will make us study, keeping us engaging by asking us to post questions in telegram group..discussion classes all these makes us easy…",
+    initials: "AM",
+  },
+  {
+    name: "Subathra T",
+    roll: "AXP2686",
+    review: "Good morning sir,\nFirst of all , I don't have any idea to get MD or MRB seat, after attending the orientation cls my thought was changed.After joining axon academy I did little task daily, I trust that like consistency help us a lot . Weekly once u give motivation that help us to be with tha plan. And the academy clears all the problem that we suggest.",
+    initials: "ST",
+  },
+  {
+    name: "Jeya A",
+    roll: "AXP26121",
+    review: "My experience with Axon med academy was good .The recorded videos are very useful for learning and revising the subjects.The explanations are clear and help us understand the concepts better.i would also like to appreciate the involvement of the staff.Their guidance and support are helpful whenever we have doubts or need clarification.Regular interaction with students.doubt clearing sessions and follow up from staff are useful.Overall ,I am happy with the learning support provided by Axon med academy and appreciate the effors of the teaching and supporting staff.\n\nThank you sir😇",
+    initials: "JA",
+  },
+  {
+    name: "S. K. Asmitha",
+    roll: "AXP26179",
+    review: "I'm thankful to axon for  guiding and motivating  us. The regular tests, telegram quiz, recorded videos helps us to learn easily. These make us to be consistent in studying .\nThank you sir",
+    initials: "SA",
+  },
+  {
+    name: "Priya Krishnan",
+    roll: "Staff Nurse · Apollo Hospitals",
+    review: "From classroom to a top hospital in 8 months. The proctored exams gave my employer real confidence.",
+    initials: "PK",
+    image: null,
+  },
+  {
+    name: "Arjun Reddy",
+    roll: "OT Technician · Manipal",
+    review: "The hands-on OT simulation modules made my transition to the operating theatre seamless. Top-tier faculty.",
+    initials: "AR",
+    image: null,
+  },
+  {
+    name: "Sneha Pillai",
+    roll: "Lab Technician · Fortis",
+    review: "I started with ₹999/month EMI and now earn 6× that monthly. The placement team was relentlessly supportive.",
+    initials: "SP",
+    image: null,
+  },
 ];
 
 function VideoThumbnail({ video, streamUrl, className }: { video: any; streamUrl: string; className?: string }) {
@@ -149,11 +191,80 @@ export function Testimonials() {
     return video.videoUrl || '';
   };
 
-  const allFeedbacks = [
-    ...STUDENT_FEEDBACKS,
-    ...(testimonials.length > 0 ? testimonials : FALLBACK_ITEMS),
+  const row1Feedbacks = [
+    ...STUDENT_FEEDBACKS_ROW1,
+    ...(testimonials.length > 0 ? testimonials.slice(0, Math.ceil(testimonials.length / 2)) : []),
   ];
-  const marqueeItems = [...allFeedbacks, ...allFeedbacks];
+  const marqueeItems1 = [...row1Feedbacks, ...row1Feedbacks];
+
+  const row2Feedbacks = [
+    ...STUDENT_FEEDBACKS_ROW2,
+    ...(testimonials.length > 0 ? testimonials.slice(Math.ceil(testimonials.length / 2)) : []),
+  ];
+  const marqueeItems2 = [...row2Feedbacks, ...row2Feedbacks];
+
+  const renderCard = (t: any, i: number, isNavy: boolean, rowId: string) => {
+    const isLong = Boolean(t.review && (t.review.length > 170 || t.review.includes("\n")));
+    return (
+      <div
+        key={`${rowId}-${t.roll || t.name}-${i}`}
+        onClick={() => setSelectedFeedback({ feedback: t, isNavy })}
+        className={`w-[340px] sm:w-[380px] lg:w-[400px] h-[280px] shrink-0 relative rounded-2xl p-6 border flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer select-none group ${
+          isNavy ? "bg-navy text-white border-navy" : "bg-white text-navy border-gray-100 shadow-sm"
+        }`}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3 shrink-0">
+          <Quote className={`h-7 w-7 ${isNavy ? "text-gold" : "text-navy/20"}`} />
+          <div className="flex">
+            {[...Array(5)].map((_, s) => (
+              <Star key={s} className="h-3.5 w-3.5 fill-gold text-gold" />
+            ))}
+          </div>
+        </div>
+
+        {/* Review text with consistent clamp */}
+        <div className="relative flex-1 overflow-hidden my-1 flex flex-col justify-start">
+          <p className={`text-sm leading-relaxed line-clamp-4 ${isNavy ? "text-white/90" : "text-gray-700"}`}>
+            "{t.review.replace(/\n+/g, " ")}"
+          </p>
+          {isLong && (
+            <div className="mt-auto pt-1 flex items-center justify-between">
+              <span className={`text-xs font-semibold flex items-center gap-1 transition-colors ${
+                isNavy ? "text-gold group-hover:underline" : "text-navy group-hover:text-gold group-hover:underline"
+              }`}>
+                Read full feedback &rarr;
+              </span>
+              <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
+                isNavy ? "bg-white/10 text-white/80" : "bg-gray-100 text-gray-600"
+              }`}>
+                Tap to view
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Footer with avatar & info */}
+        <div className={`mt-3 flex items-center gap-3 pt-3 border-t shrink-0 ${isNavy ? "border-white/10" : "border-gray-100"}`}>
+          <div
+            className={`h-10 w-10 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-xs shrink-0 ${
+              isNavy ? "bg-gold text-navy" : "bg-navy text-white"
+            }`}
+          >
+            {t.image ? (
+              <img src={t.image} alt={t.name} className="h-full w-full object-cover rounded-full" />
+            ) : (
+              t.initials || t.name.charAt(0)
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className={`font-semibold text-sm truncate ${isNavy ? "text-white" : "text-navy"}`}>{t.name}</div>
+            <div className={`text-xs truncate ${isNavy ? "text-white/65" : "text-gray-500"}`}>{t.roll}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -175,78 +286,29 @@ export function Testimonials() {
             </div>
           </div>
 
-          {/* Student Feedbacks Right-to-Left Moving Marquee */}
-          <div className="relative -mx-5 lg:-mx-8 overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)] py-4">
+          {/* Student Feedbacks Row 1: Right-to-Left Moving Marquee */}
+          <div className="relative -mx-5 lg:-mx-8 overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)] py-2">
             <div
               className="flex w-max marquee gap-6 hover:[animation-play-state:paused]"
               style={{
-                animationDuration: "50s",
+                animationDuration: "55s",
                 animationPlayState: selectedFeedback ? "paused" : undefined,
               }}
             >
-              {marqueeItems.map((t: any, i: number) => {
-                const isNavy = i % 2 === 1;
-                const isLong = Boolean(t.review && (t.review.length > 170 || t.review.includes("\n")));
-                return (
-                  <div
-                    key={`${t.roll || t.name}-${i}`}
-                    onClick={() => setSelectedFeedback({ feedback: t, isNavy })}
-                    className={`w-[340px] sm:w-[380px] lg:w-[400px] h-[280px] shrink-0 relative rounded-2xl p-6 border flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer select-none group ${
-                      isNavy ? "bg-navy text-white border-navy" : "bg-white text-navy border-gray-100 shadow-sm"
-                    }`}
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-3 shrink-0">
-                      <Quote className={`h-7 w-7 ${isNavy ? "text-gold" : "text-navy/20"}`} />
-                      <div className="flex">
-                        {[...Array(5)].map((_, s) => (
-                          <Star key={s} className="h-3.5 w-3.5 fill-gold text-gold" />
-                        ))}
-                      </div>
-                    </div>
+              {marqueeItems1.map((t: any, i: number) => renderCard(t, i, i % 2 === 1, "r1"))}
+            </div>
+          </div>
 
-                    {/* Review text with consistent clamp */}
-                    <div className="relative flex-1 overflow-hidden my-1 flex flex-col justify-start">
-                      <p className={`text-sm leading-relaxed line-clamp-4 ${isNavy ? "text-white/90" : "text-gray-700"}`}>
-                        "{t.review.replace(/\n+/g, " ")}"
-                      </p>
-                      {isLong && (
-                        <div className="mt-auto pt-1 flex items-center justify-between">
-                          <span className={`text-xs font-semibold flex items-center gap-1 transition-colors ${
-                            isNavy ? "text-gold group-hover:underline" : "text-navy group-hover:text-gold group-hover:underline"
-                          }`}>
-                            Read full feedback &rarr;
-                          </span>
-                          <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
-                            isNavy ? "bg-white/10 text-white/80" : "bg-gray-100 text-gray-600"
-                          }`}>
-                            Tap to view
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer with avatar & info */}
-                    <div className={`mt-3 flex items-center gap-3 pt-3 border-t shrink-0 ${isNavy ? "border-white/10" : "border-gray-100"}`}>
-                      <div
-                        className={`h-10 w-10 overflow-hidden rounded-full flex items-center justify-center font-display font-bold text-xs shrink-0 ${
-                          isNavy ? "bg-gold text-navy" : "bg-navy text-white"
-                        }`}
-                      >
-                        {t.image ? (
-                          <img src={t.image} alt={t.name} className="h-full w-full object-cover rounded-full" />
-                        ) : (
-                          t.initials || t.name.charAt(0)
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className={`font-semibold text-sm truncate ${isNavy ? "text-white" : "text-navy"}`}>{t.name}</div>
-                        <div className={`text-xs truncate ${isNavy ? "text-white/65" : "text-gray-500"}`}>{t.roll}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Student Feedbacks Row 2: Left-to-Right Moving Marquee */}
+          <div className="relative -mx-5 lg:-mx-8 overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_5%,black_95%,transparent)] py-2 mt-4">
+            <div
+              className="flex w-max marquee-reverse gap-6 hover:[animation-play-state:paused]"
+              style={{
+                animationDuration: "55s",
+                animationPlayState: selectedFeedback ? "paused" : undefined,
+              }}
+            >
+              {marqueeItems2.map((t: any, i: number) => renderCard(t, i, i % 2 === 0, "r2"))}
             </div>
           </div>
 

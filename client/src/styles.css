@@ -150,6 +150,13 @@
     from { transform: translateX(0); }
     to   { transform: translateX(-50%); }
   }
+  .marquee-reverse {
+    animation: marquee-reverse 40s linear infinite;
+  }
+  @keyframes marquee-reverse {
+    from { transform: translateX(-50%); }
+    to   { transform: translateX(0); }
+  }
   .animate-feedback-modal {
     animation: feedbackModalIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
