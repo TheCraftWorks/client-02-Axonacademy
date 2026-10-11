@@ -65,6 +65,30 @@ const STUDENT_FEEDBACKS_ROW1 = [
 
 const STUDENT_FEEDBACKS_ROW2 = [
   {
+    name: "Nandhakumar K",
+    roll: "AXP2607",
+    review: "The recorded videos guide me to study each subject in the right way, and the mnemonics are always one of the best features of this academy. In fact, they encourage me to create my own mnemonics, which makes it easier to memorize difficult topics.\n\nFor me, Axon Med Academy is a very friendly and supportive academy. Whenever I approach them with any issue, I receive a quick response and the necessary support.",
+    initials: "NK",
+  },
+  {
+    name: "Kavitha.T",
+    roll: "AXP26129",
+    review: "My experience with Axon Med Academy has been truly wonderful and motivating. The uploaded video classes are very useful, well-organized, and easy to understand.\n\nAnother thing I really value is their friendly interaction with students. They take the time to understand our individual situations and difficulties rather than simply expecting results from us. This supportive approach makes students feel comfortable sharing their concerns and seeking guidance.",
+    initials: "KT",
+  },
+  {
+    name: "B. Hari Lakshmi",
+    roll: "AXP26142",
+    review: "The questions posted on telegram seems like a simple task daily.. But in future it helps a lot.. The portions for each test is not so much pressurizing on students and can be finished through consistent small efforts. The Academy is very friendly towards students and gives us space to discuss our problems.",
+    initials: "BH",
+  },
+  {
+    name: "Karthick T",
+    roll: "AXP26152",
+    review: "The axon academy provides a good learning experience. The faculty members explain concepts clearly and are supportive. The classes are well organized, and the study materials are useful for exam preparation. Overall, I am satisfied with the academy and appreciate the efforts of the faculty. With these improvements, the learning experience would become even better.\n\nThank you sir.",
+    initials: "KT",
+  },
+  {
     name: "Axon Med Student",
     roll: "Axon Med Academy",
     review: "My experience with axon med academy has been good, i am able to contact manikandan sir for every minor doubts, this is more of a senior junior interaction which makes me feel free to ask even silly doubts...he has guided me in the correct way ..he understands every students situation and still manages to motivate us all to study no matter what, also the recorded classes are very much useful although the classes are of longer duration it covers half of the topics which makes us easy to study those topics again....the possibility to ask any doubts any time, the comfort manikandan sir has given so that we can be confident that sir will make us study, keeping us engaging by asking us to post questions in telegram group..discussion classes all these makes us easy…",
