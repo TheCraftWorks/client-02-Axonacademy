@@ -5,7 +5,8 @@ const testimonialSchema = new mongoose.Schema({
   roll: { type: String, required: true },
   review: { type: String, required: true },
   image: { type: String }, // Cloudinary image URL
-  imagePublicId: { type: String } // Cloudinary public ID for deletion
+  imagePublicId: { type: String }, // Cloudinary public ID for deletion
+  row: { type: Number, enum: [1, 2], default: 1 }
 }, {
   timestamps: true
 });

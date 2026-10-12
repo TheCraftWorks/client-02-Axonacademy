@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, Navigate } from "@tanstack/react-router";
 import {
   LayoutDashboard, BookOpen, Users, GraduationCap, ClipboardList,
-  Briefcase, BarChart3, CreditCard, Settings, School, MessageCircle, Award, Video
+  Briefcase, BarChart3, CreditCard, Settings, School, MessageCircle, Award, Video, MessageSquareQuote
 } from "lucide-react";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { useClassroomStore } from "@/lib/classroomStore";
@@ -19,6 +19,7 @@ const ADMIN_NAV = [
   { label: "Analytics", to: "/admin/analytics", icon: BarChart3 },
   // { label: "Finance", to: "/admin/finance", icon: CreditCard },
   { label: "Messages", to: "/admin/messages", icon: MessageCircle },
+  { label: "Feedback", to: "/admin/feedback", icon: MessageSquareQuote },
   { label: "Certificates", to: "/admin/certificates", icon: Award },
   { label: "Settings", to: "/admin/settings", icon: Settings },
 ];

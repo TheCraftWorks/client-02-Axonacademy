@@ -2701,7 +2701,7 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
           const opt = {
             margin: 12,
             filename: filename,
-            image: { type: 'jpeg', quality: 0.98 },
+            image: { type: 'jpeg' as const, quality: 0.98 },
             html2canvas: {
               scale: isMobile ? 1.0 : 1.2, // Avoid canvas memory crashes on mobile/tablet devices
               useCORS: true,
@@ -2734,7 +2734,7 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
                 }
               }
             },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
           };
 
           let pdfBlob: Blob | null = null;

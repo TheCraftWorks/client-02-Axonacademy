@@ -1,6 +1,6 @@
-import { Quote, Play, Star, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { Quote, Play, Star, X, Plus, Loader2, CheckCircle2, AlertCircle, Upload } from "lucide-react";
+import { useEffect, useState, useRef } from "react";
+import { api, getAssetUrl } from "@/lib/api";
 
 // Derive the base server URL (without /api/v1) so we can build stream URLs
 const API_BASE = (() => {
@@ -279,6 +279,18 @@ export function Testimonials() {
   const [activeVideo, setActiveVideo] = useState<any | null>(null);
   const [selectedFeedback, setSelectedFeedback] = useState<{ feedback: any; isNavy: boolean } | null>(null);
 
+  // Home Page Add Feedback Modal Sheet state
+  const [isAddFeedbackOpen, setIsAddFeedbackOpen] = useState(false);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState({ name: "", roll: "", review: "", row: 1 });
+  const [feedbackSubmittedSuccess, setFeedbackSubmittedSuccess] = useState(false);
+  const [feedbackSubmitError, setFeedbackSubmitError] = useState<string | null>(null);
+
+  // Photo upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
   const [videoError, setVideoError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -294,11 +306,72 @@ export function Testimonials() {
       if (e.key === "Escape") {
         setSelectedFeedback(null);
         setActiveVideo(null);
+        setIsAddFeedbackOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+    }
+  };
+
+  const handleSaveFeedback = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackForm.name.trim() || !feedbackForm.roll.trim() || !feedbackForm.review.trim()) {
+      setFeedbackSubmitError("Please fill in Student Name, Reg No, and Feedback.");
+      return;
+    }
+
+    setSubmittingFeedback(true);
+    setFeedbackSubmitError(null);
+
+    try {
+      let res;
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append("name", feedbackForm.name.trim());
+        formData.append("roll", feedbackForm.roll.trim());
+        formData.append("review", feedbackForm.review.trim());
+        formData.append("row", String(feedbackForm.row));
+        formData.append("image", selectedFile);
+        res = await api.multipart("/public/testimonials", "POST", formData);
+      } else {
+        res = await api.post("/public/testimonials", {
+          name: feedbackForm.name.trim(),
+          roll: feedbackForm.roll.trim(),
+          review: feedbackForm.review.trim(),
+          row: Number(feedbackForm.row) === 2 ? 2 : 1,
+        });
+      }
+
+      if (res.success && res.testimonial) {
+        setTestimonials((prev) => [res.testimonial, ...prev]);
+        setFeedbackSubmittedSuccess(true);
+        setTimeout(() => {
+          setIsAddFeedbackOpen(false);
+          setFeedbackSubmittedSuccess(false);
+          setFeedbackForm({ name: "", roll: "", review: "", row: 1 });
+          setSelectedFile(null);
+          setPreviewUrl(null);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        }, 1800);
+      } else {
+        throw new Error(res.message || "Failed to save feedback");
+      }
+    } catch (err: any) {
+      console.error("Feedback submit error:", err);
+      setFeedbackSubmitError(err.message || "Failed to save feedback. Please try again.");
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
 
   // Build a streaming URL for the active video using the proxy endpoint
   const getStreamUrl = (video: any) => {
@@ -311,15 +384,18 @@ export function Testimonials() {
     return video.videoUrl || '';
   };
 
+  const dynamicRow1 = testimonials.filter((t) => Number(t.row) === 1 || !t.row);
+  const dynamicRow2 = testimonials.filter((t) => Number(t.row) === 2);
+
   const row1Feedbacks = [
+    ...dynamicRow1,
     ...STUDENT_FEEDBACKS_ROW1,
-    ...(testimonials.length > 0 ? testimonials.slice(0, Math.ceil(testimonials.length / 2)) : []),
   ];
   const marqueeItems1 = [...row1Feedbacks, ...row1Feedbacks];
 
   const row2Feedbacks = [
+    ...dynamicRow2,
     ...STUDENT_FEEDBACKS_ROW2,
-    ...(testimonials.length > 0 ? testimonials.slice(Math.ceil(testimonials.length / 2)) : []),
   ];
   const marqueeItems2 = [...row2Feedbacks, ...row2Feedbacks];
 
@@ -372,7 +448,7 @@ export function Testimonials() {
             }`}
           >
             {t.image ? (
-              <img src={t.image} alt={t.name} className="h-full w-full object-cover rounded-full" />
+              <img src={getAssetUrl(t.image)} alt={t.name} className="h-full w-full object-cover rounded-full" />
             ) : (
               t.initials || t.name.charAt(0)
             )}
@@ -397,12 +473,26 @@ export function Testimonials() {
                 500 careers.<br />One academy.
               </h2>
             </div>
-            <div className="flex items-center gap-3 rounded-full bg-white border border-gray-200 px-4 py-2">
-              <div className="flex">
-                {[...Array(5)].map((_, i) => <Star key={i} className="h-4 w-4 fill-gold text-gold" />)}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-3 rounded-full bg-white border border-gray-200 px-4 py-2 shadow-sm">
+                <div className="flex">
+                  {[...Array(5)].map((_, i) => <Star key={i} className="h-4 w-4 fill-gold text-gold" />)}
+                </div>
+                <span className="text-sm font-bold text-navy">4.9 / 5</span>
+                <span className="text-xs text-gray-500">· 500+ reviews</span>
               </div>
-              <span className="text-sm font-bold text-navy">4.9 / 5</span>
-              <span className="text-xs text-gray-500">· 500+ reviews</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedbackSubmitError(null);
+                  setFeedbackSubmittedSuccess(false);
+                  setIsAddFeedbackOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-full bg-navy text-gold hover:bg-navy/90 border border-gold/40 px-5 py-2.5 text-sm font-bold shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+              >
+                <Plus className="h-4 w-4 text-gold" />
+                <span>Add Feedback</span>
+              </button>
             </div>
           </div>
 
@@ -589,7 +679,7 @@ export function Testimonials() {
               >
                 {selectedFeedback.feedback.image ? (
                   <img
-                    src={selectedFeedback.feedback.image}
+                    src={getAssetUrl(selectedFeedback.feedback.image)}
                     alt={selectedFeedback.feedback.name}
                     className="h-full w-full object-cover rounded-full"
                   />
@@ -606,6 +696,205 @@ export function Testimonials() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Feedback Popup Sheet */}
+      {isAddFeedbackOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => {
+            if (!submittingFeedback) setIsAddFeedbackOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-lg bg-[#0B1F3A] text-white rounded-3xl p-6 sm:p-8 border border-white/15 shadow-2xl relative animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-white/10">
+              <div>
+                <div className="text-xs font-mono uppercase tracking-widest text-gold flex items-center gap-1.5 font-semibold">
+                  <span>Student Feedback Sheet</span>
+                </div>
+                <h3 className="text-2xl font-display font-bold text-white mt-1">Share Your Feedback</h3>
+                <p className="text-xs text-white/60 mt-1">
+                  Tell us about your experience with Axon Med Academy.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddFeedbackOpen(false)}
+                className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {feedbackSubmittedSuccess ? (
+              <div className="py-10 text-center space-y-3">
+                <div className="h-14 w-14 rounded-full bg-gold/20 text-gold flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="h-8 w-8 text-gold" />
+                </div>
+                <h4 className="text-xl font-bold font-display text-white">Thank You!</h4>
+                <p className="text-sm text-white/70 max-w-xs mx-auto">
+                  Your feedback has been saved successfully and is now displayed in the academy testimonials.
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveFeedback} className="mt-5 space-y-4">
+                {feedbackSubmitError && (
+                  <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    <span>{feedbackSubmitError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-white/80">
+                    Student Name <span className="text-gold">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={feedbackForm.name}
+                    onChange={(e) => setFeedbackForm({ ...feedbackForm, name: e.target.value })}
+                    placeholder="e.g. RANJITH KUMAR S"
+                    className="w-full bg-white/5 border border-white/15 focus:border-gold rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-white/80">
+                    Reg No <span className="text-gold">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={feedbackForm.roll}
+                    onChange={(e) => setFeedbackForm({ ...feedbackForm, roll: e.target.value })}
+                    placeholder="e.g. AXP26164"
+                    className="w-full bg-white/5 border border-white/15 focus:border-gold rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition-colors"
+                  />
+                </div>
+
+                {/* Student Photo (Optional) */}
+                <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 border border-white/10">
+                  <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-white/10 border border-white/15 grid place-items-center shrink-0">
+                    {previewUrl ? (
+                      <img src={previewUrl} alt="Preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <Upload className="h-5 w-5 text-white/30" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-white/90">Your Photo (Optional)</div>
+                    <div className="text-[10px] text-white/50">Attach your photo or leave empty to use initials.</div>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                      >
+                        {previewUrl ? "Change Photo" : "Upload Photo"}
+                      </button>
+                      {previewUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFile(null);
+                            setPreviewUrl(null);
+                            if (fileInputRef.current) fileInputRef.current.value = "";
+                          }}
+                          className="text-[11px] text-red-300 hover:text-red-200 hover:underline cursor-pointer"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                </div>
+
+                {/* Feedback Review Text */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-white/80">
+                    Feedback <span className="text-gold">*</span>
+                  </label>
+                  <textarea
+                    required
+                    rows={4}
+                    value={feedbackForm.review}
+                    onChange={(e) => setFeedbackForm({ ...feedbackForm, review: e.target.value })}
+                    placeholder="Share your experience about recorded videos, mnemonics, Telegram questions, weekend discussion classes, and test series..."
+                    className="w-full bg-white/5 border border-white/15 focus:border-gold rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition-colors leading-relaxed resize-y"
+                  />
+                </div>
+
+                {/* Row Option Selection */}
+                <div className="pt-1">
+                  <label className="text-xs font-semibold text-white/80 block mb-1.5">
+                    Stream Row
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setFeedbackForm({ ...feedbackForm, row: 1 })}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold text-left transition-all cursor-pointer ${
+                        feedbackForm.row === 1
+                          ? "bg-gold text-navy border-gold"
+                          : "bg-white/5 border-white/15 text-white/70 hover:bg-white/10"
+                      }`}
+                    >
+                      1st Row (Top)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFeedbackForm({ ...feedbackForm, row: 2 })}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold text-left transition-all cursor-pointer ${
+                        feedbackForm.row === 2
+                          ? "bg-gold text-navy border-gold"
+                          : "bg-white/5 border-white/15 text-white/70 hover:bg-white/10"
+                      }`}
+                    >
+                      2nd Row (Bottom)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddFeedbackOpen(false)}
+                    className="px-5 py-2.5 rounded-full text-sm font-semibold text-white/70 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingFeedback}
+                    className="inline-flex items-center gap-2 rounded-full bg-gold text-navy hover:bg-gold/90 font-bold px-6 py-2.5 text-sm shadow-lg shadow-gold/20 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {submittingFeedback ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <span>Save Feedback</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
