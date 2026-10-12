@@ -282,7 +282,7 @@ export function Testimonials() {
   // Home Page Add Feedback Modal Sheet state
   const [isAddFeedbackOpen, setIsAddFeedbackOpen] = useState(false);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
-  const [feedbackForm, setFeedbackForm] = useState({ name: "", roll: "", review: "", row: 1 });
+  const [feedbackForm, setFeedbackForm] = useState({ name: "", roll: "", review: "" });
   const [feedbackSubmittedSuccess, setFeedbackSubmittedSuccess] = useState(false);
   const [feedbackSubmitError, setFeedbackSubmitError] = useState<string | null>(null);
 
@@ -339,7 +339,6 @@ export function Testimonials() {
         formData.append("name", feedbackForm.name.trim());
         formData.append("roll", feedbackForm.roll.trim());
         formData.append("review", feedbackForm.review.trim());
-        formData.append("row", String(feedbackForm.row));
         formData.append("image", selectedFile);
         res = await api.multipart("/public/testimonials", "POST", formData);
       } else {
@@ -347,7 +346,6 @@ export function Testimonials() {
           name: feedbackForm.name.trim(),
           roll: feedbackForm.roll.trim(),
           review: feedbackForm.review.trim(),
-          row: Number(feedbackForm.row) === 2 ? 2 : 1,
         });
       }
 
@@ -357,7 +355,7 @@ export function Testimonials() {
         setTimeout(() => {
           setIsAddFeedbackOpen(false);
           setFeedbackSubmittedSuccess(false);
-          setFeedbackForm({ name: "", roll: "", review: "", row: 1 });
+          setFeedbackForm({ name: "", roll: "", review: "" });
           setSelectedFile(null);
           setPreviewUrl(null);
           if (fileInputRef.current) fileInputRef.current.value = "";
@@ -839,36 +837,7 @@ export function Testimonials() {
                   />
                 </div>
 
-                {/* Row Option Selection */}
-                <div className="pt-1">
-                  <label className="text-xs font-semibold text-white/80 block mb-1.5">
-                    Stream Row
-                  </label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setFeedbackForm({ ...feedbackForm, row: 1 })}
-                      className={`px-3 py-2 rounded-xl border text-xs font-semibold text-left transition-all cursor-pointer ${
-                        feedbackForm.row === 1
-                          ? "bg-gold text-navy border-gold"
-                          : "bg-white/5 border-white/15 text-white/70 hover:bg-white/10"
-                      }`}
-                    >
-                      1st Row (Top)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFeedbackForm({ ...feedbackForm, row: 2 })}
-                      className={`px-3 py-2 rounded-xl border text-xs font-semibold text-left transition-all cursor-pointer ${
-                        feedbackForm.row === 2
-                          ? "bg-gold text-navy border-gold"
-                          : "bg-white/5 border-white/15 text-white/70 hover:bg-white/10"
-                      }`}
-                    >
-                      2nd Row (Bottom)
-                    </button>
-                  </div>
-                </div>
+
 
                 <div className="pt-2 flex items-center justify-end gap-3">
                   <button

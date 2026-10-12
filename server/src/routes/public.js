@@ -59,14 +59,22 @@ router.get('/testimonials', async (req, res, next) => {
   }
 });
 
-// POST /testimonials → Student submit feedback from website (accepts optional photo upload & row selection)
+// POST /testimonials → Student submit feedback from website (auto-alternates Row 1 & Row 2)
 router.post('/testimonials', upload.single('image'), async (req, res, next) => {
   try {
     const { name, roll, review, row } = req.body;
     if (!name || !roll || !review) {
       return res.status(400).json({ success: false, message: 'Student name, Reg No, and Feedback are required' });
     }
-    const targetRow = Number(row) === 2 ? 2 : 1;
+
+    // Auto-alternate rows:
+    // 1st feedback -> row 1, 2nd -> row 2, 3rd -> row 1, 4th -> row 2...
+    let targetRow = Number(row) === 2 || Number(row) === 1 ? Number(row) : null;
+    if (!targetRow) {
+      const latestTestimonial = await Testimonial.findOne().sort({ createdAt: -1 });
+      targetRow = (latestTestimonial && Number(latestTestimonial.row) === 1) ? 2 : 1;
+    }
+
     const image = req.file ? req.file.path : (req.body.image || undefined);
     const imagePublicId = req.file ? req.file.filename : undefined;
 
