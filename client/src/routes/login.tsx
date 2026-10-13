@@ -48,7 +48,7 @@ function Login() {
 
   useEffect(() => {
     const detect = async () => {
-      let ver = "v1.0.10";
+      let ver = "v1.0.11";
       let isCap = false;
 
       if (typeof window !== "undefined" && (window as any).Capacitor) {
@@ -60,7 +60,7 @@ function Login() {
             ver = `v${info.version}${info.build ? `.${info.build}` : ""}`;
           }
         } catch {
-          ver = "v1.0.10";
+          ver = "v1.0.11";
         }
       }
 
