@@ -173,7 +173,9 @@ Timestamp: ${new Date().toLocaleString()}
     setIsSubmitting(true);
 
     try {
-      const payload = await loginUser(userId, password);
+      const cleanUserId = userId.trim();
+      const cleanPassword = password.trim();
+      const payload = await loginUser(cleanUserId, cleanPassword);
       const backendUser = payload.user;
       const accessToken = payload.accessToken || null;
       const role = backendUser.role === "student" ? "student" : backendUser.role;
@@ -185,6 +187,14 @@ Timestamp: ${new Date().toLocaleString()}
         role,
         userId: backendUser.userId || "",
       };
+
+      if (accessToken && typeof window !== "undefined") {
+        try {
+          localStorage.setItem("accessToken", accessToken);
+        } catch {
+          // ignore storage error
+        }
+      }
 
       classroomStore.setState(() => ({ currentUser, accessToken }));
       navigate({ to: role === "student" ? "/student/dashboard" : "/admin/dashboard" });
@@ -370,12 +380,15 @@ Timestamp: ${new Date().toLocaleString()}
           {step === "login" && (
             <form onSubmit={handleLogin} className="mt-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-navy mb-1.5">User ID / Email</label>
+                <label className="block text-xs font-bold text-navy mb-1.5">User ID / Email / Phone</label>
                 <input
                   value={userId}
                   onChange={e => setUserId(e.target.value)}
                   type="text"
-                  placeholder="e.g. student@gmail.com or Admin"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="e.g. student@gmail.com, User ID, or Phone"
                   className="w-full rounded-full border border-gray-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
                   required
                 />
@@ -402,6 +415,9 @@ Timestamp: ${new Date().toLocaleString()}
                     onChange={e => setPassword(e.target.value)}
                     type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="w-full rounded-full border border-gray-200 bg-white pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
                     required
                   />
@@ -430,12 +446,15 @@ Timestamp: ${new Date().toLocaleString()}
           {step === "forgot" && (
             <form onSubmit={handleForgotPassword} className="mt-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-navy mb-1.5">User ID / Email</label>
+                <label className="block text-xs font-bold text-navy mb-1.5">User ID / Email / Phone</label>
                 <input
                   value={userId}
                   onChange={e => setUserId(e.target.value)}
                   type="text"
-                  placeholder="e.g. student@gmail.com or Admin"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="e.g. student@gmail.com or User ID"
                   className="w-full rounded-full border border-gray-200 bg-white px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-navy"
                   required
                 />

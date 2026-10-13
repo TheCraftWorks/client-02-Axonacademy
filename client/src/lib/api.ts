@@ -377,7 +377,8 @@ function normalizeBackendQuiz(raw: any) {
 }
 
 async function fetchJson(path: string, options: RequestInit = {}) {
-  const accessToken = classroomStore.getState().accessToken;
+  const savedToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const accessToken = classroomStore.getState().accessToken || savedToken;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
@@ -397,7 +398,7 @@ async function fetchJson(path: string, options: RequestInit = {}) {
     // On 401, clear the in-memory user so the router redirects to /login.
     // Exclude /auth/me — boot-time rehydration handles that path itself.
     if (response.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
-      classroomStore.setState(() => ({ currentUser: null }));
+      classroomStore.setState(() => ({ currentUser: null, accessToken: null }));
     }
     throw new Error(payload.message || 'Server error');
   }
@@ -408,21 +409,25 @@ export async function loginUser(identifier: string, password: string) {
   invalidateClientClassroomCache();
   return fetchJson('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ identifier, password }),
+    body: JSON.stringify({ identifier: String(identifier || '').trim(), password: String(password || '').trim() }),
   });
 }
 
 export async function forgotPassword(identifier: string) {
   return fetchJson('/auth/forgot-password', {
     method: 'POST',
-    body: JSON.stringify({ identifier }),
+    body: JSON.stringify({ identifier: String(identifier || '').trim() }),
   });
 }
 
 export async function resetPassword(identifier: string, otp: string, newPassword: string) {
   return fetchJson('/auth/reset-password', {
     method: 'POST',
-    body: JSON.stringify({ identifier, otp, newPassword }),
+    body: JSON.stringify({
+      identifier: String(identifier || '').trim(),
+      otp: String(otp || '').trim(),
+      newPassword: String(newPassword || '').trim(),
+    }),
   });
 }
 

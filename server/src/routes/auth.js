@@ -175,14 +175,20 @@ router.post('/login', async (req, res, next) => {
     let user;
     const defaultAccount = defaultLoginAccounts[input.toLowerCase()];
 
-    // Determine if input is an email or userId
+    // Determine if input is an email, phone, or userId
     if (input.includes('@')) {
       // Login by email
       user = await User.findOne({ email: input.toLowerCase() }).select('+password');
     } else {
-      // Login by userId (case-insensitive)
+      // Login by userId (case-insensitive) OR phone number
       const q = new RegExp(`^${input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-      user = await User.findOne({ userId: q }).select('+password');
+      user = await User.findOne({
+        $or: [
+          { userId: q },
+          { phone: input },
+          { phone: input.replace(/\s+/g, '') }
+        ]
+      }).select('+password');
     }
 
     if (!user && defaultAccount && password === defaultAccount.password) {
@@ -205,54 +211,51 @@ router.post('/login', async (req, res, next) => {
     }
 
     if (!user) {
-      // 🛡️ Fail-Safe: Check if an approved ClassroomJoinRequest exists for this email
-      if (input.includes('@')) {
-        const emailLower = input.toLowerCase();
-        const approvedJoinReq = await ClassroomJoinRequest.findOne({
-          email: emailLower,
-          status: 'approved'
-        }).sort({ updatedAt: -1 });
+      // 🛡️ Fail-Safe: Check if an approved ClassroomJoinRequest exists for this email or phone
+      const joinReqFilter = input.includes('@')
+        ? { email: input.toLowerCase(), status: 'approved' }
+        : { phone: input, status: 'approved' };
+      const approvedJoinReq = await ClassroomJoinRequest.findOne(joinReqFilter).sort({ updatedAt: -1 });
 
-        if (approvedJoinReq) {
-          const yearSuffix = String(new Date().getFullYear()).slice(-2);
-          const randomLetters = String.fromCharCode(
-            65 + Math.floor(Math.random() * 26),
-            65 + Math.floor(Math.random() * 26)
-          );
-          const randomNumbers = String(Math.floor(1000 + Math.random() * 9000));
-          const generatedUserId = `Axon${yearSuffix}${randomLetters}${randomNumbers}`;
+      if (approvedJoinReq) {
+        const yearSuffix = String(new Date().getFullYear()).slice(-2);
+        const randomLetters = String.fromCharCode(
+          65 + Math.floor(Math.random() * 26),
+          65 + Math.floor(Math.random() * 26)
+        );
+        const randomNumbers = String(Math.floor(1000 + Math.random() * 9000));
+        const generatedUserId = `Axon${yearSuffix}${randomLetters}${randomNumbers}`;
 
-          try {
-            user = await User.create({
-              fullName: approvedJoinReq.fullName,
-              email: emailLower,
-              phone: approvedJoinReq.phone,
-              password: password, // Uses the password attempted by the student
-              userId: generatedUserId,
-              role: 'student',
-              isVerified: true,
-              isActive: true
+        try {
+          user = await User.create({
+            fullName: approvedJoinReq.fullName,
+            email: approvedJoinReq.email.toLowerCase(),
+            phone: approvedJoinReq.phone,
+            password: password, // Uses the password attempted by the student
+            userId: generatedUserId,
+            role: 'student',
+            isVerified: true,
+            isActive: true
+          });
+
+          // Add student to the classroom roster if assigned
+          if (approvedJoinReq.classroom) {
+            await Classroom.findByIdAndUpdate(approvedJoinReq.classroom, {
+              $addToSet: { students: { student: user._id, status: 'active', addedAt: new Date() } }
             });
-
-            // Add student to the classroom roster if assigned
-            if (approvedJoinReq.classroom) {
-              await Classroom.findByIdAndUpdate(approvedJoinReq.classroom, {
-                $addToSet: { students: { student: user._id, status: 'active', addedAt: new Date() } }
-              });
-            }
-
-            // Sync any existing StudentRequest
-            const studentReq = await StudentRequest.findOne({ email: emailLower });
-            if (studentReq) {
-              studentReq.user = user._id;
-              studentReq.status = 'approved';
-              await studentReq.save();
-            }
-
-            console.log(`[Auth Fail-Safe] Auto-created missing User for approved join request: ${user.email}`);
-          } catch (createErr) {
-            console.error('[Auth Fail-Safe] Error auto-creating user on login:', createErr);
           }
+
+          // Sync any existing StudentRequest
+          const studentReq = await StudentRequest.findOne({ email: approvedJoinReq.email.toLowerCase() });
+          if (studentReq) {
+            studentReq.user = user._id;
+            studentReq.status = 'approved';
+            await studentReq.save();
+          }
+
+          console.log(`[Auth Fail-Safe] Auto-created missing User for approved join request: ${user.email}`);
+        } catch (createErr) {
+          console.error('[Auth Fail-Safe] Error auto-creating user on login:', createErr);
         }
       }
     }
@@ -354,10 +357,13 @@ router.post('/login', async (req, res, next) => {
     // In production: SameSite=none + Secure=true is required for cross-origin
     // (Vercel frontend → Railway backend are different domains)
     const isSecure = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const hostHeader = String(req.headers.host || '');
+    const isCustomDomain = hostHeader.includes('axonmedacademy.com');
     const cookieOptions = {
       httpOnly: true,
       secure: isSecure,
-      sameSite: isSecure ? 'none' : 'lax'
+      sameSite: isSecure ? 'none' : 'lax',
+      ...(isCustomDomain ? { domain: '.axonmedacademy.com' } : {})
     };
     res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 365 * 24 * 60 * 60 * 1000 });
     res.cookie('refreshToken', refreshToken, { ...cookieOptions, maxAge: 365 * 24 * 60 * 60 * 1000 });

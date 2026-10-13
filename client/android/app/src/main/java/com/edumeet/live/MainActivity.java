@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
+import android.webkit.CookieManager;
+import android.webkit.WebSettings;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -24,11 +26,13 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ScreenSharePlugin.class);
         super.onCreate(savedInstanceState);
+        setupWebViewConfig();
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        setupWebViewConfig();
         keepAliveHandler.removeCallbacks(keepAliveRunnable);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ScreenSharePlugin.isSharingActive()) {
             try {
@@ -93,6 +97,21 @@ public class MainActivity extends BridgeActivity {
                 getBridge().getWebView().onResume();
                 getBridge().getWebView().resumeTimers();
             }
+        }
+    }
+
+    private void setupWebViewConfig() {
+        try {
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            if (getBridge() != null && getBridge().getWebView() != null) {
+                cookieManager.setAcceptThirdPartyCookies(getBridge().getWebView(), true);
+                WebSettings settings = getBridge().getWebView().getSettings();
+                settings.setDomStorageEnabled(true);
+                settings.setDatabaseEnabled(true);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("MainActivity", "WebView config setup: " + e.getMessage());
         }
     }
 }

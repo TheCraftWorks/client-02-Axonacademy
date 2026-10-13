@@ -37,7 +37,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: { error: any; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   return (
@@ -200,7 +200,7 @@ function RootComponent() {
       try {
         // Fast auth check with timeout fail-safe so cold starts never block the screen
         const authPromise = getCurrentUser().catch(() => null);
-        const timeoutPromise = new Promise<{ user?: any }>((resolve) => setTimeout(() => resolve({}), 4000));
+        const timeoutPromise = new Promise<{ user?: any }>((resolve) => setTimeout(() => resolve({}), 12000));
         const payload = await Promise.race([authPromise, timeoutPromise]);
         if (!isMounted) return;
 
@@ -240,15 +240,19 @@ function RootComponent() {
 
         // ── FCM: register push token for students after auth is confirmed ──
         if (role === 'student') {
-          if ('Notification' in window && Notification.permission === 'default') {
-            const hasDismissed = sessionStorage.getItem('fcm_prompt_dismissed');
-            if (!hasDismissed) {
-              setShowPermissionPrompt(true);
+          try {
+            if ('Notification' in window && Notification.permission === 'default') {
+              const hasDismissed = sessionStorage.getItem('fcm_prompt_dismissed');
+              if (!hasDismissed) {
+                setShowPermissionPrompt(true);
+              }
+            } else if ('Notification' in window && Notification.permission === 'granted') {
+              initFCM().catch((err) =>
+                console.warn('[FCM] Background init failed:', err)
+              );
             }
-          } else if ('Notification' in window && Notification.permission === 'granted') {
-            initFCM().catch((err) =>
-              console.warn('[FCM] Background init failed:', err)
-            );
+          } catch (fcmErr) {
+            console.warn('[FCM] Push setup skipped safely:', fcmErr);
           }
         }
       } catch (err) {
