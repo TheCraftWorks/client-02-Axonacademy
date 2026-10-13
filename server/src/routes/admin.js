@@ -828,21 +828,23 @@ router.get('/testimonials', protect, restrictTo('admin', 'superadmin'), async (r
   }
 });
 
-// POST /testimonials → Create testimonial (accepts student image upload)
+// POST /testimonials → Create testimonial (accepts student image upload & row selection)
 router.post('/testimonials', protect, restrictTo('admin', 'superadmin'), upload.single('image'), async (req, res, next) => {
   try {
-    const { name, roll, review } = req.body;
+    const { name, roll, review, row } = req.body;
     if (!name || !roll || !review) {
       return res.status(400).json({ success: false, message: 'Name, roll, and review are required' });
     }
 
-    const image = req.file ? req.file.path : undefined;
+    const image = req.file ? req.file.path : (req.body.image || undefined);
     const imagePublicId = req.file ? req.file.filename : undefined;
+    const targetRow = Number(row) === 2 ? 2 : 1;
 
     const testimonial = await Testimonial.create({
-      name,
-      roll,
-      review,
+      name: String(name).trim(),
+      roll: String(roll).trim(),
+      review: String(review).trim(),
+      row: targetRow,
       image,
       imagePublicId
     });
@@ -853,11 +855,15 @@ router.post('/testimonials', protect, restrictTo('admin', 'superadmin'), upload.
   }
 });
 
-// PUT /testimonials/:id → Update testimonial (accepts student image upload)
+// PUT /testimonials/:id → Update testimonial (accepts student image upload & row)
 router.put('/testimonials/:id', protect, restrictTo('admin', 'superadmin'), upload.single('image'), async (req, res, next) => {
   try {
-    const { name, roll, review, removeImage } = req.body;
+    const { name, roll, review, row, removeImage } = req.body;
     const updateData = { name, roll, review };
+
+    if (row !== undefined) {
+      updateData.row = Number(row) === 2 ? 2 : 1;
+    }
 
     if (req.file) {
       const existing = await Testimonial.findById(req.params.id);

@@ -13,6 +13,10 @@ const ReviewVideo = require('../models/ReviewVideo');
 const https = require('https');
 const http = require('http');
 const { generatePresignedGetUrl } = require('../config/cloudflare');
+const multer = require('multer');
+const { storage } = require('../config/cloudinary');
+
+const upload = multer({ storage });
 
 // GET /app-version → Latest APK Version & GitHub Download Information for automatic in-app update prompts
 router.get('/app-version', (req, res) => {
@@ -50,6 +54,39 @@ router.get('/testimonials', async (req, res, next) => {
   try {
     const testimonials = await Testimonial.find().sort({ createdAt: -1 });
     res.json({ success: true, testimonials });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /testimonials → Student submit feedback from website (auto-alternates Row 1 & Row 2)
+router.post('/testimonials', upload.single('image'), async (req, res, next) => {
+  try {
+    const { name, roll, review, row } = req.body;
+    if (!name || !roll || !review) {
+      return res.status(400).json({ success: false, message: 'Student name, Reg No, and Feedback are required' });
+    }
+
+    // Auto-alternate rows:
+    // 1st feedback -> row 1, 2nd -> row 2, 3rd -> row 1, 4th -> row 2...
+    let targetRow = Number(row) === 2 || Number(row) === 1 ? Number(row) : null;
+    if (!targetRow) {
+      const latestTestimonial = await Testimonial.findOne().sort({ createdAt: -1 });
+      targetRow = (latestTestimonial && Number(latestTestimonial.row) === 1) ? 2 : 1;
+    }
+
+    const image = req.file ? req.file.path : (req.body.image || undefined);
+    const imagePublicId = req.file ? req.file.filename : undefined;
+
+    const testimonial = await Testimonial.create({
+      name: String(name).trim(),
+      roll: String(roll).trim(),
+      review: String(review).trim(),
+      row: targetRow,
+      image,
+      imagePublicId
+    });
+    res.status(201).json({ success: true, message: 'Feedback submitted successfully', testimonial });
   } catch (error) {
     next(error);
   }

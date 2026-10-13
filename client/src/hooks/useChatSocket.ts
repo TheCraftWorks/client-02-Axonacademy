@@ -6,7 +6,7 @@ const SOCKET_URL = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace(/\/api\/v1$/, '')
   : import.meta.env.BACKEND_URL
     ? import.meta.env.BACKEND_URL.replace(/\/api\/v1$/, '')
-    : window.location.origin;
+    : typeof window !== 'undefined' ? window.location.origin : '';
 
 export function useChatSocket(onMessageReceived: (msg: any) => void, currentUserId: string) {
   const socketRef = useRef<Socket | null>(null);

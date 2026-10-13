@@ -30,10 +30,7 @@ import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnsw
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
-// @ts-ignore
-import html2pdf from "html2pdf.js";
+
 export const Route = createFileRoute("/_admin/admin/classrooms/$id")({
   component: AdminClassroomDetail,
 });
@@ -2694,7 +2691,8 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
 
           // Resolve html2pdf function robustly
           // @ts-ignore
-          const html2pdfFn = html2pdf.default || html2pdf;
+          const html2pdfModule = await import("html2pdf.js");
+          const html2pdfFn = html2pdfModule.default || html2pdfModule;
           if (typeof html2pdfFn !== 'function') {
             throw new Error('html2pdf package is not resolving to a function');
           }
@@ -2703,7 +2701,7 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
           const opt = {
             margin: 12,
             filename: filename,
-            image: { type: 'jpeg', quality: 0.98 },
+            image: { type: 'jpeg' as const, quality: 0.98 },
             html2canvas: {
               scale: isMobile ? 1.0 : 1.2, // Avoid canvas memory crashes on mobile/tablet devices
               useCORS: true,
@@ -2736,7 +2734,7 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
                 }
               }
             },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
           };
 
           let pdfBlob: Blob | null = null;

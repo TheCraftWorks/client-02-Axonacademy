@@ -29,6 +29,7 @@ import { Route as AdminAdminCoursesRouteImport } from './routes/_admin.admin.cou
 import { Route as AdminAdminDashboardRouteImport } from './routes/_admin.admin.dashboard'
 import { Route as AdminAdminExamsRouteImport } from './routes/_admin.admin.exams'
 import { Route as AdminAdminFacultyRouteImport } from './routes/_admin.admin.faculty'
+import { Route as AdminAdminFeedbackRouteImport } from './routes/_admin.admin.feedback'
 import { Route as AdminAdminFinanceRouteImport } from './routes/_admin.admin.finance'
 import { Route as AdminAdminMessagesRouteImport } from './routes/_admin.admin.messages'
 import { Route as AdminAdminPlacementsRouteImport } from './routes/_admin.admin.placements'
@@ -150,6 +151,11 @@ const AdminAdminExamsRoute = AdminAdminExamsRouteImport.update({
 const AdminAdminFacultyRoute = AdminAdminFacultyRouteImport.update({
   id: '/admin/faculty',
   path: '/admin/faculty',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAdminFeedbackRoute = AdminAdminFeedbackRouteImport.update({
+  id: '/admin/feedback',
+  path: '/admin/feedback',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminAdminFinanceRoute = AdminAdminFinanceRouteImport.update({
@@ -295,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/admin/dashboard': typeof AdminAdminDashboardRoute
   '/admin/exams': typeof AdminAdminExamsRoute
   '/admin/faculty': typeof AdminAdminFacultyRoute
+  '/admin/feedback': typeof AdminAdminFeedbackRoute
   '/admin/finance': typeof AdminAdminFinanceRoute
   '/admin/messages': typeof AdminAdminMessagesRoute
   '/admin/placements': typeof AdminAdminPlacementsRoute
@@ -338,6 +345,7 @@ export interface FileRoutesByTo {
   '/admin/dashboard': typeof AdminAdminDashboardRoute
   '/admin/exams': typeof AdminAdminExamsRoute
   '/admin/faculty': typeof AdminAdminFacultyRoute
+  '/admin/feedback': typeof AdminAdminFeedbackRoute
   '/admin/finance': typeof AdminAdminFinanceRoute
   '/admin/messages': typeof AdminAdminMessagesRoute
   '/admin/placements': typeof AdminAdminPlacementsRoute
@@ -384,6 +392,7 @@ export interface FileRoutesById {
   '/_admin/admin/dashboard': typeof AdminAdminDashboardRoute
   '/_admin/admin/exams': typeof AdminAdminExamsRoute
   '/_admin/admin/faculty': typeof AdminAdminFacultyRoute
+  '/_admin/admin/feedback': typeof AdminAdminFeedbackRoute
   '/_admin/admin/finance': typeof AdminAdminFinanceRoute
   '/_admin/admin/messages': typeof AdminAdminMessagesRoute
   '/_admin/admin/placements': typeof AdminAdminPlacementsRoute
@@ -429,6 +438,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/exams'
     | '/admin/faculty'
+    | '/admin/feedback'
     | '/admin/finance'
     | '/admin/messages'
     | '/admin/placements'
@@ -472,6 +482,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/exams'
     | '/admin/faculty'
+    | '/admin/feedback'
     | '/admin/finance'
     | '/admin/messages'
     | '/admin/placements'
@@ -517,6 +528,7 @@ export interface FileRouteTypes {
     | '/_admin/admin/dashboard'
     | '/_admin/admin/exams'
     | '/_admin/admin/faculty'
+    | '/_admin/admin/feedback'
     | '/_admin/admin/finance'
     | '/_admin/admin/messages'
     | '/_admin/admin/placements'
@@ -701,6 +713,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAdminFacultyRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/_admin/admin/feedback': {
+      id: '/_admin/admin/feedback'
+      path: '/admin/feedback'
+      fullPath: '/admin/feedback'
+      preLoaderRoute: typeof AdminAdminFeedbackRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/_admin/admin/finance': {
       id: '/_admin/admin/finance'
       path: '/admin/finance'
@@ -872,6 +891,7 @@ interface AdminRouteChildren {
   AdminAdminDashboardRoute: typeof AdminAdminDashboardRoute
   AdminAdminExamsRoute: typeof AdminAdminExamsRoute
   AdminAdminFacultyRoute: typeof AdminAdminFacultyRoute
+  AdminAdminFeedbackRoute: typeof AdminAdminFeedbackRoute
   AdminAdminFinanceRoute: typeof AdminAdminFinanceRoute
   AdminAdminMessagesRoute: typeof AdminAdminMessagesRoute
   AdminAdminPlacementsRoute: typeof AdminAdminPlacementsRoute
@@ -892,6 +912,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAdminDashboardRoute: AdminAdminDashboardRoute,
   AdminAdminExamsRoute: AdminAdminExamsRoute,
   AdminAdminFacultyRoute: AdminAdminFacultyRoute,
+  AdminAdminFeedbackRoute: AdminAdminFeedbackRoute,
   AdminAdminFinanceRoute: AdminAdminFinanceRoute,
   AdminAdminMessagesRoute: AdminAdminMessagesRoute,
   AdminAdminPlacementsRoute: AdminAdminPlacementsRoute,

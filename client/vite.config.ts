@@ -1,6 +1,7 @@
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { defineConfig } from "@lovable.dev/vite-tanstack-config/dist/index.js";
 import { nitro } from "nitro/vite";
 import { loadEnv } from "vite";
+import { fileURLToPath } from "node:url";
 
 const env = {
 	...process.env,
@@ -41,11 +42,17 @@ export default defineConfig({
 	cloudflare: false,
 	plugins: [
 		nitro({
-			preset: "vercel",
+			preset: process.env.VERCEL ? "vercel" : undefined,
 			routeRules,
 		}),
 	],
 	vite: {
+		root: fileURLToPath(new URL(".", import.meta.url)),
+		resolve: {
+			alias: {
+				"@": fileURLToPath(new URL("./src", import.meta.url)),
+			},
+		},
 		server: {
 			// Local dev proxy — only used during `npm run dev`
 			proxy: rawApiUrl

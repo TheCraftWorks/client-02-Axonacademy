@@ -150,6 +150,26 @@
     from { transform: translateX(0); }
     to   { transform: translateX(-50%); }
   }
+  .marquee-reverse {
+    animation: marquee-reverse 40s linear infinite;
+  }
+  @keyframes marquee-reverse {
+    from { transform: translateX(-50%); }
+    to   { transform: translateX(0); }
+  }
+  .animate-feedback-modal {
+    animation: feedbackModalIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes feedbackModalIn {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
   .glow-lime {
     box-shadow: 0 0 0 1px oklch(0.93 0.20 124 / 0.4), 0 10px 40px -10px oklch(0.93 0.20 124 / 0.5);
   }
