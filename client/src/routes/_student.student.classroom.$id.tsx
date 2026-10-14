@@ -1640,6 +1640,7 @@ function TestsTab({
       setPhase("result");
 
       classroomActions.submitQuizAttempt(classroomId, activeQuiz.id, {
+        id: (attemptId && !attemptId.startsWith("att-")) ? attemptId : (submitRes as any)?.attemptId || undefined,
         studentId: CURRENT_STUDENT.id,
         studentName: CURRENT_STUDENT.name,
         attemptNo: (activeQuiz.attempts?.length || 0) + 1,
@@ -1762,7 +1763,12 @@ function TestsTab({
 
     setIsLoadingReview(true);
     try {
-      const fullResult = await getQuizAttemptResult(quiz.id, targetAttempt?.id || preferredAttemptId || undefined);
+      const targetAttemptId = targetAttempt?.id && !targetAttempt.id.startsWith("att-") && /^[0-9a-fA-F]{24}$/.test(targetAttempt.id)
+        ? targetAttempt.id
+        : preferredAttemptId && !preferredAttemptId.startsWith("att-") && /^[0-9a-fA-F]{24}$/.test(preferredAttemptId)
+          ? preferredAttemptId
+          : undefined;
+      const fullResult = await getQuizAttemptResult(quiz.id, targetAttemptId);
       setResult({
         score: fullResult.score || targetAttempt?.score,
         answers: fullResult.answers || targetAttempt?.answers || [],

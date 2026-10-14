@@ -640,8 +640,8 @@ export const classroomActions = {
   },
 
   // Quiz Attempts (student submits)
-  submitQuizAttempt: (classroomId: string, quizId: string, attempt: Omit<QuizAttempt, "id">) => {
-    const att: QuizAttempt = { ...attempt, id: `att-${Date.now()}` };
+  submitQuizAttempt: (classroomId: string, quizId: string, attempt: Omit<QuizAttempt, "id"> & { id?: string }) => {
+    const att: QuizAttempt = { ...attempt, id: attempt.id || `att-${Date.now()}` };
     classroomStore.setState((s) => ({
       classrooms: s.classrooms.map((c) =>
         c.id === classroomId

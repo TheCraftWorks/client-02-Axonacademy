@@ -814,7 +814,8 @@ export interface QuizAttemptReviewResult {
 }
 
 export async function getQuizAttemptResult(quizId: string, attemptId?: string): Promise<QuizAttemptReviewResult> {
-  const query = attemptId ? `?attemptId=${encodeURIComponent(attemptId)}` : '';
+  const isValidMongoId = !!attemptId && /^[0-9a-fA-F]{24}$/.test(attemptId);
+  const query = isValidMongoId ? `?attemptId=${encodeURIComponent(attemptId)}` : '';
   const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/attempt/my-result${query}`);
   return {
     score: {

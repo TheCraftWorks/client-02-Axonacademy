@@ -206,6 +206,9 @@ router.get('/:id', protect, async (req, res, next) => {
 router.post('/:id/attempt/start', protect, async (req, res, next) => {
   try {
     const { id } = req.params;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, message: 'Quiz not found' });
+    }
     const quiz = await Quiz.findById(id);
     if (!quiz) {
       return res.status(404).json({ success: false, message: 'Quiz not found' });
@@ -327,6 +330,9 @@ router.post('/:id/attempt/start', protect, async (req, res, next) => {
 router.put('/:id/attempt/answer', protect, async (req, res, next) => {
   try {
     const { attemptId, questionId, selectedOptions, timeTakenSec } = req.body;
+    if (!attemptId || !mongoose.Types.ObjectId.isValid(attemptId)) {
+      return res.status(400).json({ success: false, message: 'Valid attemptId is required' });
+    }
     const attempt = await QuizAttempt.findOne({ _id: attemptId, student: req.user._id }).populate('quiz');
 
     if (!attempt) {
@@ -367,8 +373,8 @@ router.put('/:id/attempt/answer', protect, async (req, res, next) => {
 router.put('/:id/attempt/answers', protect, async (req, res, next) => {
   try {
     const { attemptId, answers } = req.body;
-    if (!attemptId || !Array.isArray(answers)) {
-      return res.status(400).json({ success: false, message: 'Invalid payload. attemptId and answers array are required.' });
+    if (!attemptId || !mongoose.Types.ObjectId.isValid(attemptId) || !Array.isArray(answers)) {
+      return res.status(400).json({ success: false, message: 'Invalid payload. Valid attemptId and answers array are required.' });
     }
 
     const attempt = await QuizAttempt.findOne({ _id: attemptId, student: req.user._id }).populate('quiz');
@@ -418,6 +424,9 @@ router.put('/:id/attempt/answers', protect, async (req, res, next) => {
 router.post('/:id/attempt/submit', protect, async (req, res, next) => {
   try {
     const { attemptId } = req.body;
+    if (!attemptId || !mongoose.Types.ObjectId.isValid(attemptId)) {
+      return res.status(400).json({ success: false, message: 'Valid attemptId is required' });
+    }
     const attempt = await QuizAttempt.findOne({ _id: attemptId, student: req.user._id }).populate('quiz');
 
     if (!attempt) {
@@ -502,7 +511,7 @@ router.post('/:id/attempt/submit', protect, async (req, res, next) => {
     };
 
     await attempt.save();
-    res.json({ success: true, message: 'Quiz submitted successfully', score: attempt.score });
+    res.json({ success: true, message: 'Quiz submitted successfully', attemptId: attempt._id, score: attempt.score });
   } catch (error) {
     next(error);
   }
@@ -596,14 +605,19 @@ function gradeAndNormalizeAttempt(att, quiz) {
 router.get('/:id/attempt/my-result', protect, async (req, res, next) => {
   try {
     const { attemptId } = req.query;
+    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Quiz not found' });
+    }
     const quiz = await Quiz.findById(req.params.id);
     if (!quiz) return res.status(404).json({ success: false, message: 'Quiz not found' });
 
     let attempt;
-    if (attemptId) {
+    if (attemptId && mongoose.Types.ObjectId.isValid(attemptId)) {
       attempt = await QuizAttempt.findOne({ _id: attemptId, student: req.user._id }).populate('quiz');
-    } else {
-      // get latest attempt
+    }
+
+    // Fall back to latest attempt if attempt was not found by attemptId or if attemptId is not a valid ObjectId
+    if (!attempt) {
       attempt = await QuizAttempt.findOne({ quiz: req.params.id, student: req.user._id })
         .populate('quiz')
         .sort({ attemptNo: -1 });
@@ -624,7 +638,8 @@ router.get('/:id/attempt/my-result', protect, async (req, res, next) => {
 
     const studentBestMap = new Map();
     for (const att of allSubmitted) {
-      const sId = att.student.toString();
+      if (!att.student) continue;
+      const sId = att.student._id ? att.student._id.toString() : att.student.toString();
       const norm = gradeAndNormalizeAttempt(att, quiz);
       const enhancedAtt = {
         ...att,
@@ -657,7 +672,11 @@ router.get('/:id/attempt/my-result', protect, async (req, res, next) => {
       return new Date(a.submittedAt || 0) - new Date(b.submittedAt || 0);
     });
 
-    const myRankIndex = rankedStudents.findIndex(att => att.student.toString() === req.user._id.toString());
+    const myRankIndex = rankedStudents.findIndex(att => {
+      if (!att.student) return false;
+      const sId = att.student._id ? att.student._id.toString() : att.student.toString();
+      return sId === req.user._id.toString();
+    });
     const rank = myRankIndex >= 0 ? myRankIndex + 1 : 1;
     const totalParticipants = rankedStudents.length;
 

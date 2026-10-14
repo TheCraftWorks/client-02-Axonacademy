@@ -1,8 +1,13 @@
 const errorHandler = (err, req, res, next) => {
   console.error(`[Error Handler] Details:`, err.stack || err);
 
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
+  let statusCode = err.statusCode || 500;
+  let message = err.message || 'Internal Server Error';
+
+  if (err.name === 'CastError') {
+    statusCode = 400;
+    message = `Invalid ID format for ${err.path}: ${err.value}`;
+  }
 
   res.status(statusCode).json({
     success: false,
