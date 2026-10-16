@@ -1265,16 +1265,24 @@ export async function uploadClassroomFileToCloudinary({
   file: File;
   onProgress?: (percentage: number) => void;
 }) {
-  const accessToken = classroomStore.getState().accessToken;
+  const savedToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const accessToken = classroomStore.getState().accessToken || savedToken;
   const formData = new FormData();
   formData.append('file', file);
 
   return new Promise<string>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}/classrooms/upload-asset`);
+    const tokenQuery = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+    xhr.open('POST', `${API_BASE}/classrooms/upload-asset${tokenQuery}`);
+    xhr.withCredentials = true;
 
     if (accessToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+
+    if (!import.meta.env.PROD) {
+      const devHeaders = getDevAuthUserHeaders();
+      Object.entries(devHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     }
 
     xhr.upload.onprogress = (e) => {
@@ -1303,7 +1311,7 @@ export async function uploadClassroomFileToCloudinary({
 }
 
 /**
- * Upload an announcement PDF directly to Cloudflare R2.
+ * Upload an announcement PDF directly to Cloudflare R2 / Cloudinary.
  */
 export async function uploadAnnouncementPdf({
   file,
@@ -1312,16 +1320,24 @@ export async function uploadAnnouncementPdf({
   file: File;
   onProgress?: (percentage: number) => void;
 }): Promise<{ name: string; url: string; cloudflareKey?: string }> {
-  const accessToken = classroomStore.getState().accessToken;
+  const savedToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const accessToken = classroomStore.getState().accessToken || savedToken;
   const formData = new FormData();
   formData.append('file', file);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}/classrooms/upload-asset`);
+    const tokenQuery = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+    xhr.open('POST', `${API_BASE}/classrooms/upload-asset${tokenQuery}`);
+    xhr.withCredentials = true;
 
     if (accessToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+
+    if (!import.meta.env.PROD) {
+      const devHeaders = getDevAuthUserHeaders();
+      Object.entries(devHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     }
 
     xhr.upload.onprogress = (e) => {

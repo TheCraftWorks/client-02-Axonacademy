@@ -118,7 +118,7 @@ function AdminHome() {
     : `₹${totalRevenue.toLocaleString("en-IN")}`;
 
   const activities = classrooms.flatMap(c => [
-    ...c.announcements.map(a => ({ c: "News", t: `${c.name} - ${a.content.substring(0, 40)}...`, stamp: new Date(a.createdAt).getTime(), w: timeAgoStr(a.createdAt) })),
+    ...c.announcements.map(a => ({ c: "News", t: `${c.name} - ${(typeof a.content === 'string' && a.content ? a.content : (a.attachments?.[0]?.name || 'Announcement')).substring(0, 40)}...`, stamp: new Date(a.createdAt).getTime(), w: timeAgoStr(a.createdAt) })),
     ...c.meetings.filter(m => m.status === 'scheduled').map(m => ({ c: "Live", t: `${m.title} scheduled for ${c.name}`, stamp: new Date(m.scheduledAt).getTime() - 100000, w: timeAgoStr(m.scheduledAt) })),
     ...c.quizzes.filter(q => q.status === 'published').map(q => ({ c: "Exam", t: `${q.title} published in ${c.name}`, stamp: new Date(q.availableFrom).getTime(), w: timeAgoStr(q.availableFrom) })),
   ]).sort((a, b) => b.stamp - a.stamp).slice(0, 5);

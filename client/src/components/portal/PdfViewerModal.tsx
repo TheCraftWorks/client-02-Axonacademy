@@ -279,7 +279,8 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           !url.startsWith('https://') ||
           (typeof window !== 'undefined' && url.startsWith(window.location.origin));
 
-        const accessToken = classroomStore.getState?.()?.accessToken;
+        const savedToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        const accessToken = classroomStore.getState?.()?.accessToken || savedToken;
         const httpHeaders: Record<string, string> = {};
         if (accessToken && isRelativeOrSameOrigin) {
           httpHeaders['Authorization'] = `Bearer ${accessToken}`;

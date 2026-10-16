@@ -604,34 +604,70 @@ function pipeFileResponse(sourceRes, targetRes) {
   sourceRes.pipe(targetRes);
 }
 
-// POST /upload-asset → Admin/Faculty: Upload a classroom asset (PDF) to Cloudflare R2
+// POST /upload-asset → Admin/Faculty: Upload a classroom asset (PDF) to Cloudflare R2 (with Cloudinary fallback)
 router.post('/upload-asset', protect, restrictTo('admin', 'superadmin', 'faculty'), r2Upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    const { uploadFileToCloudflareR2 } = require('../config/cloudflare');
     const originalName = req.file.originalname || 'document.pdf';
     const safeFilename = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const objectKey = `announcements/${Date.now()}-${safeFilename}`;
 
-    await uploadFileToCloudflareR2(
-      req.file.buffer,
-      objectKey,
-      req.file.mimetype || 'application/pdf'
-    );
+    // Step 1: Attempt Cloudflare R2 Upload
+    try {
+      const { uploadFileToCloudflareR2 } = require('../config/cloudflare');
+      await uploadFileToCloudflareR2(
+        req.file.buffer,
+        objectKey,
+        req.file.mimetype || 'application/pdf'
+      );
 
-    const proxyUrl = `/classrooms/r2-proxy?key=${encodeURIComponent(objectKey)}`;
+      const proxyUrl = `/classrooms/r2-proxy?key=${encodeURIComponent(objectKey)}`;
+      console.log('[Upload Asset] Uploaded to R2 successfully, objectKey:', objectKey);
 
-    console.log('[Upload Asset] Uploaded to R2, objectKey:', objectKey);
+      return res.json({
+        success: true,
+        url: proxyUrl,
+        publicId: objectKey,
+        name: originalName
+      });
+    } catch (r2Error) {
+      console.warn('[Upload Asset] Cloudflare R2 upload failed, attempting Cloudinary fallback:', r2Error.message);
+      
+      // Step 2: Fallback to Cloudinary upload
+      try {
+        const { cloudinary } = require('../config/cloudinary');
+        const uploadFromBuffer = () => new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: 'announcements',
+              resource_type: 'auto',
+              public_id: `announcement-${Date.now()}-${safeFilename.replace(/\.[^/.]+$/, '')}`
+            },
+            (err, result) => {
+              if (err) return reject(err);
+              resolve(result);
+            }
+          );
+          stream.end(req.file.buffer);
+        });
 
-    res.json({
-      success: true,
-      url: proxyUrl,
-      publicId: objectKey,
-      name: originalName
-    });
+        const cRes = await uploadFromBuffer();
+        console.log('[Upload Asset] Fallback uploaded to Cloudinary successfully:', cRes.secure_url);
+
+        return res.json({
+          success: true,
+          url: cRes.secure_url,
+          publicId: cRes.public_id,
+          name: originalName
+        });
+      } catch (cloudErr) {
+        console.error('[Upload Asset] Both R2 and Cloudinary upload failed:', cloudErr);
+        throw r2Error;
+      }
+    }
   } catch (error) {
     console.error('[Upload Asset] Error:', error);
     next(error);
@@ -1126,8 +1162,12 @@ router.put('/:id/students/:studentId/status', protect, restrictTo('admin', 'supe
 router.post('/:id/announcements', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
     const { content, attachments } = req.body;
-    if (!content) {
-      return res.status(400).json({ success: false, message: 'Announcement content is required' });
+    const finalContent = (typeof content === 'string' && content.trim()) ||
+      (Array.isArray(attachments) && attachments.length > 0 && attachments[0]?.name ? attachments[0].name : '') ||
+      'Document Announcement';
+
+    if (!finalContent) {
+      return res.status(400).json({ success: false, message: 'Announcement content or document is required' });
     }
 
     const classroom = await Classroom.findById(req.params.id);
@@ -1142,7 +1182,7 @@ router.post('/:id/announcements', protect, restrictTo('admin', 'superadmin', 'fa
     const announcement = await ClassroomAnnouncement.create({
       classroom: req.params.id,
       author: req.user._id,
-      content,
+      content: finalContent,
       attachments: attachments || []
     });
 
