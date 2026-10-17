@@ -2005,34 +2005,59 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
 
     setIsReusing(true);
     try {
-      // 1. Reuse whole folders (without subset)
-      const wholeFolderIds = selectedFolderIds.filter(fId => {
-        const folderRecs = reuseRecordings.filter(r => r.folder && r.folder.toString() === fId);
-        const selectedFolderRecs = folderRecs.filter(r => selectedRecIds.includes(r._id.toString()));
-        return selectedFolderRecs.length === folderRecs.length;
-      });
+      // Find all folders for the selected source classroom
+      const sourceFolders = reuseFolders.filter(
+        f => (f.classroom?.toString() || f.classroom) === selectedSourceClassroomId
+      );
 
-      for (const folderId of wholeFolderIds) {
-        await reuseClassroomFolder(folderId, cls.id);
+      // Collect folder IDs from sourceFolders as well as any folder referenced by selected recordings
+      const folderMap = new Map<string, any>();
+      for (const f of sourceFolders) {
+        const fId = (f._id || f.id).toString();
+        folderMap.set(fId, f);
       }
-
-      // 2. Reuse individual recordings from folders (subset)
-      const partialFolderIds = selectedFolderIds.filter(fId => !wholeFolderIds.includes(fId));
-      for (const folderId of partialFolderIds) {
-        const folderRecs = reuseRecordings.filter(r => r.folder && r.folder.toString() === folderId);
-        const selectedFolderRecs = folderRecs.filter(r => selectedRecIds.includes(r._id.toString())).map(r => r._id.toString());
-        if (selectedFolderRecs.length > 0) {
-          await reuseClassroomFolder(folderId, cls.id, selectedFolderRecs);
+      for (const rec of reuseRecordings) {
+        const rClassroomId = (rec.classroom?.toString() || rec.classroom);
+        const rFolderId = (rec.folder?._id || rec.folder?.id || rec.folder)?.toString();
+        const recId = (rec._id || rec.id).toString();
+        if (rClassroomId === selectedSourceClassroomId && rFolderId && selectedRecIds.includes(recId)) {
+          if (!folderMap.has(rFolderId)) {
+            folderMap.set(rFolderId, { _id: rFolderId, id: rFolderId });
+          }
         }
       }
 
-      // 3. Reuse root recordings
-      const rootRecs = reuseRecordings.filter(r =>
-        selectedRecIds.includes(r.id || r._id.toString()) && !r.folder && r.classroom.toString() === selectedSourceClassroomId
-      );
+      // 1. Process folders (whole folder or selected subset of recordings)
+      for (const [folderId] of folderMap) {
+        const folderRecs = reuseRecordings.filter(r => {
+          const rFolderId = (r.folder?._id || r.folder?.id || r.folder)?.toString();
+          return rFolderId === folderId;
+        });
+        const folderRecIds = folderRecs.map(r => (r._id || r.id).toString());
+        const selectedInFolder = folderRecIds.filter(id => selectedRecIds.includes(id));
+        const isFolderExplicitlyChecked = selectedFolderIds.includes(folderId);
+
+        if (isFolderExplicitlyChecked && (folderRecs.length === 0 || selectedInFolder.length === folderRecs.length)) {
+          // Whole folder reuse
+          await reuseClassroomFolder(folderId, cls.id);
+        } else if (selectedInFolder.length > 0) {
+          // Individual recordings inside this folder (subset)
+          await reuseClassroomFolder(folderId, cls.id, selectedInFolder);
+        }
+      }
+
+      // 2. Reuse root recordings (recordings with no folder in source classroom)
+      const rootRecs = reuseRecordings.filter(r => {
+        const rClassroomId = (r.classroom?.toString() || r.classroom);
+        const rFolderId = (recFolder => (recFolder?._id || recFolder?.id || recFolder)?.toString())(r.folder);
+        const recId = (r.id || r._id).toString();
+        return rClassroomId === selectedSourceClassroomId && !rFolderId && selectedRecIds.includes(recId);
+      });
+
       for (const rec of rootRecs) {
+        const recId = (rec.id || rec._id).toString();
         await reuseClassroomRecording({
-          sourceRecordingId: rec.id || rec._id.toString(),
+          sourceRecordingId: recId,
           targetClassroomId: cls.id,
           folderId: currentFolderId || undefined
         });
@@ -2621,39 +2646,55 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
                       {/* Folders in source classroom */}
                       <div className="space-y-2.5">
                         {reuseFolders
-                          .filter(f => f.classroom.toString() === selectedSourceClassroomId)
+                          .filter(f => (f.classroom?.toString() || f.classroom) === selectedSourceClassroomId)
                           .map(folder => {
-                            const folderRecs = reuseRecordings.filter(r => r.folder && r.folder.toString() === folder._id.toString());
-                            const isFolderChecked = selectedFolderIds.includes(folder._id.toString());
-                            const isExpanded = !!expandedFolders[folder._id.toString()];
+                            const folderId = (folder._id || folder.id).toString();
+                            const folderRecs = reuseRecordings.filter(r => {
+                              const rFolderId = (r.folder?._id || r.folder?.id || r.folder)?.toString();
+                              return rFolderId === folderId;
+                            });
+                            const folderRecIds = folderRecs.map(r => (r._id || r.id).toString());
+                            const selectedFolderRecIds = folderRecIds.filter(id => selectedRecIds.includes(id));
+                            const isAllSelected = folderRecs.length > 0 && selectedFolderRecIds.length === folderRecs.length;
+                            const isPartial = selectedFolderRecIds.length > 0 && !isAllSelected;
+                            const isFolderChecked = selectedFolderIds.includes(folderId) || isAllSelected;
+                            const isExpanded = !!expandedFolders[folderId];
 
                             return (
-                              <div key={folder._id} className="border border-cream/10 rounded-xl bg-cream/2 overflow-hidden">
+                              <div key={folderId} className="border border-cream/10 rounded-xl bg-cream/2 overflow-hidden">
                                 <div className="flex items-center justify-between p-3 hover:bg-cream/5">
                                   <div className="flex items-center gap-3">
                                     <input
                                       type="checkbox"
+                                      ref={el => {
+                                        if (el) el.indeterminate = isPartial;
+                                      }}
                                       checked={isFolderChecked}
                                       onChange={e => {
                                         if (e.target.checked) {
                                           // Select folder & all its recordings
-                                          setSelectedFolderIds(prev => [...prev, folder._id.toString()]);
-                                          const recIds = folderRecs.map(r => r._id.toString());
-                                          setSelectedRecIds(prev => Array.from(new Set([...prev, ...recIds])));
+                                          setSelectedFolderIds(prev => Array.from(new Set([...prev, folderId])));
+                                          setSelectedRecIds(prev => Array.from(new Set([...prev, ...folderRecIds])));
                                         } else {
                                           // Deselect folder & its recordings
-                                          setSelectedFolderIds(prev => prev.filter(id => id !== folder._id.toString()));
-                                          const recIds = folderRecs.map(r => r._id.toString());
-                                          setSelectedRecIds(prev => prev.filter(id => !recIds.includes(id)));
+                                          setSelectedFolderIds(prev => prev.filter(id => id !== folderId));
+                                          setSelectedRecIds(prev => prev.filter(id => !folderRecIds.includes(id)));
                                         }
                                       }}
-                                      className="accent-lime h-4 w-4"
+                                      className="accent-lime h-4 w-4 cursor-pointer"
                                     />
-                                    <div className="text-xs font-semibold text-cream">{folder.name}</div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-semibold text-cream">{folder.name}</span>
+                                      {selectedFolderRecIds.length > 0 && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-lime/20 text-lime font-mono font-medium">
+                                          {selectedFolderRecIds.length}/{folderRecs.length} selected
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => toggleFolderExpanded(folder._id.toString())}
+                                    onClick={() => toggleFolderExpanded(folderId)}
                                     className="text-[10px] text-lime font-bold hover:underline"
                                   >
                                     {isExpanded ? "Collapse" : `Expand (${folderRecs.length} vids)`}
@@ -2663,21 +2704,25 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
                                 {isExpanded && (
                                   <div className="bg-black/20 border-t border-cream/5 p-3 space-y-2 pl-9">
                                     {folderRecs.map(rec => {
-                                      const isRecChecked = selectedRecIds.includes(rec._id.toString());
+                                      const recId = (rec._id || rec.id).toString();
+                                      const isRecChecked = selectedRecIds.includes(recId);
                                       return (
-                                        <label key={rec._id} className="flex items-center gap-3 cursor-pointer">
+                                        <label key={recId} className="flex items-center gap-3 cursor-pointer">
                                           <input
                                             type="checkbox"
                                             checked={isRecChecked}
-                                            disabled={isFolderChecked} // Locked if parent folder is fully selected
                                             onChange={e => {
                                               if (e.target.checked) {
-                                                setSelectedRecIds(prev => [...prev, rec._id.toString()]);
+                                                setSelectedRecIds(prev => Array.from(new Set([...prev, recId])));
+                                                if (selectedFolderRecIds.length + 1 === folderRecs.length) {
+                                                  setSelectedFolderIds(prev => Array.from(new Set([...prev, folderId])));
+                                                }
                                               } else {
-                                                setSelectedRecIds(prev => prev.filter(id => id !== rec._id.toString()));
+                                                setSelectedRecIds(prev => prev.filter(id => id !== recId));
+                                                setSelectedFolderIds(prev => prev.filter(id => id !== folderId));
                                               }
                                             }}
-                                            className="accent-lime h-3.5 w-3.5"
+                                            className="accent-lime h-3.5 w-3.5 cursor-pointer"
                                           />
                                           <div className="text-xs text-cream/80 truncate">{rec.title}</div>
                                         </label>
@@ -2695,26 +2740,29 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
 
                       {/* Root recordings in source classroom */}
                       {(() => {
-                        const rootRecs = reuseRecordings.filter(r => r.classroom.toString() === selectedSourceClassroomId && !r.folder);
+                        const rootRecs = reuseRecordings.filter(
+                          r => (r.classroom?.toString() || r.classroom) === selectedSourceClassroomId && !r.folder
+                        );
                         if (rootRecs.length === 0) return null;
                         return (
                           <div className="border border-cream/10 rounded-xl bg-cream/2 p-3 space-y-2">
                             <div className="text-[10px] uppercase tracking-widest text-cream/40 font-bold mb-1">Root Recordings</div>
                             {rootRecs.map(rec => {
-                              const isChecked = selectedRecIds.includes(rec._id.toString());
+                              const recId = (rec._id || rec.id).toString();
+                              const isChecked = selectedRecIds.includes(recId);
                               return (
-                                <label key={rec._id} className="flex items-center gap-3 cursor-pointer">
+                                <label key={recId} className="flex items-center gap-3 cursor-pointer">
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={e => {
                                       if (e.target.checked) {
-                                        setSelectedRecIds(prev => [...prev, rec._id.toString()]);
+                                        setSelectedRecIds(prev => Array.from(new Set([...prev, recId])));
                                       } else {
-                                        setSelectedRecIds(prev => prev.filter(id => id !== rec._id.toString()));
+                                        setSelectedRecIds(prev => prev.filter(id => id !== recId));
                                       }
                                     }}
-                                    className="accent-lime h-3.5 w-3.5"
+                                    className="accent-lime h-3.5 w-3.5 cursor-pointer"
                                   />
                                   <div className="text-xs text-cream">{rec.title}</div>
                                 </label>

@@ -755,21 +755,45 @@ router.post('/reuse-folder', protect, restrictTo('admin', 'superadmin', 'faculty
     // Fetch recordings to copy
     const recordFilter = { folder: sourceFolderId };
     if (Array.isArray(selectedRecordingIds) && selectedRecordingIds.length > 0) {
-      recordFilter._id = { $in: selectedRecordingIds };
+      const validIds = selectedRecordingIds
+        .map(id => id && id.toString())
+        .filter(id => isValidId(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+      if (validIds.length > 0) {
+        recordFilter._id = { $in: validIds };
+      }
     }
     const sourceRecs = await ClassroomRecording.find(recordFilter);
     
     const newRecs = [];
     for (const rec of sourceRecs) {
       // Avoid duplicating if recording with same key/title already exists in this folder in the target classroom
-      const exists = await ClassroomRecording.findOne({
-        classroom: targetClassroomId,
-        folder: targetFolder._id,
-        $or: [
-          { cloudflareKey: rec.cloudflareKey },
-          { title: rec.title }
-        ]
-      });
+      let exists = null;
+      if (rec.cloudflareKey) {
+        exists = await ClassroomRecording.findOne({
+          classroom: targetClassroomId,
+          folder: targetFolder._id,
+          cloudflareKey: rec.cloudflareKey
+        });
+      } else if (rec.muxAssetId) {
+        exists = await ClassroomRecording.findOne({
+          classroom: targetClassroomId,
+          folder: targetFolder._id,
+          muxAssetId: rec.muxAssetId
+        });
+      } else if (rec.cloudflareUrl) {
+        exists = await ClassroomRecording.findOne({
+          classroom: targetClassroomId,
+          folder: targetFolder._id,
+          cloudflareUrl: rec.cloudflareUrl
+        });
+      } else if (rec.title) {
+        exists = await ClassroomRecording.findOne({
+          classroom: targetClassroomId,
+          folder: targetFolder._id,
+          title: rec.title
+        });
+      }
       if (exists) continue;
 
       const newRec = await ClassroomRecording.create({
@@ -799,9 +823,11 @@ router.post('/reuse-folder', protect, restrictTo('admin', 'superadmin', 'faculty
       newRecs.push(newRec);
     }
 
-    await Classroom.findByIdAndUpdate(targetClassroomId, {
-      $inc: { 'stats.totalRecordings': newRecs.length }
-    });
+    if (newRecs.length > 0) {
+      await Classroom.findByIdAndUpdate(targetClassroomId, {
+        $inc: { 'stats.totalRecordings': newRecs.length }
+      });
+    }
 
     if (typeof classroomsRouter.clearClassroomCache === 'function') {
       classroomsRouter.clearClassroomCache();
