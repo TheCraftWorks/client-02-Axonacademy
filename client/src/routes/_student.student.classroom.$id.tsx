@@ -1983,15 +1983,15 @@ function TestsTab({
                 </div>
 
                 {/* Question Image */}
-                {(q as any).image && (
+                {q.image && (
                   <div className="ml-7">
                     <button
                       type="button"
-                      onClick={() => window.open((q as any).image, "_blank")}
+                      onClick={() => window.open(q.image!, "_blank")}
                       className="block relative group rounded-xl overflow-hidden border border-slate-200 hover:border-sky-400 transition-all max-w-sm"
                     >
                       <img
-                        src={(q as any).image}
+                        src={q.image}
                         alt={`Question ${idx + 1} image`}
                         className="w-full max-h-56 object-contain bg-slate-100 block"
                         loading="lazy"

@@ -929,6 +929,9 @@ export async function uploadQuestionImage({
     if (accessToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
     }
+    // Dev auth headers (no-op in production)
+    const devHeaders = getDevAuthUserHeaders();
+    Object.entries(devHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
