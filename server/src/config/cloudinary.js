@@ -58,10 +58,24 @@ const avatarStorage = new CloudinaryStorage({
   }
 });
 
+const quizQuestionStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'quiz-questions',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'gif'],
+    transformation: [{ quality: 'auto', fetch_format: 'auto' }],
+    public_id: (req, file) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      return 'quiz-question-' + uniqueSuffix;
+    }
+  }
+});
+
 module.exports = {
   cloudinary,
   storage,
   announcementStorage,
   blogStorage,
-  avatarStorage
+  avatarStorage,
+  quizQuestionStorage
 };

@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import {
   CheckCircle2, XCircle, HelpCircle,
-  BookOpen
+  BookOpen, ZoomIn
 } from "lucide-react";
 
 export interface ReviewQuestionItem {
   questionId: string;
   questionText: string;
+  image?: string; // Optional Cloudinary image URL
   marks?: number;
   selectedOptions: string[];
   correctOptions: string[];
@@ -273,6 +274,30 @@ export function QuizQuestionReviewTabs({
                     <p className={`text-sm font-bold leading-relaxed ${isDark ? "text-white" : "text-slate-900"}`}>
                       {q.questionText}
                     </p>
+                    {/* Question Image in Review */}
+                    {q.image && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(q.image, "_blank")}
+                        className={`mt-2 block relative group rounded-xl overflow-hidden border transition-all max-w-xs ${
+                          isDark ? "border-white/15 hover:border-sky-400/50" : "border-slate-200 hover:border-sky-400"
+                        }`}
+                      >
+                        <img
+                          src={q.image}
+                          alt={`Q${questionNo} image`}
+                          className={`w-full max-h-48 object-contain block ${
+                            isDark ? "bg-white/5" : "bg-slate-100"
+                          }`}
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-end justify-end p-1.5">
+                          <span className="opacity-0 group-hover:opacity-100 bg-white/90 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-opacity shadow">
+                            <ZoomIn className="h-2.5 w-2.5" /> View
+                          </span>
+                        </div>
+                      </button>
+                    )}
                   </div>
                 </div>
 

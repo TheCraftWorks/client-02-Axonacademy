@@ -5,7 +5,7 @@ import {
   LuPlus, LuX, LuTrash2, LuPlay, LuEye, LuEyeOff, LuCheck, LuSend,
   LuCalendar, LuClock, LuRadio, LuUpload, LuUsers, LuCircleDot, LuDownload, LuCopy, LuLink, LuAward, LuShare2, LuUserPlus,
   LuFolder, LuSearch, LuPrinter, LuRefreshCw, LuCrown, LuMedal, LuSparkles, LuTrophy,
-  LuFileText, LuLoader
+  LuFileText, LuLoader, LuImage, LuZoomIn
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { DarkCard } from "@/components/portal/PortalShell";
@@ -24,7 +24,7 @@ import {
   type Option,
   type QuizAttempt,
 } from "@/lib/classroomStore";
-import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl } from "@/lib/api";
+import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl, uploadQuestionImage } from "@/lib/api";
 import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnswerSheetModal";
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
@@ -2884,6 +2884,11 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
   onChange: (updated: Question) => void;
   onRemove: () => void;
 }) {
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageUploadProgress, setImageUploadProgress] = useState(0);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
   const setType = (type: Question["type"]) => {
     const opts: Option[] = type === "true_false"
       ? [{ label: "True", text: "True", isCorrect: true }, { label: "False", text: "False", isCorrect: false }]
@@ -2901,10 +2906,66 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
     });
   };
 
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/jpg"];
+    if (!validTypes.includes(file.type)) {
+      toast.error("Please select a valid image (JPG, PNG, WebP, or GIF)");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Image must be under 10MB");
+      return;
+    }
+
+    // Show local preview immediately
+    const localPreview = URL.createObjectURL(file);
+    setPreviewImageUrl(localPreview);
+    setIsUploadingImage(true);
+    setImageUploadProgress(0);
+
+    try {
+      const result = await uploadQuestionImage({
+        file,
+        onProgress: (pct) => setImageUploadProgress(pct),
+      });
+      onChange({ ...q, image: result.url });
+      toast.success("Question image uploaded to Cloudinary!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload question image");
+      setPreviewImageUrl(null);
+      onChange({ ...q, image: undefined });
+    } finally {
+      setIsUploadingImage(false);
+      setImageUploadProgress(0);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      // Revoke local preview URL
+      URL.revokeObjectURL(localPreview);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setPreviewImageUrl(null);
+    onChange({ ...q, image: undefined });
+  };
+
+  const displayImageUrl = q.image || previewImageUrl;
+
   const LABELS = ["A", "B", "C", "D", "E", "F"];
 
   return (
     <div className="rounded-xl bg-cream/3 border border-cream/10 p-4 space-y-3">
+      {/* Hidden image input */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleImageSelect}
+      />
+
       <div className="flex items-center gap-3 flex-wrap">
         <span className="grid h-7 w-7 place-items-center rounded-full bg-lime/10 text-lime text-xs font-bold shrink-0">Q{qIdx + 1}</span>
         <select value={q.type} onChange={(e) => setType(e.target.value as Question["type"])}
@@ -2924,6 +2985,74 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
       <textarea value={q.text} onChange={(e) => onChange({ ...q, text: e.target.value })}
         placeholder={`Question ${qIdx + 1} text…`} rows={2}
         className="w-full bg-cream/5 border border-cream/10 rounded-xl px-3 py-2.5 text-cream text-sm outline-none focus:border-lime/50 resize-none" />
+
+      {/* ── Question Image Upload (Optional) ── */}
+      <div className="flex items-start gap-3">
+        {displayImageUrl ? (
+          <div className="relative group">
+            <img
+              src={displayImageUrl}
+              alt={`Q${qIdx + 1} image`}
+              className="h-24 w-auto max-w-[200px] rounded-xl object-cover border border-cream/20 cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => window.open(displayImageUrl, "_blank")}
+            />
+            {isUploadingImage && (
+              <div className="absolute inset-0 bg-black/60 rounded-xl flex flex-col items-center justify-center gap-1">
+                <LuLoader className="h-4 w-4 text-lime animate-spin" />
+                <span className="text-xs text-white font-bold">{imageUploadProgress}%</span>
+              </div>
+            )}
+            {!isUploadingImage && (
+              <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={() => window.open(displayImageUrl, "_blank")}
+                  className="bg-black/70 hover:bg-black/90 text-white p-1 rounded-md"
+                  title="View full image"
+                >
+                  <LuZoomIn className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-md"
+                  title="Remove image"
+                >
+                  <LuX className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={isUploadingImage}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-cream/20 bg-cream/3 hover:bg-cream/5 hover:border-lime/40 text-cream/50 hover:text-lime text-xs font-medium transition-all disabled:opacity-50"
+          >
+            {isUploadingImage ? (
+              <>
+                <LuLoader className="h-3.5 w-3.5 animate-spin text-lime" />
+                <span>Uploading {imageUploadProgress}%…</span>
+              </>
+            ) : (
+              <>
+                <LuImage className="h-3.5 w-3.5 text-lime/70" />
+                <span>Add Question Image <span className="text-cream/30 font-normal">(optional)</span></span>
+              </>
+            )}
+          </button>
+        )}
+        {displayImageUrl && !isUploadingImage && (
+          <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            className="text-xs text-cream/40 hover:text-cream px-2 py-1 rounded-lg border border-cream/10 hover:border-cream/20 transition-colors"
+          >
+            Change Image
+          </button>
+        )}
+      </div>
 
       <div className="space-y-2">
         {q.options.map((opt, oi) => (
@@ -3411,6 +3540,7 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
         questions: duplicateQuiz.questions.map((quest) => ({
           type: quest.type,
           text: quest.text,
+          image: quest.image,
           marks: quest.marks,
           explanation: quest.explanation,
           options: quest.options.map((o) => ({
