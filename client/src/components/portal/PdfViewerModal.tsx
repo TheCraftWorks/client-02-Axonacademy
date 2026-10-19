@@ -21,6 +21,7 @@ interface PdfViewerModalProps {
   onClose: () => void;
   url: string;
   title?: string;
+  allowDownload?: boolean;
 }
 
 declare global {
@@ -104,7 +105,13 @@ function loadPdfJsEngine(): Promise<any> {
   return pdfjsPromise;
 }
 
-export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalProps) {
+export function PdfViewerModal({
+  isOpen,
+  onClose,
+  url,
+  title,
+  allowDownload = false,
+}: PdfViewerModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
@@ -114,6 +121,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   const [useIframeFallback, setUseIframeFallback] = useState(false);
   const [swipeNotice, setSwipeNotice] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [renderedDimensions, setRenderedDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -389,7 +397,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         }
       }
     };
-  }, [isOpen, url, computeFitScale, renderPage]);
+  }, [isOpen, url, computeFitScale, renderPage, retryKey]);
 
   // Re-render when page or scale changes
   useEffect(() => {
@@ -466,8 +474,15 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     setIsFullscreen((prev) => !prev);
   };
 
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    setUseIframeFallback(false);
+    setRetryKey((prev) => prev + 1);
+  };
+
   const handleOpenExternal = () => {
-    if (url) {
+    if (url && allowDownload) {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
@@ -650,14 +665,16 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               </div>
             )}
 
-            {/* Open in new tab fallback */}
-            <button
-              onClick={handleOpenExternal}
-              className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
-              title="Open in new window"
-            >
-              <LuExternalLink className="h-3.5 w-3.5" />
-            </button>
+            {/* Open in new tab fallback (only visible when allowDownload is explicitly true) */}
+            {allowDownload && (
+              <button
+                onClick={handleOpenExternal}
+                className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                title="Open in new window"
+              >
+                <LuExternalLink className="h-3.5 w-3.5" />
+              </button>
+            )}
 
             {/* Fullscreen Toggle */}
             <button
@@ -712,11 +729,19 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               <p className="text-xs text-slate-400 leading-relaxed mb-4">{error}</p>
               <div className="flex items-center justify-center gap-2">
                 <button
-                  onClick={handleOpenExternal}
+                  onClick={handleRetry}
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5"
                 >
-                  <LuExternalLink className="h-3.5 w-3.5" /> Open Document
+                  <LuRotateCcw className="h-3.5 w-3.5" /> Retry Preview
                 </button>
+                {allowDownload && (
+                  <button
+                    onClick={handleOpenExternal}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <LuExternalLink className="h-3.5 w-3.5" /> Open Document
+                  </button>
+                )}
                 <button
                   onClick={onClose}
                   className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors"
@@ -754,6 +779,17 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           {/* Iframe Fallback */}
           {!loading && !error && useIframeFallback && (
             <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 m-auto flex flex-col">
+              {/* Invisible blocker over Google Docs viewer's pop-out button (top right corner) */}
+              {!allowDownload && (
+                <div
+                  className="absolute top-0 right-0 w-16 h-14 z-20 bg-transparent pointer-events-auto cursor-not-allowed"
+                  title="PDF downloading is disabled"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                />
+              )}
               <iframe
                 src={
                   isPublicHttpUrl && typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -762,6 +798,11 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
                 }
                 className="w-full flex-1 border-0"
                 title="Document Preview"
+                sandbox={
+                  !allowDownload
+                    ? 'allow-scripts allow-same-origin'
+                    : 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox'
+                }
                 onContextMenu={(e) => e.preventDefault()}
               />
             </div>
