@@ -37,6 +37,7 @@ export interface Question {
   type: "mcq" | "msq" | "true_false";
   text: string;
   image?: string; // Optional Cloudinary image URL for the question
+  video?: string; // Optional Cloudinary video URL (10-30s clips) for the question
   marks: number;
   explanation: string;
   options: Option[];

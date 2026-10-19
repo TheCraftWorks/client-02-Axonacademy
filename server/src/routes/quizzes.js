@@ -10,7 +10,7 @@ const QuizAttempt = require('../models/QuizAttempt');
 const Classroom = require('../models/Classroom');
 const classroomsRouter = require('./classrooms');
 const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/auth');
-const { cloudinary, quizQuestionStorage } = require('../config/cloudinary');
+const { cloudinary, quizQuestionStorage, quizQuestionVideoStorage } = require('../config/cloudinary');
 
 const verifyClassroomAccessById = async (classroomId, user, writeRequired = false) => {
   if (!classroomId) return false;
@@ -34,6 +34,10 @@ const verifyAttemptAccess = async (attempt, user) => {
 
 const upload = multer({ storage: multer.memoryStorage() });
 const uploadQuestionImage = multer({ storage: quizQuestionStorage });
+const uploadQuestionVideo = multer({
+  storage: quizQuestionVideoStorage,
+  limits: { fileSize: 60 * 1024 * 1024 } // 60MB limit for short clips
+});
 
 // POST /upload-question-image → Admin/Faculty: Upload a question image to Cloudinary
 router.post('/upload-question-image', protect, restrictTo('admin', 'superadmin', 'faculty'), uploadQuestionImage.single('image'), async (req, res, next) => {
@@ -46,6 +50,23 @@ router.post('/upload-question-image', protect, restrictTo('admin', 'superadmin',
       url: req.file.path,
       publicId: req.file.filename,
       message: 'Question image uploaded successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /upload-question-video → Admin/Faculty: Upload a question short video clip (10 to 30s) to Cloudinary
+router.post('/upload-question-video', protect, restrictTo('admin', 'superadmin', 'faculty'), uploadQuestionVideo.single('video'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No video file uploaded' });
+    }
+    return res.json({
+      success: true,
+      url: req.file.path,
+      publicId: req.file.filename,
+      message: 'Question video clip uploaded successfully'
     });
   } catch (error) {
     next(error);
@@ -265,6 +286,7 @@ router.post('/:id/attempt/start', protect, async (req, res, next) => {
         type: q.type,
         text: q.text,
         image: q.image,
+        video: q.video,
         marks: q.marks,
         options: (q.options || []).map(o => ({ label: o.label, text: o.text }))
       }));
@@ -325,6 +347,7 @@ router.post('/:id/attempt/start', protect, async (req, res, next) => {
         type: q.type,
         text: q.text,
         image: q.image,
+        video: q.video,
         marks: q.marks,
         options: optionsList.map(o => ({ label: o.label, text: o.text })) // omit isCorrect
       };
@@ -587,6 +610,7 @@ function gradeAndNormalizeAttempt(att, quiz) {
       questionId: qId || String(qIdx),
       questionText: q.text || `Question ${qIdx + 1}`,
       image: q.image || undefined,
+      video: q.video || undefined,
       marks: qMarks,
       selectedOptions,
       isAttempted,

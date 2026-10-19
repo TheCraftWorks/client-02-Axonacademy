@@ -71,11 +71,25 @@ const quizQuestionStorage = new CloudinaryStorage({
   }
 });
 
+const quizQuestionVideoStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'quiz-questions/videos',
+    resource_type: 'video',
+    allowed_formats: ['mp4', 'webm', 'mov', 'm4v', 'ogv'],
+    public_id: (req, file) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      return 'quiz-video-' + uniqueSuffix;
+    }
+  }
+});
+
 module.exports = {
   cloudinary,
   storage,
   announcementStorage,
   blogStorage,
   avatarStorage,
-  quizQuestionStorage
+  quizQuestionStorage,
+  quizQuestionVideoStorage
 };

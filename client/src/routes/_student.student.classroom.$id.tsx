@@ -1738,6 +1738,7 @@ function TestsTab({
               questionId: q.id,
               questionText: q.text,
               image: q.image,
+              video: q.video,
               marks: q.marks,
               selectedOptions,
               correctOptions,
@@ -2002,6 +2003,22 @@ function TestsTab({
                         </span>
                       </div>
                     </button>
+                  </div>
+                )}
+
+                {/* Question Video Clip */}
+                {q.video && (
+                  <div className="ml-7 max-w-md">
+                    <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-950 shadow-xs">
+                      <video
+                        src={q.video}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="w-full max-h-64 object-contain mx-auto block"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block font-medium">Video Clip for Question {idx + 1}</span>
                   </div>
                 )}
 

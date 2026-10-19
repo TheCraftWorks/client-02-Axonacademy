@@ -240,6 +240,7 @@ function normalizeBackendClassroom(raw: any) {
           type: quest.type || 'mcq',
           text: quest.text,
           image: quest.image || undefined,
+          video: quest.video || undefined,
           marks: quest.marks || 1,
           explanation: quest.explanation || '',
           order: quest.order || 1,
@@ -349,6 +350,7 @@ function normalizeBackendQuiz(raw: any) {
       type: quest.type || 'mcq',
       text: quest.text || '',
       image: quest.image || undefined,
+      video: quest.video || undefined,
       marks: quest.marks || 1,
       explanation: quest.explanation || '',
       order: quest.order || 0,
@@ -683,6 +685,7 @@ function normalizeBackendQuizAttempt(att: any) {
       questionId: String(ans.questionId),
       questionText: ans.questionText || '',
       image: ans.image || undefined,
+      video: ans.video || undefined,
       marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
       correctOptions: ans.correctOptions || [],
@@ -954,6 +957,55 @@ export async function uploadQuestionImage({
     };
 
     xhr.onerror = () => reject(new Error('Network error during image upload'));
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Upload a question video clip (10 to 30s) to Cloudinary via the quiz video upload endpoint.
+ */
+export async function uploadQuestionVideo({
+  file,
+  onProgress,
+}: {
+  file: File;
+  onProgress?: (percentage: number) => void;
+}): Promise<{ url: string; publicId?: string }> {
+  const accessToken = classroomStore.getState().accessToken;
+  const formData = new FormData();
+  formData.append('video', file);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/quizzes/upload-question-video`);
+
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+    const devHeaders = getDevAuthUserHeaders();
+    Object.entries(devHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percentage = Math.round((e.loaded / e.total) * 100);
+        onProgress?.(percentage);
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const resp = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && resp.success) {
+          resolve({ url: resp.url, publicId: resp.publicId });
+        } else {
+          reject(new Error(resp.message || `Video upload failed: ${xhr.statusText}`));
+        }
+      } catch (err) {
+        reject(new Error('Failed to parse video upload response'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during video upload'));
     xhr.send(formData);
   });
 }

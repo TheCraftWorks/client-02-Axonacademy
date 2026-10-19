@@ -24,7 +24,7 @@ import {
   type Option,
   type QuizAttempt,
 } from "@/lib/classroomStore";
-import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl, uploadQuestionImage } from "@/lib/api";
+import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl, uploadQuestionImage, uploadQuestionVideo } from "@/lib/api";
 import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnswerSheetModal";
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
@@ -2889,6 +2889,11 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
   const [imageUploadProgress, setImageUploadProgress] = useState(0);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+
   const setType = (type: Question["type"]) => {
     const opts: Option[] = type === "true_false"
       ? [{ label: "True", text: "True", isCorrect: true }, { label: "False", text: "False", isCorrect: false }]
@@ -2951,19 +2956,91 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
     onChange({ ...q, image: undefined });
   };
 
+  const handleVideoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validVideoTypes = ["video/mp4", "video/webm", "video/quicktime", "video/ogg", "video/x-m4v"];
+    if (!validVideoTypes.includes(file.type) && !file.name.match(/\.(mp4|webm|mov|m4v|ogv)$/i)) {
+      toast.error("Please select a valid video clip (MP4, WebM, or MOV)");
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("Video clip must be under 50MB");
+      return;
+    }
+
+    // Inspect duration client-side: target 10 to 30 seconds
+    const localVideoUrl = URL.createObjectURL(file);
+    try {
+      const duration = await new Promise<number>((resolve) => {
+        const tempVideo = document.createElement("video");
+        tempVideo.preload = "metadata";
+        tempVideo.src = localVideoUrl;
+        tempVideo.onloadedmetadata = () => resolve(tempVideo.duration || 0);
+        tempVideo.onerror = () => resolve(0);
+        setTimeout(() => resolve(0), 4000);
+      });
+
+      if (duration > 35) {
+        toast.error(`Video is too long (${Math.round(duration)}s). Please choose a short 10 to 30s clip.`);
+        URL.revokeObjectURL(localVideoUrl);
+        if (videoInputRef.current) videoInputRef.current.value = "";
+        return;
+      }
+    } catch {
+      // Proceed if browser metadata check fails
+    }
+
+    setPreviewVideoUrl(localVideoUrl);
+    setIsUploadingVideo(true);
+    setVideoUploadProgress(0);
+
+    try {
+      const result = await uploadQuestionVideo({
+        file,
+        onProgress: (pct) => setVideoUploadProgress(pct),
+      });
+      onChange({ ...q, video: result.url });
+      toast.success("Question video clip uploaded!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload question video clip");
+      setPreviewVideoUrl(null);
+      onChange({ ...q, video: undefined });
+    } finally {
+      setIsUploadingVideo(false);
+      setVideoUploadProgress(0);
+      if (videoInputRef.current) videoInputRef.current.value = "";
+      URL.revokeObjectURL(localVideoUrl);
+    }
+  };
+
+  const handleRemoveVideo = () => {
+    setPreviewVideoUrl(null);
+    onChange({ ...q, video: undefined });
+  };
+
   const displayImageUrl = q.image || previewImageUrl;
+  const displayVideoUrl = q.video || previewVideoUrl;
 
   const LABELS = ["A", "B", "C", "D", "E", "F"];
 
   return (
     <div className="rounded-xl bg-cream/3 border border-cream/10 p-4 space-y-3">
-      {/* Hidden image input */}
+      {/* Hidden media file inputs */}
       <input
         ref={imageInputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp,image/gif"
         className="hidden"
         onChange={handleImageSelect}
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/mp4,video/webm,video/quicktime,video/ogg"
+        className="hidden"
+        onChange={handleVideoSelect}
       />
 
       <div className="flex items-center gap-3 flex-wrap">
@@ -2986,72 +3063,136 @@ function QuestionCard({ q, qIdx, onChange, onRemove }: {
         placeholder={`Question ${qIdx + 1} text…`} rows={2}
         className="w-full bg-cream/5 border border-cream/10 rounded-xl px-3 py-2.5 text-cream text-sm outline-none focus:border-lime/50 resize-none" />
 
-      {/* ── Question Image Upload (Optional) ── */}
-      <div className="flex items-start gap-3">
-        {displayImageUrl ? (
-          <div className="relative group">
-            <img
-              src={displayImageUrl}
-              alt={`Q${qIdx + 1} image`}
-              className="h-24 w-auto max-w-[200px] rounded-xl object-cover border border-cream/20 cursor-pointer hover:opacity-90 transition-opacity"
-              onClick={() => window.open(displayImageUrl, "_blank")}
-            />
-            {isUploadingImage && (
-              <div className="absolute inset-0 bg-black/60 rounded-xl flex flex-col items-center justify-center gap-1">
-                <LuLoader className="h-4 w-4 text-lime animate-spin" />
-                <span className="text-xs text-white font-bold">{imageUploadProgress}%</span>
-              </div>
-            )}
-            {!isUploadingImage && (
-              <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  type="button"
-                  onClick={() => window.open(displayImageUrl, "_blank")}
-                  className="bg-black/70 hover:bg-black/90 text-white p-1 rounded-md"
-                  title="View full image"
-                >
-                  <LuZoomIn className="h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRemoveImage}
-                  className="bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-md"
-                  title="Remove image"
-                >
-                  <LuX className="h-3 w-3" />
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            disabled={isUploadingImage}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-cream/20 bg-cream/3 hover:bg-cream/5 hover:border-lime/40 text-cream/50 hover:text-lime text-xs font-medium transition-all disabled:opacity-50"
-          >
-            {isUploadingImage ? (
-              <>
-                <LuLoader className="h-3.5 w-3.5 animate-spin text-lime" />
-                <span>Uploading {imageUploadProgress}%…</span>
-              </>
-            ) : (
-              <>
-                <LuImage className="h-3.5 w-3.5 text-lime/70" />
-                <span>Add Question Image <span className="text-cream/30 font-normal">(optional)</span></span>
-              </>
-            )}
-          </button>
-        )}
-        {displayImageUrl && !isUploadingImage && (
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            className="text-xs text-cream/40 hover:text-cream px-2 py-1 rounded-lg border border-cream/10 hover:border-cream/20 transition-colors"
-          >
-            Change Image
-          </button>
-        )}
+      {/* ── Question Media Upload (Image & Video Clip) ── */}
+      <div className="flex flex-wrap items-start gap-3">
+        {/* Image Attachment */}
+        <div className="flex items-center gap-2">
+          {displayImageUrl ? (
+            <div className="relative group">
+              <img
+                src={displayImageUrl}
+                alt={`Q${qIdx + 1} image`}
+                className="h-24 w-auto max-w-[180px] rounded-xl object-cover border border-cream/20 cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => window.open(displayImageUrl, "_blank")}
+              />
+              {isUploadingImage && (
+                <div className="absolute inset-0 bg-black/60 rounded-xl flex flex-col items-center justify-center gap-1">
+                  <LuLoader className="h-4 w-4 text-lime animate-spin" />
+                  <span className="text-xs text-white font-bold">{imageUploadProgress}%</span>
+                </div>
+              )}
+              {!isUploadingImage && (
+                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => window.open(displayImageUrl, "_blank")}
+                    className="bg-black/70 hover:bg-black/90 text-white p-1 rounded-md"
+                    title="View full image"
+                  >
+                    <LuZoomIn className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    className="bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-md"
+                    title="Remove image"
+                  >
+                    <LuX className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isUploadingImage}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-cream/20 bg-cream/3 hover:bg-cream/5 hover:border-lime/40 text-cream/50 hover:text-lime text-xs font-medium transition-all disabled:opacity-50"
+            >
+              {isUploadingImage ? (
+                <>
+                  <LuLoader className="h-3.5 w-3.5 animate-spin text-lime" />
+                  <span>Uploading {imageUploadProgress}%…</span>
+                </>
+              ) : (
+                <>
+                  <LuImage className="h-3.5 w-3.5 text-lime/70" />
+                  <span>Add Image <span className="text-cream/30 font-normal">(optional)</span></span>
+                </>
+              )}
+            </button>
+          )}
+          {displayImageUrl && !isUploadingImage && (
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className="text-xs text-cream/40 hover:text-cream px-2 py-1 rounded-lg border border-cream/10 hover:border-cream/20 transition-colors"
+            >
+              Change Image
+            </button>
+          )}
+        </div>
+
+        {/* Video Clip Attachment */}
+        <div className="flex items-center gap-2">
+          {displayVideoUrl ? (
+            <div className="relative group rounded-xl overflow-hidden border border-cream/20 bg-black/60 max-w-[220px]">
+              <video
+                src={displayVideoUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="h-24 w-full object-contain rounded-xl bg-black"
+              />
+              {isUploadingVideo && (
+                <div className="absolute inset-0 bg-black/70 rounded-xl flex flex-col items-center justify-center gap-1 z-10">
+                  <LuLoader className="h-4 w-4 text-lime animate-spin" />
+                  <span className="text-xs text-white font-bold">{videoUploadProgress}%</span>
+                </div>
+              )}
+              {!isUploadingVideo && (
+                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <button
+                    type="button"
+                    onClick={handleRemoveVideo}
+                    className="bg-red-600/80 hover:bg-red-600 text-white p-1 rounded-md"
+                    title="Remove video clip"
+                  >
+                    <LuX className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => videoInputRef.current?.click()}
+              disabled={isUploadingVideo}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-cream/20 bg-cream/3 hover:bg-cream/5 hover:border-lime/40 text-cream/50 hover:text-lime text-xs font-medium transition-all disabled:opacity-50"
+            >
+              {isUploadingVideo ? (
+                <>
+                  <LuLoader className="h-3.5 w-3.5 animate-spin text-lime" />
+                  <span>Uploading {videoUploadProgress}%…</span>
+                </>
+              ) : (
+                <>
+                  <LuVideo className="h-3.5 w-3.5 text-lime/70" />
+                  <span>Add Video Clip <span className="text-cream/30 font-normal">(10–30s)</span></span>
+                </>
+              )}
+            </button>
+          )}
+          {displayVideoUrl && !isUploadingVideo && (
+            <button
+              type="button"
+              onClick={() => videoInputRef.current?.click()}
+              className="text-xs text-cream/40 hover:text-cream px-2 py-1 rounded-lg border border-cream/10 hover:border-cream/20 transition-colors"
+            >
+              Change Video
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -3541,6 +3682,7 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
           type: quest.type,
           text: quest.text,
           image: quest.image,
+          video: quest.video,
           marks: quest.marks,
           explanation: quest.explanation,
           options: quest.options.map((o) => ({
