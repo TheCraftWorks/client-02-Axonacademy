@@ -1737,6 +1737,7 @@ function TestsTab({
             return {
               questionId: q.id,
               questionText: q.text,
+              image: q.image,
               marks: q.marks,
               selectedOptions,
               correctOptions,
@@ -1980,6 +1981,30 @@ function TestsTab({
                   <span className="font-bold text-plum text-sm">{idx + 1}.</span>
                   <p className="font-semibold text-slate-800 text-sm">{q.text}</p>
                 </div>
+
+                {/* Question Image */}
+                {q.image && (
+                  <div className="ml-7">
+                    <button
+                      type="button"
+                      onClick={() => window.open(q.image!, "_blank")}
+                      className="block relative group rounded-xl overflow-hidden border border-slate-200 hover:border-sky-400 transition-all max-w-sm"
+                    >
+                      <img
+                        src={q.image}
+                        alt={`Question ${idx + 1} image`}
+                        className="w-full max-h-56 object-contain bg-slate-100 block"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                        <span className="opacity-0 group-hover:opacity-100 bg-white/90 text-slate-700 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-opacity shadow">
+                          <Eye className="h-3 w-3" /> View Full Size
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 gap-2 pl-7">
                   {q.options.map((opt) => {
                     const isSel = selected.includes(opt.label);

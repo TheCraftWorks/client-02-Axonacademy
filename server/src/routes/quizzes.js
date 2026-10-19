@@ -10,6 +10,7 @@ const QuizAttempt = require('../models/QuizAttempt');
 const Classroom = require('../models/Classroom');
 const classroomsRouter = require('./classrooms');
 const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/auth');
+const { cloudinary, quizQuestionStorage } = require('../config/cloudinary');
 
 const verifyClassroomAccessById = async (classroomId, user, writeRequired = false) => {
   if (!classroomId) return false;
@@ -32,6 +33,24 @@ const verifyAttemptAccess = async (attempt, user) => {
 };
 
 const upload = multer({ storage: multer.memoryStorage() });
+const uploadQuestionImage = multer({ storage: quizQuestionStorage });
+
+// POST /upload-question-image → Admin/Faculty: Upload a question image to Cloudinary
+router.post('/upload-question-image', protect, restrictTo('admin', 'superadmin', 'faculty'), uploadQuestionImage.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No image file uploaded' });
+    }
+    return res.json({
+      success: true,
+      url: req.file.path,
+      publicId: req.file.filename,
+      message: 'Question image uploaded successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Retry configuration
 const MAX_RETRIES = 3;
@@ -567,6 +586,7 @@ function gradeAndNormalizeAttempt(att, quiz) {
     return {
       questionId: qId || String(qIdx),
       questionText: q.text || `Question ${qIdx + 1}`,
+      image: q.image || undefined,
       marks: qMarks,
       selectedOptions,
       isAttempted,

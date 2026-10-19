@@ -239,6 +239,7 @@ function normalizeBackendClassroom(raw: any) {
           id: quest._id || quest.id,
           type: quest.type || 'mcq',
           text: quest.text,
+          image: quest.image || undefined,
           marks: quest.marks || 1,
           explanation: quest.explanation || '',
           order: quest.order || 1,
@@ -347,6 +348,7 @@ function normalizeBackendQuiz(raw: any) {
       id: quest._id || quest.id,
       type: quest.type || 'mcq',
       text: quest.text || '',
+      image: quest.image || undefined,
       marks: quest.marks || 1,
       explanation: quest.explanation || '',
       order: quest.order || 0,
@@ -680,6 +682,7 @@ function normalizeBackendQuizAttempt(att: any) {
     answers: Array.isArray(att.answers) ? att.answers.map((ans: any) => ({
       questionId: String(ans.questionId),
       questionText: ans.questionText || '',
+      image: ans.image || undefined,
       marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
       correctOptions: ans.correctOptions || [],
@@ -708,6 +711,7 @@ function normalizeApiQuizQuestion(q: any) {
     id: q._id || q.id,
     type: q.type || 'mcq',
     text: q.text || '',
+    image: q.image || undefined,
     marks: q.marks || 1,
     explanation: q.explanation || '',
     order: q.order || 0,
@@ -797,6 +801,7 @@ export interface QuizAttemptReviewResult {
   answers: Array<{
     questionId: string;
     questionText: string;
+    image?: string; // Optional Cloudinary image URL
     marks?: number;
     selectedOptions: string[];
     correctOptions: string[];
@@ -835,6 +840,7 @@ export async function getQuizAttemptResult(quizId: string, attemptId?: string): 
     answers: Array.isArray(payload.answers) ? payload.answers.map((ans: any) => ({
       questionId: String(ans.questionId),
       questionText: ans.questionText || '',
+      image: ans.image || undefined,
       marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
       correctOptions: ans.correctOptions || [],
@@ -900,6 +906,56 @@ export async function getQuizLeaderboard(quizId: string): Promise<QuizLeaderboar
 export async function getQuizReport(quizId: string) {
   const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/report`);
   return Array.isArray(payload.attempts) ? payload.attempts.map(normalizeBackendQuizAttempt) : [];
+}
+
+/**
+ * Upload a question image to Cloudinary via the quiz image upload endpoint.
+ */
+export async function uploadQuestionImage({
+  file,
+  onProgress,
+}: {
+  file: File;
+  onProgress?: (percentage: number) => void;
+}): Promise<{ url: string; publicId?: string }> {
+  const accessToken = classroomStore.getState().accessToken;
+  const formData = new FormData();
+  formData.append('image', file);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/quizzes/upload-question-image`);
+
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+    // Dev auth headers (no-op in production)
+    const devHeaders = getDevAuthUserHeaders();
+    Object.entries(devHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percentage = Math.round((e.loaded / e.total) * 100);
+        onProgress?.(percentage);
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const resp = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && resp.success) {
+          resolve({ url: resp.url, publicId: resp.publicId });
+        } else {
+          reject(new Error(resp.message || `Image upload failed: ${xhr.statusText}`));
+        }
+      } catch (err) {
+        reject(new Error('Failed to parse image upload response'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during image upload'));
+    xhr.send(formData);
+  });
 }
 
 // ─── Chunk size for multipart uploads ────────────────────────────────────────
