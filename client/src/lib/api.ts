@@ -715,6 +715,7 @@ function normalizeApiQuizQuestion(q: any) {
     type: q.type || 'mcq',
     text: q.text || '',
     image: q.image || undefined,
+    video: q.video || undefined,
     marks: q.marks || 1,
     explanation: q.explanation || '',
     order: q.order || 0,
@@ -805,6 +806,7 @@ export interface QuizAttemptReviewResult {
     questionId: string;
     questionText: string;
     image?: string; // Optional Cloudinary image URL
+    video?: string; // Optional Cloudinary video clip URL
     marks?: number;
     selectedOptions: string[];
     correctOptions: string[];
@@ -844,6 +846,7 @@ export async function getQuizAttemptResult(quizId: string, attemptId?: string): 
       questionId: String(ans.questionId),
       questionText: ans.questionText || '',
       image: ans.image || undefined,
+      video: ans.video || undefined,
       marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
       correctOptions: ans.correctOptions || [],

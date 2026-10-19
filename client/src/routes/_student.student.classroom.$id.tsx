@@ -1543,6 +1543,8 @@ type QuizResultReview = {
     isCorrect: boolean;
     marksAwarded: number;
     questionText: string;
+    image?: string;
+    video?: string;
     explanation?: string;
     correctOptions: string[];
     isAttempted?: boolean;
@@ -1631,9 +1633,18 @@ function TestsTab({
       const submitRes = await submitQuizAttempt(activeQuiz.id, attemptId);
       const fullResult = await getQuizAttemptResult(activeQuiz.id, attemptId);
 
+      const mergedAnswers = (fullResult.answers || []).map((ans: any) => {
+        const matchingQ = (activeQuiz.questions || []).find((q: any) => q.id === ans.questionId || (q as any)._id === ans.questionId);
+        return {
+          ...ans,
+          video: ans.video || matchingQ?.video,
+          image: ans.image || matchingQ?.image,
+        };
+      });
+
       const review: QuizResultReview = {
         score: submitRes.score,
-        answers: fullResult.answers,
+        answers: mergedAnswers,
       };
 
       setResult(review);
@@ -1693,13 +1704,33 @@ function TestsTab({
         toast.info(payload.message || "You have already submitted this quiz.");
         if (payload.attemptId) {
           const review = await getQuizAttemptResult(quiz.id, payload.attemptId);
-          setResult(review);
+          const mergedAnswers = (review.answers || []).map((ans: any) => {
+            const matchingQ = (quiz.questions || []).find((q: any) => q.id === ans.questionId || (q as any)._id === ans.questionId);
+            return {
+              ...ans,
+              video: ans.video || matchingQ?.video,
+              image: ans.image || matchingQ?.image,
+            };
+          });
+          setResult({
+            ...review,
+            answers: mergedAnswers,
+          });
         }
         setPhase("result");
         return;
       }
       setAttemptId(payload.attemptId ?? null);
-      setExamQuestions(payload.questions || []);
+      const rawQuestions = payload.questions && payload.questions.length > 0 ? payload.questions : (quiz.questions || []);
+      const questionsWithMedia = rawQuestions.map((pq: any) => {
+        const localQ = (quiz.questions || []).find((lq: any) => lq.id === pq.id || (lq as any)._id === pq.id);
+        return {
+          ...pq,
+          video: pq.video || localQ?.video,
+          image: pq.image || localQ?.image,
+        };
+      });
+      setExamQuestions(questionsWithMedia);
       setAnswers({});
 
       if (quiz.duration && quiz.duration > 0) {
@@ -1771,9 +1802,17 @@ function TestsTab({
           ? preferredAttemptId
           : undefined;
       const fullResult = await getQuizAttemptResult(quiz.id, targetAttemptId);
+      const mergedAnswers = (fullResult.answers || targetAttempt?.answers || []).map((ans: any) => {
+        const matchingQ = (quiz.questions || []).find((q: any) => q.id === ans.questionId || (q as any)._id === ans.questionId);
+        return {
+          ...ans,
+          video: ans.video || matchingQ?.video,
+          image: ans.image || matchingQ?.image,
+        };
+      });
       setResult({
         score: fullResult.score || targetAttempt?.score,
-        answers: fullResult.answers || targetAttempt?.answers || [],
+        answers: mergedAnswers,
       });
     } catch (err) {
       if (!targetAttempt?.score) {
@@ -2013,6 +2052,7 @@ function TestsTab({
                       <video
                         src={q.video}
                         controls
+                        controlsList="nodownload"
                         playsInline
                         preload="metadata"
                         className="w-full max-h-64 object-contain mx-auto block"

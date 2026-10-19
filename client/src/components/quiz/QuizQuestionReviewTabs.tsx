@@ -305,6 +305,7 @@ export function QuizQuestionReviewTabs({
                         <video
                           src={q.video}
                           controls
+                          controlsList="nodownload"
                           playsInline
                           preload="metadata"
                           className="w-full max-h-52 object-contain mx-auto block"
