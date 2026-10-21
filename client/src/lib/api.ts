@@ -1812,7 +1812,7 @@ export async function uploadClassroomRecordingToCloudflare({
       credentials: 'include',
       headers: baseHeaders,
       body: JSON.stringify({ objectKey, uploadId }),
-    }).catch(() => {});
+    }).catch(() => { });
 
     throw uploadError;
   }
@@ -1823,7 +1823,7 @@ export async function uploadClassroomRecordingToCloudflare({
       credentials: 'include',
       headers: baseHeaders,
       body: JSON.stringify({ objectKey, uploadId }),
-    }).catch(() => {});
+    }).catch(() => { });
     throw new Error('Upload cancelled');
   }
 
@@ -2089,7 +2089,7 @@ export async function createClassroomFolder(classroomId: string, name: string, d
 
 export async function updateClassroomFolder(folderId: string, name: string, description?: string) {
   invalidateClientClassroomCache();
-  return fetchJson(`/recordings/classroom/folders/${encodeURIComponent(folderId)}`, {
+  return fetchJson(`/doc-folders/${encodeURIComponent(folderId)}`, {
     method: 'PUT',
     body: JSON.stringify({ name, description }),
   });
@@ -2097,7 +2097,7 @@ export async function updateClassroomFolder(folderId: string, name: string, desc
 
 export async function deleteClassroomFolder(folderId: string) {
   invalidateClientClassroomCache();
-  return fetchJson(`/recordings/classroom/folders/${encodeURIComponent(folderId)}`, {
+  return fetchJson(`/doc-folders/${encodeURIComponent(folderId)}`, {
     method: 'DELETE',
   });
 }
@@ -2720,7 +2720,7 @@ export async function uploadLibraryRecordingToCloudflare({
         credentials: 'include',
         headers: baseHeaders,
         body: JSON.stringify({ objectKey, uploadId }),
-      }).catch(() => {});
+      }).catch(() => { });
       throw new Error('Upload cancelled');
     }
 
