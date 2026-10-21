@@ -839,8 +839,10 @@ function SecurePlayer({
   }, [isDirectSignedUrl, recordingId]);
 
   useEffect(() => {
-    totalWatchedRef.current = recording.viewStats?.find((v) => v.studentId === currentUser?.id)?.totalWatchedSec || 0;
-  }, [currentUser?.id, recordingId]);
+    const userId = currentUser?.id || currentUser?.userId;
+    const stat = recording.viewStats?.find((v) => v.studentId === userId || (v as any).student === userId);
+    totalWatchedRef.current = stat?.totalWatchedSec || 0;
+  }, [currentUser?.id, currentUser?.userId, recordingId, recording.viewStats]);
 
   useEffect(() => {
     if (gestureEffect) {
@@ -909,11 +911,13 @@ function SecurePlayer({
 
   const sendProgress = useCallback(async (force = false) => {
     const video = videoRef.current;
-    if (!video || !currentUser?.id) return;
+    const userId = currentUser?.id || currentUser?.userId;
+    if (!video || !userId) return;
 
     const watchedSec = Math.floor(pendingWatchedRef.current);
     const currentPosition = Math.floor(video.currentTime || 0);
-    const completed = recording.duration > 0 && currentPosition >= recording.duration * 0.9;
+    const completed = (recording.duration > 0 && currentPosition >= recording.duration * 0.9) ||
+      (video.duration > 0 && currentPosition >= video.duration * 0.9);
     const now = Date.now();
 
     if (!force && (watchedSec < 10 || now - lastSentAtRef.current < 10_000)) return;
@@ -923,20 +927,41 @@ function SecurePlayer({
     lastSentAtRef.current = now;
 
     try {
-      await trackRecordingProgress(recordingId, {
+      const res = await trackRecordingProgress(recordingId, {
         position: currentPosition,
         watchedSec,
         completed,
-      });
-      totalWatchedRef.current += watchedSec;
-      const watchedPercent = recording.duration > 0
-        ? Math.min(100, Math.round((totalWatchedRef.current / recording.duration) * 100))
+      }) as any;
+      
+      const serverTotalWatchedSec = res?.progress?.totalWatchedSec;
+      if (typeof serverTotalWatchedSec === 'number') {
+        totalWatchedRef.current = serverTotalWatchedSec;
+      } else {
+        totalWatchedRef.current += watchedSec;
+      }
+
+      const recDuration = recording.duration || Math.floor(video.duration || 0);
+      let watchedPercent = recDuration > 0
+        ? Math.min(100, Math.round((totalWatchedRef.current / recDuration) * 100))
         : 0;
-      classroomActions.updateViewStat(classroomId, recordingId, currentUser.id, currentUser.name, watchedPercent, currentPosition);
+
+      if (completed) {
+        watchedPercent = 100;
+      }
+
+      classroomActions.updateViewStat(
+        classroomId,
+        recordingId,
+        userId,
+        currentUser?.name || 'Student',
+        watchedPercent,
+        currentPosition,
+        totalWatchedRef.current
+      );
     } catch {
       pendingWatchedRef.current += watchedSec;
     }
-  }, [classroomId, currentUser?.id, currentUser?.name, recording.duration, recordingId, recording.viewStats]);
+  }, [classroomId, currentUser?.id, currentUser?.userId, currentUser?.name, recording.duration, recordingId, recording.viewStats]);
 
   const handleVideoError = useCallback(async () => {
     const err = videoRef.current?.error;

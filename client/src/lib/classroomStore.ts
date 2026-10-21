@@ -581,7 +581,7 @@ export const classroomActions = {
     }));
   },
 
-  updateViewStat: (classroomId: string, recordingId: string, studentId: string, studentName: string, watchedPercent: number, lastPosition: number) => {
+  updateViewStat: (classroomId: string, recordingId: string, studentId: string, studentName: string, watchedPercent: number, lastPosition: number, totalWatchedSec?: number) => {
     classroomStore.setState((s) => ({
       classrooms: s.classrooms.map((c) =>
         c.id === classroomId
@@ -591,8 +591,8 @@ export const classroomActions = {
                 if (r.id !== recordingId) return r;
                 const existing = r.viewStats.find(v => v.studentId === studentId);
                 const updatedStats = existing
-                  ? r.viewStats.map(v => v.studentId === studentId ? { ...v, watchedPercent, lastPosition } : v)
-                  : [...r.viewStats, { studentId, studentName, watchedPercent, lastPosition }];
+                  ? r.viewStats.map(v => v.studentId === studentId ? { ...v, watchedPercent, lastPosition, totalWatchedSec: totalWatchedSec ?? v.totalWatchedSec } : v)
+                  : [...r.viewStats, { studentId, studentName, watchedPercent, lastPosition, totalWatchedSec }];
                 return { ...r, viewStats: updatedStats };
               }),
             }

@@ -1140,6 +1140,10 @@ router.post('/:id/progress', protect, async (req, res, next) => {
 
     const progress = updated?.viewStats?.[0] || null;
 
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
+
     res.json({
       success: true,
       message: 'Watch progress updated',

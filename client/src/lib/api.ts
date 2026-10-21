@@ -2081,15 +2081,15 @@ export async function reuseClassroomRecording(payload: {
 
 export async function createClassroomFolder(classroomId: string, name: string, description?: string) {
   invalidateClassroomCacheById(classroomId);
-  return fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/doc-folders`, {
+  return fetchJson('/recordings/classroom/folders', {
     method: 'POST',
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ classroomId, name, description }),
   });
 }
 
 export async function updateClassroomFolder(folderId: string, name: string, description?: string) {
   invalidateClientClassroomCache();
-  return fetchJson(`/doc-folders/${encodeURIComponent(folderId)}`, {
+  return fetchJson(`/recordings/classroom/folders/${encodeURIComponent(folderId)}`, {
     method: 'PUT',
     body: JSON.stringify({ name, description }),
   });
@@ -2097,7 +2097,7 @@ export async function updateClassroomFolder(folderId: string, name: string, desc
 
 export async function deleteClassroomFolder(folderId: string) {
   invalidateClientClassroomCache();
-  return fetchJson(`/doc-folders/${encodeURIComponent(folderId)}`, {
+  return fetchJson(`/recordings/classroom/folders/${encodeURIComponent(folderId)}`, {
     method: 'DELETE',
   });
 }
