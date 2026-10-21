@@ -1341,15 +1341,19 @@ router.put('/:id/announcements/:annoId/folder', protect, restrictTo('admin', 'su
   }
 });
 
-// POST /:id/doc-folders → Admin/Faculty: create new document folder for PDF materials
-router.post('/:id/doc-folders', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
+// POST /:id/doc-folders & POST /doc-folders → Admin/Faculty: create new document folder for PDF materials
+const handleCreateDocFolderRoute = async (req, res, next) => {
   try {
+    const classroomId = req.params.id || req.body.classroomId;
     const { name, description } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, message: 'Folder name is required' });
     }
+    if (!classroomId) {
+      return res.status(400).json({ success: false, message: 'Classroom ID is required' });
+    }
 
-    const classroom = await Classroom.findById(req.params.id);
+    const classroom = await Classroom.findById(classroomId);
     if (!classroom) {
       return res.status(404).json({ success: false, message: 'Classroom not found' });
     }
@@ -1361,7 +1365,7 @@ router.post('/:id/doc-folders', protect, restrictTo('admin', 'superadmin', 'facu
     const folder = await ClassroomDocFolder.create({
       name: name.trim(),
       description: description ? description.trim() : '',
-      classroom: req.params.id,
+      classroom: classroom._id,
       createdBy: req.user._id
     });
 
@@ -1371,7 +1375,10 @@ router.post('/:id/doc-folders', protect, restrictTo('admin', 'superadmin', 'facu
   } catch (error) {
     next(error);
   }
-});
+};
+
+router.post('/:id/doc-folders', protect, restrictTo('admin', 'superadmin', 'faculty'), handleCreateDocFolderRoute);
+router.post('/doc-folders', protect, restrictTo('admin', 'superadmin', 'faculty'), handleCreateDocFolderRoute);
 
 // PUT /doc-folders/:folderId → Admin/Faculty: update document folder name/desc
 router.put('/doc-folders/:folderId', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {

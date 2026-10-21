@@ -625,7 +625,7 @@ export async function moveAnnouncementToFolder(classroomId: string, announcement
 export async function createClassroomDocFolder(classroomId: string, name: string, description: string = '') {
   const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/doc-folders`, {
     method: 'POST',
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ classroomId, name, description }),
   });
   return payload.folder;
 }
