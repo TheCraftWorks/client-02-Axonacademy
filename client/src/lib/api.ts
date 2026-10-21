@@ -2081,9 +2081,9 @@ export async function reuseClassroomRecording(payload: {
 
 export async function createClassroomFolder(classroomId: string, name: string, description?: string) {
   invalidateClassroomCacheById(classroomId);
-  return fetchJson('/recordings/classroom/folders', {
+  return fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/doc-folders`, {
     method: 'POST',
-    body: JSON.stringify({ classroomId, name, description }),
+    body: JSON.stringify({ name, description }),
   });
 }
 
