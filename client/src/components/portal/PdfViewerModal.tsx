@@ -110,8 +110,9 @@ export function PdfViewerModal({
   onClose,
   url,
   title,
-  allowDownload = false,
 }: PdfViewerModalProps) {
+  // Always disable downloads across both student and admin portals
+  const allowDownload = false;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
@@ -147,9 +148,19 @@ export function PdfViewerModal({
 
   const isZoomed = scale > fitScaleRef.current * 1.08;
 
-  // Keyboard shortcut blocker (Ctrl+S, Ctrl+P, Cmd+S, Cmd+P, Esc)
+  // Keyboard shortcut & print blocker (Ctrl+S, Ctrl+P, Cmd+S, Cmd+P, Esc, PrintScreen)
   useEffect(() => {
     if (!isOpen) return;
+
+    // Inject temporary print blocking style so browser Print dialog cannot capture document
+    const styleId = 'pdf-viewer-anti-print-style';
+    let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = styleId;
+      styleTag.innerHTML = '@media print { * { display: none !important; } html, body { display: none !important; } }';
+      document.head.appendChild(styleTag);
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -171,10 +182,21 @@ export function PdfViewerModal({
         e.preventDefault();
         e.stopPropagation();
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (e.key === 'PrintScreen') {
+        e.preventDefault();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      const el = document.getElementById(styleId);
+      if (el) el.remove();
+    };
   }, [isOpen, onClose, numPages]);
 
   // Compute optimal fit-width scale based on screen/container
@@ -665,17 +687,6 @@ export function PdfViewerModal({
               </div>
             )}
 
-            {/* Open in new tab fallback (only visible when allowDownload is explicitly true) */}
-            {allowDownload && (
-              <button
-                onClick={handleOpenExternal}
-                className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
-                title="Open in new window"
-              >
-                <LuExternalLink className="h-3.5 w-3.5" />
-              </button>
-            )}
-
             {/* Fullscreen Toggle */}
             <button
               onClick={toggleFullscreen}
@@ -734,14 +745,6 @@ export function PdfViewerModal({
                 >
                   <LuRotateCcw className="h-3.5 w-3.5" /> Retry Preview
                 </button>
-                {allowDownload && (
-                  <button
-                    onClick={handleOpenExternal}
-                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5"
-                  >
-                    <LuExternalLink className="h-3.5 w-3.5" /> Open Document
-                  </button>
-                )}
                 <button
                   onClick={onClose}
                   className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors"
@@ -765,6 +768,8 @@ export function PdfViewerModal({
                 ref={canvasRef}
                 className="block select-none pointer-events-auto"
                 onContextMenu={(e) => e.preventDefault()}
+                onDragStart={(e) => e.preventDefault()}
+                draggable={false}
               />
               {/* Subtle Protected Overlay Watermark */}
               <div

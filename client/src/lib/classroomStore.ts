@@ -143,6 +143,7 @@ export interface Announcement {
   content: string;
   createdAt: string;
   author: string;
+  folder?: string | null;
 }
 
 export interface EnrolledStudent {
@@ -182,6 +183,7 @@ export interface Classroom {
   meetings: Meeting[];
   recordings: Recording[];
   folders: ClassroomFolder[];
+  docFolders?: ClassroomFolder[];
   quizzes: Quiz[];
   pendingJoinRequestsCount?: number;
   instructors?: { id: string; name: string }[];

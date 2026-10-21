@@ -12,6 +12,7 @@ const Quiz = require('../models/Quiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const ClassroomJoinRequest = require('../models/ClassroomJoinRequest');
 const ClassroomFolder = require('../models/ClassroomFolder');
+const ClassroomDocFolder = require('../models/ClassroomDocFolder');
 const { sendWelcomeEmail } = require('../services/emailService');
 const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/auth');
 const mongoose = require('mongoose');
@@ -213,8 +214,13 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   }
   meetingsQuery = meetingsQuery.sort({ scheduledAt: 1 }).lean();
 
-  // 2. Folders
+  // 2. Folders (Video recordings)
   const foldersQuery = ClassroomFolder.find({ classroom: { $in: classroomIds } })
+    .sort({ order: 1, createdAt: -1 })
+    .lean();
+
+  // 2b. Document Folders (Announcements / PDFs)
+  const docFoldersQuery = ClassroomDocFolder.find({ classroom: { $in: classroomIds } })
     .sort({ order: 1, createdAt: -1 })
     .lean();
 
@@ -230,9 +236,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   // 4. Announcements
   let announcementsQuery = ClassroomAnnouncement.find({ classroom: { $in: classroomIds } });
   if (isList) {
-    announcementsQuery = announcementsQuery.select('_id classroom content attachments createdAt author');
+    announcementsQuery = announcementsQuery.select('_id classroom content attachments createdAt author folder');
   } else {
-    announcementsQuery = announcementsQuery.populate('author', 'fullName role avatar');
+    announcementsQuery = announcementsQuery.populate('author', 'fullName role avatar').populate('folder', 'name');
   }
   announcementsQuery = announcementsQuery.sort({ createdAt: -1 }).lean();
 
@@ -271,10 +277,11 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     { $group: { _id: '$classroom', count: { $sum: 1 } } }
   ]);
 
-  // Execute all 7 queries concurrently in parallel
+  // Execute all queries concurrently in parallel
   const [
     meetings,
     folders,
+    docFolders,
     recordings,
     announcements,
     quizzes,
@@ -283,6 +290,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   ] = await Promise.all([
     meetingsQuery,
     foldersQuery,
+    docFoldersQuery,
     recordingsQuery,
     announcementsQuery,
     quizzesQuery,
@@ -308,6 +316,15 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   }, {});
 
   const foldersByClassroom = folders.reduce((acc, folder) => {
+    if (folder.classroom) {
+      const key = folder.classroom.toString();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(folder);
+    }
+    return acc;
+  }, {});
+
+  const docFoldersByClassroom = (docFolders || []).reduce((acc, folder) => {
     if (folder.classroom) {
       const key = folder.classroom.toString();
       if (!acc[key]) acc[key] = [];
@@ -379,6 +396,10 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
         ...f,
         id: f._id.toString()
       })),
+      docFolders: (docFoldersByClassroom[classroomIdStr] || []).map(f => ({
+        ...f,
+        id: f._id.toString()
+      })),
       recordings: (recordingsByClassroom[classroomIdStr] || []).map(r => ({
         ...r,
         id: r._id.toString()
@@ -386,6 +407,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
       announcements: (announcementsByClassroom[classroomIdStr] || []).map(announcement => ({
         ...announcement,
         id: announcement._id.toString(),
+        folder: announcement.folder ? (announcement.folder._id || announcement.folder).toString() : null,
         author: typeof announcement.author === 'object' && announcement.author !== null
           ? (announcement.author.fullName || announcement.author.name || 'Admin')
           : (announcement.author || 'Admin')
@@ -428,12 +450,14 @@ router.get('/r2-proxy', async (req, res, next) => {
       }
     }
 
+    if (download === 'true') {
+      return res.status(403).json({ success: false, message: 'Downloading documents is disabled' });
+    }
+
     const { generatePresignedGetUrl, getS3Client, getCloudflareConfig } = require('../config/cloudflare');
     const path = require('path');
     const filename = path.basename(objectKey) || 'document.pdf';
-    const disposition = download === 'true'
-      ? `attachment; filename="${encodeURIComponent(filename)}"`
-      : `inline; filename="${encodeURIComponent(filename)}"`;
+    const disposition = `inline; filename="${encodeURIComponent(filename)}"`;
 
     res.removeHeader('X-Frame-Options');
     res.setHeader('Content-Security-Policy', "frame-ancestors *;");
@@ -1161,7 +1185,7 @@ router.put('/:id/students/:studentId/status', protect, restrictTo('admin', 'supe
 // POST /:id/announcements → Admin/Faculty: post announcement
 router.post('/:id/announcements', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
-    const { content, attachments } = req.body;
+    const { content, attachments, folderId } = req.body;
     const finalContent = (typeof content === 'string' && content.trim()) ||
       (Array.isArray(attachments) && attachments.length > 0 && attachments[0]?.name ? attachments[0].name : '') ||
       'Document Announcement';
@@ -1179,10 +1203,17 @@ router.post('/:id/announcements', protect, restrictTo('admin', 'superadmin', 'fa
       return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
     }
 
+    let targetFolderId = null;
+    if (folderId && mongoose.isValidObjectId(folderId)) {
+      const docFolder = await ClassroomDocFolder.findOne({ _id: folderId, classroom: req.params.id });
+      if (docFolder) targetFolderId = docFolder._id;
+    }
+
     const announcement = await ClassroomAnnouncement.create({
       classroom: req.params.id,
       author: req.user._id,
       content: finalContent,
+      folder: targetFolderId,
       attachments: attachments || []
     });
 
@@ -1191,9 +1222,12 @@ router.post('/:id/announcements', protect, restrictTo('admin', 'superadmin', 'fa
       $inc: { 'stats.totalAnnouncements': 1 }
     });
 
+    clearClassroomCache();
+
     // Populating author details
     const populated = await ClassroomAnnouncement.findById(announcement._id)
-      .populate('author', 'fullName role avatar');
+      .populate('author', 'fullName role avatar')
+      .populate('folder', 'name');
 
     // Socket notify students in classroom
     try {
@@ -1259,7 +1293,143 @@ router.delete('/:id/announcements/:annoId', protect, restrictTo('admin', 'supera
       $inc: { 'stats.totalAnnouncements': -1 }
     });
 
+    clearClassroomCache();
+
     res.json({ success: true, message: 'Announcement deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /:id/announcements/:annoId/folder → Admin/Faculty: move announcement / PDF to a folder (or root if null)
+router.put('/:id/announcements/:annoId/folder', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
+  try {
+    const classroom = await Classroom.findById(req.params.id);
+    if (!classroom) {
+      return res.status(404).json({ success: false, message: 'Classroom not found' });
+    }
+
+    if (!verifyClassroomAccess(classroom, req.user, true)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
+    }
+
+    const { folderId } = req.body;
+    let targetFolderId = null;
+    if (folderId && mongoose.isValidObjectId(folderId)) {
+      const docFolder = await ClassroomDocFolder.findOne({ _id: folderId, classroom: req.params.id });
+      if (!docFolder) {
+        return res.status(404).json({ success: false, message: 'Document folder not found in this classroom' });
+      }
+      targetFolderId = docFolder._id;
+    }
+
+    const announcement = await ClassroomAnnouncement.findOneAndUpdate(
+      { _id: req.params.annoId, classroom: req.params.id },
+      { $set: { folder: targetFolderId } },
+      { new: true }
+    ).populate('author', 'fullName role avatar').populate('folder', 'name');
+
+    if (!announcement) {
+      return res.status(404).json({ success: false, message: 'Announcement not found' });
+    }
+
+    clearClassroomCache();
+
+    res.json({ success: true, message: 'Document folder updated successfully', announcement });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /:id/doc-folders → Admin/Faculty: create new document folder for PDF materials
+router.post('/:id/doc-folders', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
+  try {
+    const { name, description } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Folder name is required' });
+    }
+
+    const classroom = await Classroom.findById(req.params.id);
+    if (!classroom) {
+      return res.status(404).json({ success: false, message: 'Classroom not found' });
+    }
+
+    if (!verifyClassroomAccess(classroom, req.user, true)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
+    }
+
+    const folder = await ClassroomDocFolder.create({
+      name: name.trim(),
+      description: description ? description.trim() : '',
+      classroom: req.params.id,
+      createdBy: req.user._id
+    });
+
+    clearClassroomCache();
+
+    res.status(201).json({ success: true, folder: { ...folder.toObject(), id: folder._id.toString() } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /doc-folders/:folderId → Admin/Faculty: update document folder name/desc
+router.put('/doc-folders/:folderId', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.folderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid folder ID' });
+    }
+
+    const folder = await ClassroomDocFolder.findById(req.params.folderId);
+    if (!folder) {
+      return res.status(404).json({ success: false, message: 'Document folder not found' });
+    }
+
+    const classroom = await Classroom.findById(folder.classroom);
+    if (!classroom || !verifyClassroomAccess(classroom, req.user, true)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
+    }
+
+    const { name, description } = req.body;
+    if (name && name.trim()) folder.name = name.trim();
+    if (description !== undefined) folder.description = description.trim();
+
+    await folder.save();
+    clearClassroomCache();
+
+    res.json({ success: true, folder: { ...folder.toObject(), id: folder._id.toString() } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /doc-folders/:folderId → Admin/Faculty: delete document folder (announcements reset to folder: null)
+router.delete('/doc-folders/:folderId', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.folderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid folder ID' });
+    }
+
+    const folder = await ClassroomDocFolder.findById(req.params.folderId);
+    if (!folder) {
+      return res.status(404).json({ success: false, message: 'Document folder not found' });
+    }
+
+    const classroom = await Classroom.findById(folder.classroom);
+    if (!classroom || !verifyClassroomAccess(classroom, req.user, true)) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this classroom' });
+    }
+
+    // Safely reset announcements inside this folder to root (folder: null) so no PDF is ever lost!
+    await ClassroomAnnouncement.updateMany(
+      { folder: folder._id },
+      { $set: { folder: null } }
+    );
+
+    await folder.deleteOne();
+    clearClassroomCache();
+
+    res.json({ success: true, message: 'Document folder deleted successfully. Contained documents moved to root.' });
   } catch (error) {
     next(error);
   }

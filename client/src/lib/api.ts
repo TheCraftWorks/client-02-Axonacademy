@@ -219,6 +219,15 @@ function normalizeBackendClassroom(raw: any) {
         createdBy: String(f.createdBy?._id || f.createdBy),
       }))
       : [],
+    docFolders: Array.isArray(raw.docFolders)
+      ? raw.docFolders.map((f: any) => ({
+        id: f._id || f.id,
+        name: f.name,
+        description: f.description || '',
+        classroomId: String(f.classroom?._id || f.classroom),
+        createdBy: String(f.createdBy?._id || f.createdBy),
+      }))
+      : [],
     quizzes: Array.isArray(raw.quizzes)
       ? raw.quizzes.map((q: any) => ({
         id: q._id || q.id,
@@ -326,6 +335,7 @@ function normalizeBackendAnnouncement(raw: any) {
     createdAt: raw?.createdAt || new Date().toISOString(),
     author: authorName,
     attachments: normalizedAttachments,
+    folder: raw?.folder ? (raw.folder._id || raw.folder.id || raw.folder).toString() : null,
   };
 }
 
@@ -586,10 +596,10 @@ export async function getClassroomById(id: string, forceRefresh = false) {
   return normalized;
 }
 
-export async function createClassroomAnnouncement(classroomId: string, content: string, attachments: any[] = []) {
+export async function createClassroomAnnouncement(classroomId: string, content: string, attachments: any[] = [], folderId?: string | null) {
   const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/announcements`, {
     method: 'POST',
-    body: JSON.stringify({ content, attachments }),
+    body: JSON.stringify({ content, attachments, folderId: folderId || undefined }),
   });
   return normalizeBackendAnnouncement(payload.announcement);
 }
@@ -599,6 +609,39 @@ export async function deleteClassroomAnnouncement(classroomId: string, announcem
     `/classrooms/${encodeURIComponent(classroomId)}/announcements/${encodeURIComponent(announcementId)}`,
     { method: 'DELETE' }
   );
+}
+
+export async function moveAnnouncementToFolder(classroomId: string, announcementId: string, folderId: string | null) {
+  const payload = await fetchJson(
+    `/classrooms/${encodeURIComponent(classroomId)}/announcements/${encodeURIComponent(announcementId)}/folder`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ folderId }),
+    }
+  );
+  return normalizeBackendAnnouncement(payload.announcement);
+}
+
+export async function createClassroomDocFolder(classroomId: string, name: string, description: string = '') {
+  const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/doc-folders`, {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+  return payload.folder;
+}
+
+export async function updateClassroomDocFolder(folderId: string, name: string, description: string = '') {
+  const payload = await fetchJson(`/classrooms/doc-folders/${encodeURIComponent(folderId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name, description }),
+  });
+  return payload.folder;
+}
+
+export async function deleteClassroomDocFolder(folderId: string) {
+  return fetchJson(`/classrooms/doc-folders/${encodeURIComponent(folderId)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function getClassroomAnnouncements(classroomId: string) {

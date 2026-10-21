@@ -5,7 +5,8 @@ import {
   LuPlus, LuX, LuTrash2, LuPlay, LuEye, LuEyeOff, LuCheck, LuSend,
   LuCalendar, LuClock, LuRadio, LuUpload, LuUsers, LuCircleDot, LuDownload, LuCopy, LuLink, LuAward, LuShare2, LuUserPlus,
   LuFolder, LuSearch, LuPrinter, LuRefreshCw, LuCrown, LuMedal, LuSparkles, LuTrophy,
-  LuFileText, LuLoader, LuImage, LuZoomIn
+  LuFileText, LuLoader, LuImage, LuZoomIn,
+  LuMove
 } from "react-icons/lu";
 import type { IconType } from "react-icons";
 import { DarkCard } from "@/components/portal/PortalShell";
@@ -24,7 +25,7 @@ import {
   type Option,
   type QuizAttempt,
 } from "@/lib/classroomStore";
-import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl, uploadQuestionImage, uploadQuestionVideo } from "@/lib/api";
+import { addStudentsToClassroom, createMeeting, createClassroomAnnouncement, deleteClassroomAnnouncement, getClassroomAnnouncements, deleteMeeting, endMeeting as apiEndMeeting, getAdminUsers, getClassroomById, getQuizReport, publishQuiz, closeQuiz, deleteQuiz as apiDeleteQuiz, createQuiz, startMeeting as apiStartMeeting, updateClassroomStudentStatus, removeStudentFromClassroom, getClassroomJoinRequests, approveClassroomJoinRequest, rejectClassroomJoinRequest, uploadClassroomRecordingToCloudflare, publishRecording, unpublishRecording, deleteRecording, getRecordingStreamUrl, updateQuiz, reuseClassroomRecording, uploadClassroomFileToCloudinary, generateQuizFromPdf, api, createClassroomFolder, updateClassroomFolder, deleteClassroomFolder, getClassroomReuseList, reuseClassroomFolder, uploadAnnouncementPdf, resolveAttachmentUrl, uploadQuestionImage, uploadQuestionVideo, createClassroomDocFolder, updateClassroomDocFolder, deleteClassroomDocFolder, moveAnnouncementToFolder } from "@/lib/api";
 import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnswerSheetModal";
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
@@ -205,12 +206,8 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
   const [isPosting, setIsPosting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [driveLink, setDriveLink] = useState("");
-  const [attachedPdf, setAttachedPdf] = useState<{ name: string; url: string; cloudflareKey?: string } | null>(null);
-  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
   // Dedicated PDF Document Upload states (for the PDF subtab)
   const [pdfDocFile, setPdfDocFile] = useState<File | null>(null);
@@ -218,6 +215,91 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [docUploadProgress, setDocUploadProgress] = useState(0);
   const pdfDocInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Document Folders State (Matches Video Recordings Tab UX)
+  const [currentDocFolderId, setCurrentDocFolderId] = useState<string | null>(null);
+  const [isDocFolderModalOpen, setIsDocFolderModalOpen] = useState(false);
+  const [newDocFolderName, setNewDocFolderName] = useState("");
+  const [newDocFolderDesc, setNewDocFolderDesc] = useState("");
+  const [isCreatingDocFolder, setIsCreatingDocFolder] = useState(false);
+
+  const [editDocFolderId, setEditDocFolderId] = useState<string | null>(null);
+  const [editDocFolderName, setEditDocFolderName] = useState("");
+  const [editDocFolderDesc, setEditDocFolderDesc] = useState("");
+  const [isEditingDocFolder, setIsEditingDocFolder] = useState(false);
+
+  const [uploadTargetFolderId, setUploadTargetFolderId] = useState<string>("");
+
+  // Move document to folder
+  const [moveDocModalOpen, setMoveDocModalOpen] = useState(false);
+  const [moveDocItem, setMoveDocItem] = useState<any | null>(null);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState<string>("");
+  const [isMovingDoc, setIsMovingDoc] = useState(false);
+
+  const docFolders = cls.docFolders || [];
+
+  const handleCreateDocFolder = async () => {
+    if (!newDocFolderName.trim()) return;
+    setIsCreatingDocFolder(true);
+    try {
+      await createClassroomDocFolder(cls.id, newDocFolderName.trim(), newDocFolderDesc.trim());
+      toast.success("Document folder created successfully!");
+      setIsDocFolderModalOpen(false);
+      setNewDocFolderName("");
+      setNewDocFolderDesc("");
+      await refreshClassroom();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create folder");
+    } finally {
+      setIsCreatingDocFolder(false);
+    }
+  };
+
+  const handleEditDocFolder = async () => {
+    if (!editDocFolderId || !editDocFolderName.trim()) return;
+    setIsEditingDocFolder(true);
+    try {
+      await updateClassroomDocFolder(editDocFolderId, editDocFolderName.trim(), editDocFolderDesc.trim());
+      toast.success("Document folder updated successfully!");
+      setEditDocFolderId(null);
+      setEditDocFolderName("");
+      setEditDocFolderDesc("");
+      await refreshClassroom();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update folder");
+    } finally {
+      setIsEditingDocFolder(false);
+    }
+  };
+
+  const handleDeleteDocFolder = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete folder "${name}"? Contained documents will be moved to root and will not be lost.`)) return;
+    try {
+      await deleteClassroomDocFolder(id);
+      toast.success("Folder deleted! Documents moved to root.");
+      if (currentDocFolderId === id) setCurrentDocFolderId(null);
+      await refreshClassroom();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete folder");
+    }
+  };
+
+  const handleMoveDoc = async () => {
+    if (!moveDocItem) return;
+    setIsMovingDoc(true);
+    try {
+      await moveAnnouncementToFolder(cls.id, moveDocItem.announcementId, moveTargetFolderId || null);
+      toast.success("Document moved successfully!");
+      setMoveDocModalOpen(false);
+      setMoveDocItem(null);
+      setMoveTargetFolderId("");
+      await refreshClassroom();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to move document");
+    } finally {
+      setIsMovingDoc(false);
+    }
+  };
 
   // Push reuse (duplicate to other classrooms) states
   const [duplicateAnnouncement, setDuplicateAnnouncement] = useState<any | null>(null);
@@ -246,6 +328,7 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
       authorName: string;
       createdAt: string;
       rawAnnouncement: any;
+      folder?: string | null;
     }> = [];
 
     announcements.forEach((ann: any, annIdx: number) => {
@@ -297,6 +380,7 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
           authorName: String(authorName),
           createdAt: ann.createdAt || new Date().toISOString(),
           rawAnnouncement: ann,
+          folder: ann.folder || null,
         });
       });
     });
@@ -304,48 +388,43 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [announcements]);
 
+  const visibleDocFolders = docFolders;
+  const currentDocFolder = visibleDocFolders.find(f => f.id === currentDocFolderId);
+
+  // Filter PDFs according to folder
+  const folderFilteredPdfs = useMemo(() => {
+    if (currentDocFolderId) {
+      return allPdfs.filter(doc => doc.folder === currentDocFolderId);
+    }
+    // At root: show documents that are not assigned to any existing folder
+    return allPdfs.filter(doc => !doc.folder || !visibleDocFolders.some(f => f.id === doc.folder));
+  }, [allPdfs, currentDocFolderId, visibleDocFolders]);
+
   const filteredPdfs = useMemo(() => {
-    if (!searchQuery.trim()) return allPdfs;
+    if (!searchQuery.trim()) return folderFilteredPdfs;
     const q = searchQuery.toLowerCase().trim();
-    return allPdfs.filter(
+    return folderFilteredPdfs.filter(
       (doc) =>
         doc.name.toLowerCase().includes(q) ||
         doc.announcementContent.toLowerCase().includes(q) ||
         doc.authorName.toLowerCase().includes(q)
     );
-  }, [allPdfs, searchQuery]);
+  }, [folderFilteredPdfs, searchQuery]);
 
-  const textAnnouncementsCount = announcements.length;
+  const textAnnouncements = useMemo(() => {
+    return announcements.filter((ann: any) => {
+      if (!ann) return false;
+      const rawAttachments = Array.isArray(ann.attachments)
+        ? ann.attachments
+        : (ann.attachment ? [ann.attachment] : []);
+      const hasAttachments = rawAttachments.length > 0 || !!ann.fileUrl || !!ann.pdfUrl;
+      return !hasAttachments && !ann.folder;
+    });
+  }, [announcements]);
+
+  const textAnnouncementsCount = textAnnouncements.length;
   const pdfDocumentsCount = allPdfs.length;
 
-  const handlePdfFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      toast.error("Please select a valid PDF file");
-      return;
-    }
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("PDF file must be under 50MB");
-      return;
-    }
-
-    setIsUploadingPdf(true);
-    setUploadProgress(0);
-    try {
-      const res = await uploadAnnouncementPdf({
-        file,
-        onProgress: (pct) => setUploadProgress(pct),
-      });
-      setAttachedPdf({ name: file.name, url: res.url, cloudflareKey: res.cloudflareKey });
-      toast.success("PDF uploaded successfully!");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to upload PDF");
-    } finally {
-      setIsUploadingPdf(false);
-      if (pdfInputRef.current) pdfInputRef.current.value = "";
-    }
-  };
 
   const handlePdfDocSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -380,7 +459,8 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
         type: "pdf",
         cloudflareKey: res.cloudflareKey,
       }];
-      await createClassroomAnnouncement(classroom.id, finalTitle, attachments);
+      const targetFolder = currentDocFolderId || uploadTargetFolderId || null;
+      await createClassroomAnnouncement(classroom.id, finalTitle, attachments, targetFolder);
       setPdfDocFile(null);
       setPdfDocTitle("");
       if (pdfDocInputRef.current) pdfDocInputRef.current.value = "";
@@ -395,26 +475,17 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
   };
 
   const handlePost = async () => {
-    const contentToPost = text.trim() || (attachedPdf ? attachedPdf.name : "");
-    if (!contentToPost || isPosting || isUploadingPdf) return;
+    const contentToPost = text.trim();
+    if (!contentToPost || isPosting) return;
     setIsPosting(true);
     try {
       let attachments: any[] = [];
-      if (attachedPdf) {
-        attachments.push({
-          name: attachedPdf.name,
-          url: attachedPdf.url,
-          type: "pdf",
-          cloudflareKey: attachedPdf.cloudflareKey,
-        });
-      }
       if (driveLink.trim()) {
-        attachments.push({ name: "External Resource", url: driveLink.trim(), type: "pdf" });
+        attachments.push({ name: "External Resource", url: driveLink.trim(), type: "link" });
       }
       await createClassroomAnnouncement(classroom.id, contentToPost, attachments);
       setText("");
       setDriveLink("");
-      setAttachedPdf(null);
       await refreshClassroom();
       toast.success("Announcement posted successfully!");
     } catch (err) {
@@ -519,19 +590,9 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
   // Pull reuse handler: load selected announcement into composer editor
   const handleLoadIntoEditor = (ann: any) => {
     setText(ann.content || "");
-    if (ann.attachments && ann.attachments.length > 0) {
-      const firstPdf = ann.attachments.find((at: any) => at.type === "pdf" || at.url?.endsWith(".pdf") || at.name?.endsWith(".pdf"));
-      if (firstPdf) {
-        setAttachedPdf({
-          name: firstPdf.name || "Reused PDF",
-          url: firstPdf.url,
-          cloudflareKey: firstPdf.cloudflareKey,
-        });
-      }
-      const extLink = ann.attachments.find((at: any) => at !== firstPdf);
-      if (extLink?.url) {
-        setDriveLink(extLink.url);
-      }
+    const extLink = ann.attachments?.find((at: any) => at?.type === "link" || (!at?.url?.endsWith(".pdf") && !at?.name?.endsWith(".pdf")));
+    if (extLink?.url) {
+      setDriveLink(extLink.url);
     }
     setSubTab("text");
     setShowImportModal(false);
@@ -540,14 +601,7 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
 
   return (
     <div className="space-y-5">
-      {/* Hidden PDF file inputs */}
-      <input
-        ref={pdfInputRef}
-        type="file"
-        accept="application/pdf"
-        className="hidden"
-        onChange={handlePdfFileSelect}
-      />
+      {/* Hidden PDF document file input */}
       <input
         ref={pdfDocInputRef}
         type="file"
@@ -630,7 +684,7 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                     fetchSourceAnnouncements(sourceClassroomId);
                   }
                 }}
-                disabled={isPosting || isUploadingPdf}
+                disabled={isPosting}
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cream/10 hover:bg-cream/15 text-cream text-xs font-semibold border border-cream/15 transition-colors disabled:opacity-50"
                 title="Reuse announcement from another classroom"
               >
@@ -642,88 +696,36 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
               onChange={(e) => setText(e.target.value)}
               placeholder="Type your announcement… (supports emoji 🎯)"
               rows={3}
-              disabled={isPosting || isUploadingPdf}
+              disabled={isPosting}
               className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-3 text-cream text-sm outline-none focus:border-lime/50 resize-none disabled:opacity-50"
             />
 
-            {/* Attached PDF pill */}
-            {attachedPdf && (
-              <div className="mt-2.5 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-lime/10 border border-lime/30 text-cream text-xs w-fit">
-                <LuFileText className="h-3.5 w-3.5 text-lime shrink-0" />
-                <span className="font-semibold text-lime truncate max-w-[220px]" title={attachedPdf.name}>
-                  {attachedPdf.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPreviewPdf({ url: resolveAttachmentUrl(attachedPdf.url, attachedPdf.cloudflareKey), name: attachedPdf.name })}
-                  className="text-cream/70 hover:text-white p-0.5 ml-1"
-                  title="Preview PDF"
-                >
-                  <LuEye className="h-3.5 w-3.5 text-lime" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAttachedPdf(null)}
-                  disabled={isPosting}
-                  className="text-cream/50 hover:text-red-400 p-0.5"
-                  title="Remove attached PDF"
-                >
-                  <LuX className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
-
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-3">
-              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-                {/* Upload PDF Button */}
-                {!attachedPdf && (
+              <div className="flex items-center gap-1.5 w-full sm:w-72">
+                <LuLink className="h-3.5 w-3.5 text-cream/60 shrink-0" />
+                <input
+                  type="url"
+                  value={driveLink}
+                  onChange={(e) => setDriveLink(e.target.value)}
+                  placeholder="Optional external link…"
+                  disabled={isPosting}
+                  className="w-full bg-cream/5 border border-cream/10 rounded-lg px-2.5 py-1 text-cream text-xs outline-none focus:border-lime/50 disabled:opacity-50"
+                />
+                {driveLink && (
                   <button
                     type="button"
-                    onClick={() => pdfInputRef.current?.click()}
-                    disabled={isPosting || isUploadingPdf}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cream/10 hover:bg-cream/15 text-cream text-xs font-semibold border border-cream/15 transition-colors disabled:opacity-50 cursor-pointer"
+                    onClick={() => setDriveLink("")}
+                    disabled={isPosting}
+                    className="text-cream/40 hover:text-red-400 shrink-0"
                   >
-                    {isUploadingPdf ? (
-                      <>
-                        <LuLoader className="h-3.5 w-3.5 animate-spin text-lime" />
-                        <span>Uploading ({uploadProgress}%)…</span>
-                      </>
-                    ) : (
-                      <>
-                        <LuUpload className="h-3.5 w-3.5 text-lime" />
-                        <span>Upload PDF</span>
-                      </>
-                    )}
+                    <LuX className="h-3 w-3" />
                   </button>
                 )}
-
-                {/* Optional Drive / External Link Input */}
-                <div className="flex items-center gap-1.5 flex-1 sm:w-56">
-                  <LuLink className="h-3.5 w-3.5 text-cream/60 shrink-0" />
-                  <input
-                    type="url"
-                    value={driveLink}
-                    onChange={(e) => setDriveLink(e.target.value)}
-                    placeholder="Or paste external link…"
-                    disabled={isPosting || isUploadingPdf}
-                    className="w-full bg-cream/5 border border-cream/10 rounded-lg px-2.5 py-1 text-cream text-xs outline-none focus:border-lime/50 disabled:opacity-50"
-                  />
-                  {driveLink && (
-                    <button
-                      type="button"
-                      onClick={() => setDriveLink("")}
-                      disabled={isPosting}
-                      className="text-cream/40 hover:text-red-400 shrink-0"
-                    >
-                      <LuX className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
               </div>
 
               <button
                 onClick={handlePost}
-                disabled={(!text.trim() && !attachedPdf) || isPosting || isUploadingPdf}
+                disabled={!text.trim() || isPosting}
                 className="w-full sm:w-auto justify-center inline-flex items-center gap-2 rounded-full bg-lime text-plum-dark px-5 py-2 text-sm font-bold disabled:opacity-40 shrink-0 cursor-pointer"
               >
                 <LuSend className="h-3.5 w-3.5" /> {isPosting ? "Posting…" : "Post to All Students"}
@@ -732,11 +734,11 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
           </DarkCard>
 
           {/* Feed of Text Announcements */}
-          {isFetching && announcements.length === 0 ? (
+          {isFetching && textAnnouncements.length === 0 ? (
             <DarkTabSkeletonLoader type="rows" />
           ) : (
             <div className="space-y-3">
-              {announcements.length === 0 && !isFetching && (
+              {textAnnouncements.length === 0 && !isFetching && (
                 <DarkCard className="text-center py-12">
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-500/10 text-blue-400 mx-auto mb-3 border border-blue-500/20">
                     <LuMegaphone className="h-6 w-6" />
@@ -747,7 +749,7 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                   </p>
                 </DarkCard>
               )}
-              {announcements.map((ann: any, idx: number) => {
+              {textAnnouncements.map((ann: any, idx: number) => {
                 if (!ann) return null;
                 const authorName = typeof ann.author === 'object' && ann.author !== null
                   ? (ann.author.fullName || ann.author.name || 'Admin')
@@ -760,7 +762,6 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                   .join("")
                   .slice(0, 2) || "A";
 
-                const rawAttachments = Array.isArray(ann.attachments) ? ann.attachments : [];
                 const safeContent = typeof ann.content === 'string' ? ann.content : (typeof ann.content === 'object' && ann.content !== null ? JSON.stringify(ann.content) : String(ann.content || ''));
                 const annId = ann.id || ann._id || `ann-${idx}`;
 
@@ -780,48 +781,6 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                             <span className="text-cream/40 text-xs">{timeAgo(ann.createdAt)}</span>
                           </div>
                           <div className="text-cream/80 text-sm leading-relaxed whitespace-pre-wrap break-words">{safeContent}</div>
-
-                          {rawAttachments.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-cream/10 space-y-2">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="text-xs text-cream/60 font-semibold flex items-center gap-1.5">
-                                  <LuFileText className="h-3.5 w-3.5 text-rose-400" />
-                                  <span>{rawAttachments.length} Attached {rawAttachments.length === 1 ? "Document" : "Documents"}</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setSubTab("pdf")}
-                                  className="text-xs font-bold text-rose-400 hover:text-rose-300 transition-colors cursor-pointer flex items-center gap-1"
-                                >
-                                  <span>Open PDF Repository &rarr;</span>
-                                </button>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {rawAttachments.map((at: any, i: number) => {
-                                  if (!at) return null;
-                                  const atUrl = typeof at === 'string' ? at : (at?.url || at?.fileUrl || at?.secure_url || at?.link || at?.path || '');
-                                  const cfKey = typeof at === 'object' && at !== null ? (at.cloudflareKey || at.publicId || at.key) : undefined;
-                                  const resolvedUrl = resolveAttachmentUrl(atUrl, cfKey);
-                                  if (!atUrl && !resolvedUrl && !cfKey) return null;
-                                  const rawName = typeof at === 'string' ? '' : (at?.name || at?.filename || at?.title || '');
-                                  const fallbackName = cfKey ? cfKey.split('/').pop() : (atUrl ? atUrl.split('?')[0].split('/').pop() : `Document_${i + 1}.pdf`);
-                                  const atName = (rawName && rawName.trim()) ? rawName.trim() : (fallbackName || `Document_${i + 1}.pdf`);
-                                  return (
-                                    <button
-                                      key={i}
-                                      type="button"
-                                      onClick={() => setPreviewPdf({ url: resolvedUrl || atUrl, name: atName })}
-                                      className="inline-flex items-center gap-2 bg-cream/5 border border-cream/10 rounded-lg px-3 py-1.5 text-xs font-semibold text-cream/70 hover:bg-cream/10 hover:text-lime transition-all cursor-pointer"
-                                    >
-                                      <LuFileText className="h-3.5 w-3.5 text-rose-400" />
-                                      <span className="truncate max-w-[200px]">{atName}</span>
-                                      <LuEye className="h-3 w-3 text-cream/40 ml-1" />
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -857,33 +816,61 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
 
       {/* Sub-tab 2: PDF Documents Content */}
       {subTab === "pdf" && (
-        <div className="space-y-4 pt-1">
-          {/* Top Banner & Search Filter Bar */}
+        <div className="space-y-5 pt-1">
+          {/* Top Banner & Folder Navigation Bar */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-cream/5 border border-cream/10 p-4 rounded-2xl shadow-xs">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                <LuFileText className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-cream">Classroom PDF Repository</h3>
-                <p className="text-xs text-cream/50">
-                  {allPdfs.length} {allPdfs.length === 1 ? "document" : "documents"} available in this classroom
-                </p>
-              </div>
+              {currentDocFolderId ? (
+                <div className="flex items-center gap-2 text-sm text-cream/70">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentDocFolderId(null)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream/10 hover:bg-cream/15 text-cream font-bold transition-colors cursor-pointer border border-cream/15"
+                  >
+                    <LuArrowLeft className="w-4 h-4 text-lime" /> All PDF Folders
+                  </button>
+                  <span className="text-cream/40">/</span>
+                  <span className="font-bold text-cream flex items-center gap-1.5">
+                    <LuFolder className="h-4 w-4 text-lime" />
+                    {currentDocFolder?.name}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                    <LuFileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-cream">Classroom PDF Repository</h3>
+                    <p className="text-xs text-cream/50">
+                      {allPdfs.length} {allPdfs.length === 1 ? "document" : "documents"} across {visibleDocFolders.length} {visibleDocFolders.length === 1 ? "folder" : "folders"}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {allPdfs.length > 0 && (
-                <div className="relative min-w-[200px] sm:w-64">
+                <div className="relative min-w-[170px] sm:w-56">
                   <LuSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-cream/40" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search PDF documents..."
+                    placeholder={currentDocFolderId ? `Search in ${currentDocFolder?.name}...` : "Search PDF documents..."}
                     className="w-full pl-9 pr-3 py-1.5 text-xs bg-cream/5 border border-cream/10 rounded-xl focus:outline-none focus:border-rose-400 focus:bg-cream/10 transition-all text-cream placeholder-cream/40"
                   />
                 </div>
+              )}
+              {!currentDocFolderId && (
+                <button
+                  type="button"
+                  onClick={() => setIsDocFolderModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cream/10 hover:bg-cream/15 text-cream text-xs font-semibold border border-cream/15 transition-colors shrink-0 cursor-pointer"
+                >
+                  <LuFolder className="h-3.5 w-3.5 text-lime" /> New Folder
+                </button>
               )}
               <button
                 type="button"
@@ -901,11 +888,87 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
             </div>
           </div>
 
+          {/* Grid of Folders (only visible at root) */}
+          {!currentDocFolderId && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] uppercase tracking-widest text-cream/50 font-bold">
+                  Document Folders ({visibleDocFolders.length})
+                </div>
+              </div>
+              {visibleDocFolders.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {visibleDocFolders.map((folder) => {
+                    const docCount = allPdfs.filter(d => d.folder === folder.id).length;
+                    return (
+                      <div
+                        key={folder.id}
+                        className="flex items-center justify-between p-3.5 rounded-xl border border-cream/10 bg-cream/5 hover:border-lime/40 hover:bg-cream/10 transition-all group"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setCurrentDocFolderId(folder.id)}
+                          className="flex items-center gap-3 text-left flex-1 min-w-0 cursor-pointer"
+                        >
+                          <div className="w-10 h-10 rounded-xl bg-lime/10 text-lime border border-lime/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                            <LuFolder className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-cream text-xs truncate group-hover:text-lime transition-colors">
+                              {folder.name}
+                            </div>
+                            {folder.description && (
+                              <div className="text-[10px] text-cream/50 truncate mt-0.5">{folder.description}</div>
+                            )}
+                            <div className="text-[9px] text-cream/40 mt-1 font-semibold">
+                              {docCount} {docCount === 1 ? 'document' : 'documents'}
+                            </div>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shrink-0">
+                          <button
+                            type="button"
+                            className="p-1.5 hover:bg-cream/10 rounded-lg text-cream/60 hover:text-cream text-xs font-bold cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditDocFolderId(folder.id);
+                              setEditDocFolderName(folder.name);
+                              setEditDocFolderDesc(folder.description || "");
+                            }}
+                            title="Edit folder"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="p-1.5 hover:bg-red-500/10 rounded-lg text-red-400 cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteDocFolder(folder.id, folder.name);
+                            }}
+                            title="Delete folder"
+                          >
+                            <LuTrash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl border border-dashed border-cream/10 bg-cream/2 text-center text-xs text-cream/40">
+                  No folders created yet. Click <span className="font-bold text-cream/70">&quot;New Folder&quot;</span> above to organize PDFs into subjects or topics.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Dedicated PDF Document Upload Composer */}
           <DarkCard>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-display font-bold text-sm text-cream flex items-center gap-2">
-                <LuUpload className="h-4 w-4 text-rose-400" /> Upload & Publish PDF Document
+                <LuUpload className="h-4 w-4 text-rose-400" />
+                {currentDocFolder ? `Upload PDF to "${currentDocFolder.name}"` : "Upload & Publish PDF Document"}
               </h3>
               <span className="text-[11px] text-cream/40">PDF format &bull; Max 50MB</span>
             </div>
@@ -939,7 +1002,9 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                   <LuUpload className="h-6 w-6" />
                 </div>
                 <p className="text-xs font-semibold text-cream">Click or drag & drop a PDF file here</p>
-                <p className="text-[11px] text-cream/40 mt-1">Study materials, notes, question banks, or syllabus</p>
+                <p className="text-[11px] text-cream/40 mt-1">
+                  {currentDocFolder ? `Will be placed inside "${currentDocFolder.name}" folder` : "Study materials, notes, question banks, or syllabus"}
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -972,7 +1037,7 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                         if (pdfDocInputRef.current) pdfDocInputRef.current.value = "";
                       }}
                       disabled={isUploadingDoc}
-                      className="p-1 rounded-lg text-cream/50 hover:text-red-400 hover:bg-cream/10 transition-colors"
+                      className="p-1 rounded-lg text-cream/50 hover:text-red-400 hover:bg-cream/10 transition-colors cursor-pointer"
                       title="Remove file"
                     >
                       <LuX className="h-4 w-4" />
@@ -980,18 +1045,41 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-cream/70 block">
-                    Document Title / Context Note (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={pdfDocTitle}
-                    onChange={(e) => setPdfDocTitle(e.target.value)}
-                    placeholder="e.g. Pharmacology Chapter 2 Notes (defaults to filename if empty)"
-                    disabled={isUploadingDoc}
-                    className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-xs outline-none focus:border-rose-400 disabled:opacity-50"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-cream/70 block">
+                      Document Title / Context Note (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={pdfDocTitle}
+                      onChange={(e) => setPdfDocTitle(e.target.value)}
+                      placeholder="e.g. Pharmacology Chapter 2 Notes"
+                      disabled={isUploadingDoc}
+                      className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-xs outline-none focus:border-rose-400 disabled:opacity-50"
+                    />
+                  </div>
+
+                  {!currentDocFolderId && (
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-cream/70 block">
+                        Select Destination Folder
+                      </label>
+                      <select
+                        value={uploadTargetFolderId}
+                        onChange={(e) => setUploadTargetFolderId(e.target.value)}
+                        disabled={isUploadingDoc}
+                        className="w-full bg-[#1A0F33] border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-xs outline-none focus:border-lime/50 disabled:opacity-50"
+                      >
+                        <option value="">Root / Unassigned (No folder)</option>
+                        {visibleDocFolders.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            📁 {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 {isUploadingDoc && (
@@ -1045,6 +1133,13 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
             )}
           </DarkCard>
 
+          {/* Documents Section Header */}
+          <div className="flex items-center justify-between pt-1">
+            <div className="text-[10px] uppercase tracking-widest text-cream/50 font-bold">
+              {currentDocFolder ? `Documents in "${currentDocFolder.name}" (${filteredPdfs.length})` : (!currentDocFolderId && visibleDocFolders.length > 0 ? `Other / Root Documents (${filteredPdfs.length})` : `All Documents (${filteredPdfs.length})`)}
+            </div>
+          </div>
+
           {/* Empty States */}
           {allPdfs.length === 0 && !isFetching && (
             <DarkCard className="text-center py-12">
@@ -1060,106 +1155,307 @@ function AnnouncementsTab({ classroom, refreshClassroom, isFetching }: { classro
 
           {allPdfs.length > 0 && filteredPdfs.length === 0 && (
             <DarkCard className="text-center py-10">
-              <p className="text-cream/70 text-xs font-medium">No PDF documents match &quot;{searchQuery}&quot;</p>
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="mt-2 text-xs text-rose-400 hover:text-rose-300 font-semibold cursor-pointer underline"
-              >
-                Clear search filter
-              </button>
+              <p className="text-cream/70 text-xs font-medium">
+                {searchQuery ? `No PDF documents match "${searchQuery}"` : (currentDocFolder ? `No documents in folder "${currentDocFolder.name}" yet.` : "No documents at root level.")}
+              </p>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="mt-2 text-xs text-rose-400 hover:text-rose-300 font-semibold cursor-pointer underline"
+                >
+                  Clear search filter
+                </button>
+              )}
             </DarkCard>
           )}
 
-          {/* PDF Grid Cards (Matching Student's Beautiful Card Layout + Admin Actions) */}
+          {/* PDF Grid Cards */}
           {filteredPdfs.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {filteredPdfs.map((doc) => (
-                <DarkCard
-                  key={doc.id}
-                  className="flex flex-col justify-between hover:border-rose-400/40 transition-all group"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2.5 mb-2">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs">
-                          <LuFileText className="h-5 w-5" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                              PDF
-                            </span>
-                            <span className="text-[11px] text-cream/40">{timeAgo(doc.createdAt)}</span>
+              {filteredPdfs.map((doc) => {
+                const assignedFolder = visibleDocFolders.find(f => f.id === doc.folder);
+                return (
+                  <DarkCard
+                    key={doc.id}
+                    className="flex flex-col justify-between hover:border-rose-400/40 transition-all group"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2.5 mb-2">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs">
+                            <LuFileText className="h-5 w-5" />
                           </div>
-                          <h4 className="text-sm font-bold text-cream mt-1 truncate" title={doc.name}>
-                            {doc.name}
-                          </h4>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                PDF
+                              </span>
+                              {assignedFolder && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cream/10 text-cream/70 border border-cream/10">
+                                  <LuFolder className="h-2.5 w-2.5 text-lime" />
+                                  {assignedFolder.name}
+                                </span>
+                              )}
+                              <span className="text-[11px] text-cream/40">{timeAgo(doc.createdAt)}</span>
+                            </div>
+                            <h4 className="text-sm font-bold text-cream mt-1 truncate" title={doc.name}>
+                              {doc.name}
+                            </h4>
+                          </div>
+                        </div>
+
+                        {/* Admin Quick Actions */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMoveDocItem(doc);
+                              setMoveTargetFolderId(doc.folder || "");
+                              setMoveDocModalOpen(true);
+                            }}
+                            className="rounded-full bg-cream/10 text-cream p-1.5 hover:bg-cream/20 transition-colors cursor-pointer"
+                            title="Move to another folder"
+                          >
+                            <LuMove className="h-3.5 w-3.5 text-lime" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDuplicateAnnouncement(doc.rawAnnouncement);
+                              setSelectedTargetClassrooms([]);
+                            }}
+                            className="rounded-full bg-cream/10 text-cream p-1.5 hover:bg-cream/20 transition-colors cursor-pointer"
+                            title="Reuse/Duplicate PDF to other classes"
+                          >
+                            <LuCopy className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(doc.announcementId)}
+                            disabled={deletingId === doc.announcementId}
+                            className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-1.5 disabled:opacity-40 transition-colors cursor-pointer"
+                            title="Delete document announcement"
+                          >
+                            <LuTrash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
 
-                      {/* Admin Quick Actions */}
-                      <div className="flex items-center gap-1 shrink-0">
+                      {doc.announcementContent && doc.announcementContent !== doc.name && (
+                        <p className="mt-2 text-xs text-cream/70 line-clamp-2 leading-relaxed bg-cream/5 p-2 rounded-lg border border-cream/5">
+                          {doc.announcementContent}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-cream/10 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-cream/50 truncate">
+                        By <span className="font-semibold text-cream/80">{doc.authorName}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => {
-                            setDuplicateAnnouncement(doc.rawAnnouncement);
-                            setSelectedTargetClassrooms([]);
-                          }}
-                          className="rounded-full bg-cream/10 text-cream p-1.5 hover:bg-cream/20 transition-colors cursor-pointer"
-                          title="Reuse/Duplicate PDF to other classes"
+                          onClick={() => setPreviewPdf({ url: doc.url, name: doc.name })}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
                         >
-                          <LuCopy className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(doc.announcementId)}
-                          disabled={deletingId === doc.announcementId}
-                          className="rounded-full bg-cream/5 text-cream/40 hover:text-red-400 p-1.5 disabled:opacity-40 transition-colors cursor-pointer"
-                          title="Delete document announcement"
-                        >
-                          <LuTrash2 className="h-3.5 w-3.5" />
+                          <LuEye className="h-3.5 w-3.5" />
+                          <span>View PDF</span>
                         </button>
                       </div>
                     </div>
-
-                    {doc.announcementContent && doc.announcementContent !== doc.name && (
-                      <p className="mt-2 text-xs text-cream/70 line-clamp-2 leading-relaxed bg-cream/5 p-2 rounded-lg border border-cream/5">
-                        {doc.announcementContent}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-cream/10 flex items-center justify-between gap-2">
-                    <div className="text-[11px] text-cream/50 truncate">
-                      By <span className="font-semibold text-cream/80">{doc.authorName}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <a
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        download={doc.name}
-                        className="inline-flex items-center gap-1 rounded-xl bg-cream/10 hover:bg-cream/15 text-cream px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer"
-                        title="Download PDF"
-                      >
-                        <LuDownload className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Download</span>
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => setPreviewPdf({ url: doc.url, name: doc.name })}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
-                      >
-                        <LuEye className="h-3.5 w-3.5" />
-                        <span>View PDF</span>
-                      </button>
-                    </div>
-                  </div>
-                </DarkCard>
-              ))}
+                  </DarkCard>
+                );
+              })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Create Document Folder Modal */}
+      {isDocFolderModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#1A0F33] border border-cream/10 rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-5 py-4 border-b border-cream/10 flex items-center justify-between">
+              <h3 className="font-display font-bold text-cream flex items-center gap-2">
+                <LuFolder className="h-4 w-4 text-lime" /> Create Document Folder
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsDocFolderModalOpen(false)}
+                className="text-cream/50 hover:text-cream cursor-pointer"
+              >
+                <LuX className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">
+                  Folder Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  value={newDocFolderName}
+                  onChange={(e) => setNewDocFolderName(e.target.value)}
+                  placeholder="e.g. Pharmacology Notes, Chapter 1 Slides"
+                  className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={newDocFolderDesc}
+                  onChange={(e) => setNewDocFolderDesc(e.target.value)}
+                  placeholder="Briefly describe what materials belong here"
+                  rows={2}
+                  className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50 resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setIsDocFolderModalOpen(false)}
+                className="flex-1 rounded-full bg-cream/10 text-cream py-2 text-xs font-semibold hover:bg-cream/15 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateDocFolder}
+                disabled={isCreatingDocFolder || !newDocFolderName.trim()}
+                className="flex-1 rounded-full bg-lime text-plum-dark py-2 text-xs font-bold hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-40"
+              >
+                {isCreatingDocFolder ? "Creating…" : "Create Folder"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Document Folder Modal */}
+      {editDocFolderId && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#1A0F33] border border-cream/10 rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-5 py-4 border-b border-cream/10 flex items-center justify-between">
+              <h3 className="font-display font-bold text-cream flex items-center gap-2">
+                <LuFolder className="h-4 w-4 text-lime" /> Edit Folder Details
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditDocFolderId(null)}
+                className="text-cream/50 hover:text-cream cursor-pointer"
+              >
+                <LuX className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">
+                  Folder Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  value={editDocFolderName}
+                  onChange={(e) => setEditDocFolderName(e.target.value)}
+                  className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={editDocFolderDesc}
+                  onChange={(e) => setEditDocFolderDesc(e.target.value)}
+                  rows={2}
+                  className="w-full bg-cream/5 border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-sm outline-none focus:border-lime/50 resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setEditDocFolderId(null)}
+                className="flex-1 rounded-full bg-cream/10 text-cream py-2 text-xs font-semibold hover:bg-cream/15 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleEditDocFolder}
+                disabled={isEditingDocFolder || !editDocFolderName.trim()}
+                className="flex-1 rounded-full bg-lime text-plum-dark py-2 text-xs font-bold hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-40"
+              >
+                {isEditingDocFolder ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move Document to Folder Modal */}
+      {moveDocModalOpen && moveDocItem && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#1A0F33] border border-cream/10 rounded-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-5 py-4 border-b border-cream/10 flex items-center justify-between">
+              <h3 className="font-display font-bold text-cream flex items-center gap-2">
+                <LuFolder className="h-4 w-4 text-lime" /> Move Document
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setMoveDocModalOpen(false);
+                  setMoveDocItem(null);
+                }}
+                className="text-cream/50 hover:text-cream cursor-pointer"
+              >
+                <LuX className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-cream/70">
+                Move <span className="font-bold text-cream">&quot;{moveDocItem.name}&quot;</span> to another destination folder:
+              </p>
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-cream/60 block mb-1">
+                  Destination Folder
+                </label>
+                <select
+                  value={moveTargetFolderId}
+                  onChange={(e) => setMoveTargetFolderId(e.target.value)}
+                  className="w-full bg-[#1A0F33] border border-cream/10 rounded-xl px-4 py-2.5 text-cream text-xs outline-none focus:border-lime/50"
+                >
+                  <option value="">Root / Unassigned (No folder)</option>
+                  {visibleDocFolders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      📁 {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="px-5 py-3.5 bg-black/20 border-t border-cream/10 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setMoveDocModalOpen(false);
+                  setMoveDocItem(null);
+                }}
+                className="flex-1 rounded-full bg-cream/10 text-cream py-2 text-xs font-semibold hover:bg-cream/15 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleMoveDoc}
+                disabled={isMovingDoc}
+                className="flex-1 rounded-full bg-lime text-plum-dark py-2 text-xs font-bold hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-40"
+              >
+                {isMovingDoc ? "Moving…" : "Move Document"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
