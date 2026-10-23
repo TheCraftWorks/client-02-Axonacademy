@@ -43,7 +43,7 @@ function Login() {
     androidVersion: "",
     webViewVersion: "",
     isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
-    apiEndpoint: "https://api1.axonmedacademy.com/api/v1",
+    apiEndpoint: import.meta.env.VITE_API_URL || "https://client-02-axonacademy.onrender.com/api/v1",
   });
 
   useEffect(() => {
@@ -79,7 +79,7 @@ function Login() {
         androidVersion: android || (isCap ? "Android" : "Web Device"),
         webViewVersion: webview || (isCap ? "System WebView" : "Web Browser"),
         isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
-        apiEndpoint: "https://api1.axonmedacademy.com/api/v1",
+        apiEndpoint: import.meta.env.VITE_API_URL || "https://client-02-axonacademy.onrender.com/api/v1",
       });
     };
 
@@ -135,7 +135,7 @@ function Login() {
     } else {
       reasons.push({
         title: "Browser or Network Firewall Block",
-        desc: "The browser or local Wi-Fi router is blocking requests to api1.axonmedacademy.com.",
+        desc: "The browser or local Wi-Fi router is blocking requests to the backend API server (client-02-axonacademy.onrender.com).",
         fix: "Disable AdBlockers/VPN or try using Google Chrome in Incognito mode.",
       });
     }
