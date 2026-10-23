@@ -108,6 +108,11 @@ function socketCorsOrigin(origin, callback) {
   // Exact match
   if (allowed.includes(origin)) return callback(null, true);
 
+  // Allow Capacitor/local origins for mobile apps
+  if (origin === 'http://localhost' || origin === 'https://localhost' || origin.startsWith('capacitor://')) {
+    return callback(null, true);
+  }
+
   // Allow custom production domain and its subdomains
   if (/^https:\/\/(www\.)?axonmedacademy\.com$/.test(origin) ||
     /^https:\/\/[a-zA-Z0-9-]+\.axonmedacademy\.com$/.test(origin)) {
