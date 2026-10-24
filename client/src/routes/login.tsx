@@ -79,7 +79,7 @@ function Login() {
         androidVersion: android || (isCap ? "Android" : "Web Device"),
         webViewVersion: webview || (isCap ? "System WebView" : "Web Browser"),
         isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
-        apiEndpoint: import.meta.env.VITE_API_URL || "https://client-02-axonacademy.onrender.com/api/v1",
+        apiEndpoint: import.meta.env.VITE_API_URL || "https://api1.axonmedacademy.com/api/v1",
       });
     };
 

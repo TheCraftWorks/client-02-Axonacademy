@@ -131,6 +131,12 @@ export function PdfViewerModal({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentAreaRef = useRef<HTMLDivElement | null>(null);
   const fitScaleRef = useRef<number>(1.0);
+  const scaleRef = useRef<number>(1.0);
+  const isManuallyZoomedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
 
   // Mouse pan tracking for desktop
   const isMouseDownRef = useRef(false);
@@ -249,7 +255,7 @@ export function PdfViewerModal({
         const context = currentCanvas.getContext('2d');
         if (!context) return;
 
-        const effectiveScale = customScale !== undefined ? customScale : scale;
+        const effectiveScale = customScale !== undefined ? customScale : scaleRef.current;
         const viewport = page.getViewport({ scale: effectiveScale });
         const outputScale = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
@@ -282,7 +288,7 @@ export function PdfViewerModal({
         }
       }
     },
-    [scale]
+    []
   );
 
   // Load the PDF document
@@ -387,6 +393,7 @@ export function PdfViewerModal({
         // Calculate initial auto-fit scale
         const firstPage = await pdf.getPage(1);
         const fitScale = computeFitScale(firstPage);
+        scaleRef.current = fitScale;
         setScale(fitScale);
 
         setLoading(false);
@@ -419,12 +426,12 @@ export function PdfViewerModal({
         }
       }
     };
-  }, [isOpen, url, computeFitScale, renderPage, retryKey]);
+  }, [isOpen, url, retryKey, computeFitScale, renderPage]);
 
   // Re-render when page or scale changes
   useEffect(() => {
     if (pdfDocRef.current && !loading && !useIframeFallback) {
-      renderPage(currentPage, pdfDocRef.current);
+      renderPage(currentPage, pdfDocRef.current, scale);
     }
   }, [currentPage, scale, loading, useIframeFallback, renderPage]);
 
@@ -436,10 +443,11 @@ export function PdfViewerModal({
     const handleResize = async () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(async () => {
-        if (pdfDocRef.current && !isZoomed) {
+        if (pdfDocRef.current && !isManuallyZoomedRef.current) {
           try {
             const page = await pdfDocRef.current.getPage(currentPage);
             const newFit = computeFitScale(page);
+            scaleRef.current = newFit;
             setScale(newFit);
           } catch {
             // ignore
@@ -450,7 +458,7 @@ export function PdfViewerModal({
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isOpen, currentPage, computeFitScale, isZoomed]);
+  }, [isOpen, currentPage, computeFitScale]);
 
   if (!isOpen) return null;
 
@@ -466,31 +474,68 @@ export function PdfViewerModal({
     }
   };
 
-  const handleZoomIn = () => {
-    setScale((s) => Math.min(3.5, Number((s + 0.25).toFixed(2))));
-  };
+  const handleZoomIn = useCallback(() => {
+    isManuallyZoomedRef.current = true;
+    setScale((s) => {
+      const next = Math.min(3.5, Number((s + 0.25).toFixed(2)));
+      scaleRef.current = next;
+      return next;
+    });
+  }, []);
 
-  const handleZoomOut = () => {
-    setScale((s) => Math.max(0.4, Number((s - 0.25).toFixed(2))));
-  };
+  const handleZoomOut = useCallback(() => {
+    isManuallyZoomedRef.current = true;
+    setScale((s) => {
+      const next = Math.max(0.4, Number((s - 0.25).toFixed(2)));
+      scaleRef.current = next;
+      return next;
+    });
+  }, []);
 
-  const handleFitWidth = async () => {
+  const handleFitWidth = useCallback(async () => {
+    isManuallyZoomedRef.current = false;
     if (pdfDocRef.current) {
       try {
         const page = await pdfDocRef.current.getPage(currentPage);
         const fitScale = computeFitScale(page);
+        scaleRef.current = fitScale;
         setScale(fitScale);
       } catch {
+        scaleRef.current = 1.0;
         setScale(1.0);
       }
     } else {
+      scaleRef.current = 1.0;
       setScale(1.0);
     }
-  };
+  }, [currentPage, computeFitScale]);
 
-  const handleResetZoom = () => {
+  const handleResetZoom = useCallback(() => {
+    isManuallyZoomedRef.current = true;
+    scaleRef.current = 1.0;
     setScale(1.0);
-  };
+  }, []);
+
+  // Mouse wheel zoom with Ctrl/Cmd key
+  useEffect(() => {
+    if (!isOpen) return;
+    const contentEl = contentAreaRef.current;
+    if (!contentEl) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          handleZoomIn();
+        } else if (e.deltaY > 0) {
+          handleZoomOut();
+        }
+      }
+    };
+
+    contentEl.addEventListener('wheel', handleWheel, { passive: false });
+    return () => contentEl.removeEventListener('wheel', handleWheel);
+  }, [isOpen, handleZoomIn, handleZoomOut]);
 
   const toggleFullscreen = () => {
     setIsFullscreen((prev) => !prev);
@@ -559,7 +604,10 @@ export function PdfViewerModal({
       const dist = Math.sqrt(dx * dx + dy * dy);
       const ratio = dist / pinchStartDistanceRef.current;
       const newScale = Math.min(3.5, Math.max(0.4, pinchStartScaleRef.current * ratio));
-      setScale(Number(newScale.toFixed(2)));
+      const rounded = Number(newScale.toFixed(2));
+      isManuallyZoomedRef.current = true;
+      scaleRef.current = rounded;
+      setScale(rounded);
     }
   };
 
@@ -757,26 +805,28 @@ export function PdfViewerModal({
 
           {/* Canvas Rendering Engine */}
           {!loading && !error && !useIframeFallback && (
-            <div
-              className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white m-auto shrink-0 transition-[width,height] duration-100"
-              style={{
-                width: renderedDimensions.width > 0 ? `${renderedDimensions.width}px` : 'auto',
-                height: renderedDimensions.height > 0 ? `${renderedDimensions.height}px` : 'auto',
-              }}
-            >
-              <canvas
-                ref={canvasRef}
-                className="block select-none pointer-events-auto"
-                onContextMenu={(e) => e.preventDefault()}
-                onDragStart={(e) => e.preventDefault()}
-                draggable={false}
-              />
-              {/* Subtle Protected Overlay Watermark */}
+            <div className="w-fit min-w-full min-h-full flex items-center justify-center p-2 sm:p-4">
               <div
-                className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.035] select-none text-slate-900 font-extrabold text-3xl sm:text-6xl uppercase rotate-[-25deg]"
-                style={{ letterSpacing: '0.25em' }}
+                className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white shrink-0"
+                style={{
+                  width: renderedDimensions.width > 0 ? `${renderedDimensions.width}px` : 'auto',
+                  height: renderedDimensions.height > 0 ? `${renderedDimensions.height}px` : 'auto',
+                }}
               >
-                Axon Academy
+                <canvas
+                  ref={canvasRef}
+                  className="block select-none pointer-events-auto"
+                  onContextMenu={(e) => e.preventDefault()}
+                  onDragStart={(e) => e.preventDefault()}
+                  draggable={false}
+                />
+                {/* Subtle Protected Overlay Watermark */}
+                <div
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.035] select-none text-slate-900 font-extrabold text-3xl sm:text-6xl uppercase rotate-[-25deg]"
+                  style={{ letterSpacing: '0.25em' }}
+                >
+                  Axon Academy
+                </div>
               </div>
             </div>
           )}
