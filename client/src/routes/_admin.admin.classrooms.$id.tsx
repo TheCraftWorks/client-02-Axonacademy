@@ -2624,15 +2624,21 @@ function RecordingsTab({ classroom, refreshClassroom }: { classroom: Classroom; 
                                 <div className="pl-14">
                                   <div className="text-[9px] uppercase tracking-widest text-cream/40 mb-1.5 font-bold">Viewer Progress</div>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1.5 max-h-32 overflow-y-auto pr-2">
-                                    {rec.viewStats.map((vs) => (
-                                      <div key={vs.studentId} className="flex items-center gap-2">
-                                        <span className="text-[11px] text-cream/70 w-24 truncate">{vs.studentName}</span>
-                                        <div className="flex-1 h-1 bg-cream/10 rounded-full overflow-hidden">
-                                          <div className="h-full bg-lime rounded-full" style={{ width: `${vs.watchedPercent}%` }} />
+                                    {rec.viewStats.map((vs) => {
+                                      const matchedStudent = cls.students?.find(s => s.id === vs.studentId || (s as any)._id === vs.studentId);
+                                      const displayName = (vs.studentName && vs.studentName !== 'Student')
+                                        ? vs.studentName
+                                        : (matchedStudent?.name || 'Student');
+                                      return (
+                                        <div key={vs.studentId} className="flex items-center gap-2">
+                                          <span className="text-[11px] text-cream/70 w-24 truncate" title={displayName}>{displayName}</span>
+                                          <div className="flex-1 h-1 bg-cream/10 rounded-full overflow-hidden">
+                                            <div className="h-full bg-lime rounded-full" style={{ width: `${vs.watchedPercent}%` }} />
+                                          </div>
+                                          <span className="text-[10px] font-mono text-cream/50 w-8 text-right">{vs.watchedPercent}%</span>
                                         </div>
-                                        <span className="text-[10px] font-mono text-cream/50 w-8 text-right">{vs.watchedPercent}%</span>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               </td>

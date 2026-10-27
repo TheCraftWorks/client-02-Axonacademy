@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Stethoscope, ArrowRight, Eye, EyeOff, AlertTriangle, Copy, Check, Wifi, WifiOff, Smartphone, Globe } from "lucide-react";
+import { Stethoscope, ArrowRight, Eye, EyeOff, AlertTriangle, Copy, Check, Wifi, WifiOff, Smartphone, Globe, RefreshCw, RotateCcw } from "lucide-react";
 import { useState, useEffect } from "react";
 import { classroomStore, type User } from "@/lib/classroomStore";
 import { loginUser, forgotPassword, resetPassword } from "@/lib/api";
@@ -31,6 +31,7 @@ function Login() {
   const [diagnostic, setDiagnostic] = useState<DiagnosticDetail | null>(null);
   const [copiedDiag, setCopiedDiag] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isClearingCache, setIsClearingCache] = useState(false);
 
   const [step, setStep] = useState<"login" | "forgot" | "reset">("login");
   const [otp, setOtp] = useState("");
@@ -43,7 +44,7 @@ function Login() {
     androidVersion: "",
     webViewVersion: "",
     isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
-    apiEndpoint: import.meta.env.VITE_API_URL || "https://client-02-axonacademy.onrender.com/api/v1",
+    apiEndpoint: import.meta.env.VITE_API_URL || "https://api1.axonmedacademy.com/api/v1",
   });
 
   useEffect(() => {
@@ -134,9 +135,14 @@ function Login() {
       });
     } else {
       reasons.push({
-        title: "Browser or Network Firewall Block",
-        desc: "The browser or local Wi-Fi router is blocking requests to the backend API server (client-02-axonacademy.onrender.com).",
-        fix: "Disable AdBlockers/VPN or try using Google Chrome in Incognito mode.",
+        title: "1. Stale DNS Cache or ISP Timeout",
+        desc: `Your device or local ISP DNS is attempting to reach an outdated IP for ${envInfo.apiEndpoint.replace('/api/v1', '')}.`,
+        fix: "Toggle Airplane mode for 10s, or try Incognito mode / Private DNS 'dns.google'.",
+      });
+      reasons.push({
+        title: "2. Browser Socket & AdBlocker Block",
+        desc: "Stale socket pool or active VPN/AdBlocker is blocking network calls to the server.",
+        fix: "Click 'Clear Cache & Retry' below or temporarily disable VPN/AdBlocker.",
       });
     }
 
@@ -164,6 +170,49 @@ Timestamp: ${new Date().toLocaleString()}
       toast.success("Diagnostic info copied to clipboard!");
       setTimeout(() => setCopiedDiag(false), 3000);
     });
+  };
+
+  const handleClearCacheAndRetry = async () => {
+    setIsClearingCache(true);
+    try {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          sessionStorage.clear();
+        } catch {
+          // ignore storage error
+        }
+
+        if ("caches" in window) {
+          try {
+            const cacheKeys = await window.caches.keys();
+            await Promise.all(cacheKeys.map(k => window.caches.delete(k)));
+          } catch {
+            // ignore cache errors
+          }
+        }
+      }
+
+      classroomStore.setState(() => ({ currentUser: null, accessToken: null }));
+      setError("");
+      setDiagnostic(null);
+      toast.success("Cache cleared! Retrying connection...");
+
+      setTimeout(() => {
+        if (userId.trim() && password.trim()) {
+          const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+          handleLogin(fakeEvent);
+        } else {
+          toast.info("Cache reset. Please enter your credentials and tap Sign in.");
+        }
+      }, 500);
+    } catch {
+      toast.error("Failed to clear cache");
+    } finally {
+      setIsClearingCache(false);
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -358,6 +407,27 @@ Timestamp: ${new Date().toLocaleString()}
                 <div><strong>App:</strong> {envInfo.isCapacitor ? "Android APK" : "Web"} ({envInfo.version})</div>
                 <div><strong>Device:</strong> {envInfo.androidVersion || "N/A"} • {envInfo.webViewVersion || "N/A"}</div>
                 <div><strong>Network:</strong> {envInfo.isOnline ? "Connected (Online)" : "Disconnected (Offline)"}</div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={isSubmitting || isClearingCache}
+                  onClick={handleLogin}
+                  className="flex items-center justify-center gap-1.5 bg-navy hover:bg-navy/90 text-white font-bold py-2 rounded-lg text-xs transition active:scale-95 shadow-sm disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSubmitting ? "animate-spin" : ""}`} />
+                  {isSubmitting ? "Retrying..." : "Retry Now"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isClearingCache || isSubmitting}
+                  onClick={handleClearCacheAndRetry}
+                  className="flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 rounded-lg text-xs transition active:scale-95 shadow-sm disabled:opacity-50"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isClearingCache ? "animate-spin" : ""}`} />
+                  {isClearingCache ? "Clearing..." : "Clear Cache & Retry"}
+                </button>
               </div>
 
               <button

@@ -229,7 +229,10 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   if (isList) {
     recordingsQuery = recordingsQuery.select('_id classroom title isPublished duration folder createdAt');
   } else {
-    recordingsQuery = recordingsQuery.select('-transcript -viewStats.sessions').populate('uploadedBy', 'fullName');
+    recordingsQuery = recordingsQuery
+      .select('-transcript -viewStats.sessions')
+      .populate('uploadedBy', 'fullName')
+      .populate('viewStats.student', 'fullName email');
   }
   recordingsQuery = recordingsQuery.sort({ createdAt: -1 }).lean();
 
@@ -244,7 +247,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
 
   // 5. Quizzes
   let quizzesQuery = Quiz.find({ classroom: { $in: classroomIds } });
-  if (!isStaff) {
+  if (isList) {
+    quizzesQuery = quizzesQuery.select('_id classroom title status');
+  } else if (!isStaff) {
     quizzesQuery = quizzesQuery.select('-questions.explanation -questions.options.isCorrect');
   }
   quizzesQuery = quizzesQuery.sort({ createdAt: -1 }).lean();
@@ -297,6 +302,11 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     quizAttemptsQuery,
     joinRequestsQuery
   ]);
+
+  // Ensure students in recordings viewStats are also populated with names
+  if (!isList && recordings.length > 0) {
+    await manualPopulate(recordings, 'viewStats.student', 'fullName email');
+  }
 
   if (studentId) {
     recordings.forEach(r => {

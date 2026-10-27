@@ -137,6 +137,31 @@ function normalizeBackendClassroom(raw: any) {
     return { attendance, quizAvg, progress };
   };
 
+  const studentNameMap = new Map<string, string>();
+  const normalizedStudents = Array.isArray(raw.students)
+    ? raw.students.map((s: any) => {
+      const studentObj = typeof s.student === 'object' && s.student !== null ? s.student : (typeof s === 'object' && s !== null ? s : {});
+      const id = String(studentObj._id || studentObj.id || (typeof s.student === 'string' ? s.student : '') || s._id || s.id || `student-${Date.now()}`);
+      const metrics = computeStudentMetrics(id);
+      const studentName = studentObj.fullName || studentObj.name || (studentObj.email ? studentObj.email.split('@')[0] : '') || s.name || s.fullName || '';
+      if (id && studentName) {
+        studentNameMap.set(id, studentName);
+      }
+      return {
+        id,
+        name: studentName || 'Student',
+        email: studentObj.email || s.email || '',
+        enrollmentId: s.enrollmentId || (id && id.length >= 4 && !id.startsWith('student-') ? `STU-${id.slice(-4).toUpperCase()}` : `STU-${Date.now().toString().slice(-4)}`),
+        progress: typeof s.progress === 'number' ? s.progress : metrics.progress,
+        attendance: typeof s.attendance === 'number' ? s.attendance : metrics.attendance,
+        quizAvg: typeof s.quizAvg === 'number' ? s.quizAvg : metrics.quizAvg,
+        status: s.status || 'active',
+        addedAt: s.addedAt ? new Date(s.addedAt).toISOString() : new Date().toISOString(),
+        certificateUrl: s.certificateUrl || undefined,
+      };
+    })
+    : [];
+
   return {
     id: raw._id || raw.id,
     name: raw.name || '',
@@ -148,28 +173,7 @@ function normalizeBackendClassroom(raw: any) {
     programId: raw.program?._id || raw.program?.id || (typeof raw.program === 'string' && raw.program.length === 24 ? raw.program : ''),
     createdAt: raw.createdAt || new Date().toISOString(),
     pendingJoinRequestsCount: raw.pendingJoinRequestsCount || 0,
-    students: Array.isArray(raw.students)
-      ? raw.students.map((s: any) => ({
-        ...(() => {
-          const studentObj = typeof s.student === 'object' && s.student !== null ? s.student : (typeof s === 'object' && s !== null ? s : {});
-          const id = String(studentObj._id || studentObj.id || (typeof s.student === 'string' ? s.student : '') || s._id || s.id || `student-${Date.now()}`);
-          const metrics = computeStudentMetrics(id);
-          const studentName = studentObj.fullName || studentObj.name || (studentObj.email ? studentObj.email.split('@')[0] : '') || s.name || s.fullName || '';
-          return {
-            id,
-            name: studentName || 'Student',
-            email: studentObj.email || s.email || '',
-            enrollmentId: s.enrollmentId || (id && id.length >= 4 && !id.startsWith('student-') ? `STU-${id.slice(-4).toUpperCase()}` : `STU-${Date.now().toString().slice(-4)}`),
-            progress: typeof s.progress === 'number' ? s.progress : metrics.progress,
-            attendance: typeof s.attendance === 'number' ? s.attendance : metrics.attendance,
-            quizAvg: typeof s.quizAvg === 'number' ? s.quizAvg : metrics.quizAvg,
-            status: s.status || 'active',
-            addedAt: s.addedAt ? new Date(s.addedAt).toISOString() : new Date().toISOString(),
-            certificateUrl: s.certificateUrl || undefined,
-          };
-        })()
-      }))
-      : [],
+    students: normalizedStudents,
     announcements: Array.isArray(raw.announcements)
       ? raw.announcements.map(normalizeBackendAnnouncement)
       : [],
@@ -200,13 +204,24 @@ function normalizeBackendClassroom(raw: any) {
         cloudflareUrl: r.cloudflareUrl,
         folder: r.folder ? String(r.folder?._id || r.folder) : null,
         viewStats: Array.isArray(r.viewStats)
-          ? r.viewStats.map((v: any) => ({
-            studentId: String(v.student?._id || v.student),
-            studentName: v.student ? v.student.fullName || 'Student' : 'Student',
-            watchedPercent: r.duration > 0 ? Math.round((v.totalWatchedSec / r.duration) * 100) : 0,
-            totalWatchedSec: v.totalWatchedSec || 0,
-            lastPosition: v.lastPosition || 0,
-          }))
+          ? r.viewStats.map((v: any) => {
+            const rawStudent = v.student;
+            const studentId = String(rawStudent?._id || (typeof rawStudent === 'object' ? rawStudent?.id : rawStudent) || v.studentId || '');
+            let studentName = '';
+            if (rawStudent && typeof rawStudent === 'object') {
+              studentName = rawStudent.fullName || rawStudent.name || (rawStudent.email ? rawStudent.email.split('@')[0] : '');
+            }
+            if (!studentName || studentName === 'Student') {
+              studentName = studentNameMap.get(studentId) || (typeof v.studentName === 'string' && v.studentName !== 'Student' ? v.studentName : '') || 'Student';
+            }
+            return {
+              studentId,
+              studentName,
+              watchedPercent: r.duration > 0 ? Math.round((v.totalWatchedSec / r.duration) * 100) : 0,
+              totalWatchedSec: v.totalWatchedSec || 0,
+              lastPosition: v.lastPosition || 0,
+            };
+          })
           : [],
       }))
       : [],
@@ -401,11 +416,32 @@ async function fetchJson(path: string, options: RequestInit = {}) {
   const extraHeaders = options.headers as Record<string, string> | undefined;
   if (extraHeaders) Object.assign(headers, extraHeaders);
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include', // sends HttpOnly cookies cross-origin (Vercel → Railway)
-    headers,
-    ...options,
-  });
+  const doFetch = () =>
+    fetch(`${API_BASE}${path}`, {
+      credentials: 'include', // sends HttpOnly cookies cross-origin (Vercel → Railway)
+      headers,
+      ...options,
+    });
+
+  let response: Response;
+  try {
+    response = await doFetch();
+  } catch (err: unknown) {
+    const isNetworkError =
+      err instanceof Error &&
+      (err.message.toLowerCase().includes('failed to fetch') ||
+        err.message.toLowerCase().includes('networkerror') ||
+        err.message.toLowerCase().includes('load failed') ||
+        err.message.toLowerCase().includes('network request failed'));
+
+    // Automatically retry once after 1.2s to absorb Railway cold start / proxy hiccups
+    if (isNetworkError) {
+      await new Promise(res => setTimeout(res, 1200));
+      response = await doFetch();
+    } else {
+      throw err;
+    }
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -543,6 +579,8 @@ const CLIENT_CACHE_TTL = 30_000;
 export function invalidateClientClassroomCache() {
   cachedClassroomsListMap.clear();
   cachedClassroomDetails.clear();
+  inFlightClassroomsPromise = null;
+  inFlightMyClassroomsPromise = null;
 }
 
 export function invalidateClassroomCacheById(classroomId: string) {
@@ -560,16 +598,29 @@ function getCacheUserKey(): string {
   return u?.id || u?.userId || 'anonymous';
 }
 
+let inFlightClassroomsPromise: Promise<any> | null = null;
+let inFlightMyClassroomsPromise: Promise<any> | null = null;
+
 export async function getClassrooms(forceRefresh = false) {
   const userKey = `admin_${getCacheUserKey()}`;
   const cached = cachedClassroomsListMap.get(userKey);
   if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
     return cached.data;
   }
-  const payload = await fetchJson('/classrooms');
-  const normalized = payload.classrooms.map(normalizeBackendClassroom);
-  cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
-  return normalized;
+  if (inFlightClassroomsPromise) {
+    return inFlightClassroomsPromise;
+  }
+  inFlightClassroomsPromise = (async () => {
+    try {
+      const payload = await fetchJson('/classrooms');
+      const normalized = payload.classrooms.map(normalizeBackendClassroom);
+      cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
+      return normalized;
+    } finally {
+      inFlightClassroomsPromise = null;
+    }
+  })();
+  return inFlightClassroomsPromise;
 }
 
 export async function getMyClassrooms(forceRefresh = false) {
@@ -578,10 +629,20 @@ export async function getMyClassrooms(forceRefresh = false) {
   if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
     return cached.data;
   }
-  const payload = await fetchJson('/classrooms/my');
-  const normalized = payload.classrooms.map(normalizeBackendClassroom);
-  cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
-  return normalized;
+  if (inFlightMyClassroomsPromise) {
+    return inFlightMyClassroomsPromise;
+  }
+  inFlightMyClassroomsPromise = (async () => {
+    try {
+      const payload = await fetchJson('/classrooms/my');
+      const normalized = payload.classrooms.map(normalizeBackendClassroom);
+      cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
+      return normalized;
+    } finally {
+      inFlightMyClassroomsPromise = null;
+    }
+  })();
+  return inFlightMyClassroomsPromise;
 }
 
 export async function getClassroomById(id: string, forceRefresh = false) {

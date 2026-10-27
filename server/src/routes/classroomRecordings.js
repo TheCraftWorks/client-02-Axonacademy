@@ -96,6 +96,7 @@ router.get('/classroom/:classroomId', protect, async (req, res, next) => {
 
     const recordings = await ClassroomRecording.find(filter)
       .populate('uploadedBy', 'fullName')
+      .populate('viewStats.student', 'fullName email')
       .sort({ createdAt: -1 })
       .lean();
 
