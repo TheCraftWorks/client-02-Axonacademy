@@ -1016,6 +1016,8 @@ router.get('/:id/analytics', protect, restrictTo('admin', 'superadmin'), async (
   }
 });
 
+let lastProgressCacheClear = 0;
+
 // POST /:id/progress → Student: update watch progress
 router.post('/:id/progress', protect, async (req, res, next) => {
   try {
@@ -1046,8 +1048,9 @@ router.post('/:id/progress', protect, async (req, res, next) => {
       $inc: {
         'viewStats.$.totalWatchedSec': safeWatchedSec
       },
+      // Cap per-student session history so the document (and every response) can't grow unbounded
       $push: {
-        'viewStats.$.sessions': sessionEntry
+        'viewStats.$.sessions': { $each: [sessionEntry], $slice: -50 }
       }
     };
 
@@ -1139,9 +1142,19 @@ router.post('/:id/progress', protect, async (req, res, next) => {
       }
     }
 
-    const progress = updated?.viewStats?.[0] || null;
+    const rawProgress = updated?.viewStats?.[0] || null;
+    // Don't send the session history back on every heartbeat
+    let progress = null;
+    if (rawProgress) {
+      const { sessions, ...rest } = rawProgress.toObject ? rawProgress.toObject() : rawProgress;
+      progress = rest;
+    }
 
-    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+    // Throttle: clearing the cache scans Redis (KEYS) and runs on every heartbeat otherwise
+    const nowMs = Date.now();
+    if (nowMs - lastProgressCacheClear > 10000 &&
+        typeof classroomsRouter.clearClassroomCache === 'function') {
+      lastProgressCacheClear = nowMs;
       classroomsRouter.clearClassroomCache();
     }
 
