@@ -27,7 +27,9 @@ const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const verifyClassroomAccessById = async (classroomId, user, writeRequired = false) => {
   if (!classroomId) return false;
-  const classroom = await Classroom.findById(classroomId);
+  const classroom = await Classroom.findById(classroomId)
+    .select('_id instructor students status createdBy isArchived')
+    .lean();
   if (!classroom) return false;
   return verifyClassroomAccess(classroom, user, writeRequired);
 };
@@ -1016,10 +1018,32 @@ router.get('/:id/analytics', protect, restrictTo('admin', 'superadmin'), async (
   }
 });
 
+// Per-user/recording progress throttle (drops duplicate requests within 3s to prevent DB hammering)
+const progressThrottleMap = new Map();
+const PROGRESS_THROTTLE_MS = 3000;
+
 // POST /:id/progress → Student: update watch progress
 router.post('/:id/progress', protect, async (req, res, next) => {
   try {
     const { position, watchedSec, completed } = req.body;
+    const throttleKey = `${req.user._id}_${req.params.id}`;
+    const nowMs = Date.now();
+    const lastCalled = progressThrottleMap.get(throttleKey);
+
+    // If client repeats within throttle window and not completed, return early without hitting DB
+    if (!completed && lastCalled && (nowMs - lastCalled) < PROGRESS_THROTTLE_MS) {
+      return res.json({ success: true, message: 'Throttled', throttled: true });
+    }
+    progressThrottleMap.set(throttleKey, nowMs);
+
+    // Periodically prune old throttle keys to prevent memory retention
+    if (progressThrottleMap.size > 2000) {
+      const cutoff = nowMs - 60000;
+      for (const [key, timestamp] of progressThrottleMap.entries()) {
+        if (timestamp < cutoff) progressThrottleMap.delete(key);
+      }
+    }
+
     const recording = await ClassroomRecording.findById(req.params.id).select('classroom duration');
     if (!recording) {
       return res.status(404).json({ success: false, message: 'Recording not found' });
@@ -1047,7 +1071,10 @@ router.post('/:id/progress', protect, async (req, res, next) => {
         'viewStats.$.totalWatchedSec': safeWatchedSec
       },
       $push: {
-        'viewStats.$.sessions': sessionEntry
+        'viewStats.$.sessions': {
+          $each: [sessionEntry],
+          $slice: -50 // Limit to latest 50 watch sessions to prevent unbounded document bloat
+        }
       }
     };
 
@@ -1140,10 +1167,6 @@ router.post('/:id/progress', protect, async (req, res, next) => {
     }
 
     const progress = updated?.viewStats?.[0] || null;
-
-    if (typeof classroomsRouter.clearClassroomCache === 'function') {
-      classroomsRouter.clearClassroomCache();
-    }
 
     res.json({
       success: true,

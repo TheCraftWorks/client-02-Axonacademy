@@ -80,6 +80,11 @@ function cleanupSocket(socket, roomId) {
       });
     }, 120000);
   }
+
+  // Prune room from memory if all participants and waiting list have left and no host is active
+  if (room.participants.size === 0 && room.waitingList.length === 0 && !room.hostSocketId && !room.hostDisconnectTimeout) {
+    rooms.delete(roomId);
+  }
 }
 
 // ── Build the same allowed-origins list that app.js uses ─────────────────────
@@ -352,6 +357,7 @@ const initSocket = (server) => {
       // Auto-admit registered/authenticated students so 100+ students join instantly without bottlenecking host UI
       const isRegisteredStudent = user.userId && !user.userId.startsWith('guest_');
       if (isRegisteredStudent) {
+        socketUsers.set(socket.id, { ...user, roomId });
         const existing = getRoomParticipants(roomId);
         socket.emit('admitted', { roomId, existingParticipants: existing });
         return cb?.({ status: 'admitted' });

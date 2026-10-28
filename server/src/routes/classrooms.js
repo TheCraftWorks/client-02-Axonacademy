@@ -42,6 +42,7 @@ const REDIS_TTL_SEC = 120; // 2-minute Redis TTL
 // Used as L1 cache; Redis is L2 (survives server restarts)
 const responseCache = new Map();
 const CACHE_TTL_MS = 60 * 1000;
+const MAX_CACHE_ENTRIES = 300;
 
 function getCachedData(key) {
   const item = responseCache.get(key);
@@ -54,11 +55,27 @@ function getCachedData(key) {
 }
 
 function setCachedData(key, data) {
+  // Evict oldest entries if cache exceeds maximum allowed size
+  if (responseCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = responseCache.keys().next().value;
+    if (oldestKey) responseCache.delete(oldestKey);
+  }
   responseCache.set(key, { data, timestamp: Date.now() });
   // Also persist to Redis asynchronously with prefix
   const redisKey = `cls:${key}`;
   redis.setex(redisKey, REDIS_TTL_SEC, JSON.stringify(data)).catch(() => {});
 }
+
+// Sweep expired in-memory cache items periodically to prevent memory accumulation
+const cacheCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, item] of responseCache.entries()) {
+    if (now - item.timestamp > CACHE_TTL_MS) {
+      responseCache.delete(key);
+    }
+  }
+}, CACHE_TTL_MS);
+if (cacheCleanupInterval.unref) cacheCleanupInterval.unref();
 
 async function getCachedDataWithRedis(key) {
   // L1: in-memory

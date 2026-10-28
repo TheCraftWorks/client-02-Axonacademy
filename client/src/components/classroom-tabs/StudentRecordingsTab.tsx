@@ -192,7 +192,10 @@ function SecurePlayer({
     }
   };
 
+  const isSendingProgressRef = useRef(false);
+
   const sendProgress = useCallback(async (force = false) => {
+    if (isSendingProgressRef.current) return;
     const video = videoRef.current;
     const userId = currentUser?.id || currentUser?.userId;
     if (!video || !userId) return;
@@ -206,6 +209,7 @@ function SecurePlayer({
     if (!force && (watchedSec < 10 || now - lastSentAtRef.current < 10_000)) return;
     if (watchedSec <= 0 && !completed) return;
 
+    isSendingProgressRef.current = true;
     pendingWatchedRef.current = 0;
     lastSentAtRef.current = now;
 
@@ -243,8 +247,13 @@ function SecurePlayer({
       );
     } catch {
       pendingWatchedRef.current += watchedSec;
+    } finally {
+      isSendingProgressRef.current = false;
     }
-  }, [classroomId, currentUser?.id, currentUser?.userId, currentUser?.name, recording.duration, recordingId, recording.viewStats]);
+  }, [classroomId, currentUser?.id, currentUser?.userId, currentUser?.name, recording.duration, recordingId]);
+
+  const sendProgressRef = useRef(sendProgress);
+  sendProgressRef.current = sendProgress;
 
   const handleVideoError = useCallback(async () => {
     const err = videoRef.current?.error;
@@ -354,14 +363,14 @@ function SecurePlayer({
     };
     const handlePause = () => {
       setIsPlaying(false);
-      void sendProgress(true);
+      void sendProgressRef.current(true);
     };
     const handleEnded = () => {
       setIsPlaying(false);
-      void sendProgress(true);
+      void sendProgressRef.current(true);
     };
     const handleBeforeUnload = () => {
-      void sendProgress(true);
+      void sendProgressRef.current(true);
     };
 
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
@@ -370,11 +379,13 @@ function SecurePlayer({
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
     window.addEventListener('beforeunload', handleBeforeUnload);
-    const interval = window.setInterval(() => void sendProgress(), 15_000);
+    const interval = window.setInterval(() => void sendProgressRef.current(), 15_000);
 
     return () => {
       window.clearInterval(interval);
-      void sendProgress(true);
+      if (pendingWatchedRef.current >= 5) {
+        void sendProgressRef.current(true);
+      }
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('play', handlePlay);
@@ -382,7 +393,7 @@ function SecurePlayer({
       video.removeEventListener('ended', handleEnded);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [currentUser?.id, recording.id, recording.viewStats, sendProgress, playbackSpeed]);
+  }, [currentUser?.id, recording.id, playbackSpeed]);
 
   // Pause video if locked
   useEffect(() => {
