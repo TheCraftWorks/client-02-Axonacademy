@@ -38,7 +38,7 @@ function Dashboard() {
     queryKey: ['myMeetings'],
     queryFn: getMyMeetings,
     enabled: !!currentUser,
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 1,
   });
   const studentId = currentUser?.id || "";
@@ -135,7 +135,7 @@ function Dashboard() {
     queryKey: ['myNotifications'],
     queryFn: () => getMyNotifications(),
     enabled: !!currentUser,
-    staleTime: 1000 * 30,
+    staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 1,
   });
 
@@ -188,7 +188,7 @@ function Dashboard() {
     queryKey: ['dashboardQuizLeaderboard', latestQuiz?.id],
     queryFn: () => getQuizLeaderboard(latestQuiz!.id),
     enabled: !!latestQuiz?.id,
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 1,
   });
 

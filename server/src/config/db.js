@@ -59,7 +59,9 @@ const connectDB = async () => {
     console.log(`[Database] Attempting connection to MongoDB...`);
 
     const conn = await mongoose.connect(connStr, {
-      autoIndex: true, // Auto-build indexes in development
+      // Only auto-build indexes in development. In production this causes
+      // slow startup times as Mongoose rebuilds all indexes on every restart.
+      autoIndex: process.env.NODE_ENV !== 'production',
     });
 
     console.log(`[Database] MongoDB Connected successfully to host: ${conn.connection.host}`);

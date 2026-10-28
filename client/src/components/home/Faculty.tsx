@@ -63,7 +63,7 @@ export function Faculty() {
                 <div className={`relative h-44 rounded-2xl bg-gradient-to-br ${f.tint || "from-navy to-sky"} overflow-hidden grid place-items-center`}>
                   <div className="absolute inset-0 bg-noise opacity-30" />
                   {f.image ? (
-                    <img src={getAssetUrl(f.image)} alt={f.name} className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <img src={getAssetUrl(f.image)} alt={f.name} loading="lazy" className="absolute inset-0 h-full w-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   ) : (
                     <span className="relative font-display text-5xl font-bold text-white/90">{f.initials || f.name.charAt(0)}</span>
                   )}

@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { App } from "@capacitor/app";
-import { getCurrentUser, getClassrooms } from "@/lib/api";
+import { getCurrentUser } from "@/lib/api";
 import { classroomStore, type User } from "@/lib/classroomStore";
 import { initFCM } from "@/lib/fcm";
 import { Toaster } from "@/components/ui/sonner";
@@ -79,6 +79,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     links: [
       { rel: "icon", type: "image/jpeg", href: "/logo.jpeg" },
       { rel: "stylesheet", href: appCss },
+      { rel: "dns-prefetch", href: "https://fonts.googleapis.com" },
+      { rel: "dns-prefetch", href: "https://fonts.gstatic.com" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
@@ -193,19 +195,23 @@ function RootComponent() {
   }, [router]);
 
   useEffect(() => {
-    // On every page load, verify the stored token and fetch role-appropriate classrooms
+    // On every page load: verify the stored session cookie and populate currentUser.
+    // We do NOT pre-fetch classrooms here — that was causing 5–50 MB of data on
+    // every single boot. Instead each portal layout loads its own data on demand.
     let isMounted = true;
 
     const rehydrateSession = async () => {
       try {
-        // Fast auth check with timeout fail-safe so cold starts never block the screen
+        // Auth check with a 5-second fail-safe (reduced from 12s)
         const authPromise = getCurrentUser().catch(() => null);
-        const timeoutPromise = new Promise<{ user?: any }>((resolve) => setTimeout(() => resolve({}), 12000));
+        const timeoutPromise = new Promise<{ user?: any }>((resolve) =>
+          setTimeout(() => resolve({}), 5000)
+        );
         const payload = await Promise.race([authPromise, timeoutPromise]);
         if (!isMounted) return;
 
         if (!payload || !payload.user) {
-          classroomStore.setState(() => ({ currentUser: null, accessToken: null, classrooms: [] }));
+          classroomStore.setState((s) => ({ ...s, currentUser: null, accessToken: null, authReady: true }));
           setAuthReady(true);
           return;
         }
@@ -224,19 +230,9 @@ function RootComponent() {
           userId: backendUser.userId
         };
 
-        // Instantly populate user auth so UI shell and layouts render without delay
-        classroomStore.setState((s) => ({ ...s, currentUser, accessToken }));
+        // Populate user auth immediately so layouts render without waiting
+        classroomStore.setState((s) => ({ ...s, currentUser, accessToken, authReady: true }));
         setAuthReady(true);
-
-        // Fetch role-appropriate classrooms in the background asynchronously
-        const { getMyClassrooms, getClassrooms } = await import("@/lib/api");
-        const classrooms = role === "student"
-          ? await getMyClassrooms(true).catch(() => [])
-          : await getClassrooms(true).catch(() => []);
-
-        if (!isMounted) return;
-
-        classroomStore.setState((s) => ({ ...s, classrooms }));
 
         // ── FCM: register push token for students after auth is confirmed ──
         if (role === 'student') {
@@ -257,10 +253,11 @@ function RootComponent() {
         }
       } catch (err) {
         if (isMounted) {
-          classroomStore.setState(() => ({ currentUser: null, accessToken: null, classrooms: [] }));
+          classroomStore.setState((s) => ({ ...s, currentUser: null, accessToken: null, authReady: true }));
         }
       } finally {
         if (isMounted) {
+          classroomStore.setState((s) => ({ ...s, authReady: true }));
           setAuthReady(true);
         }
       }
@@ -299,18 +296,10 @@ function RootComponent() {
     return () => window.removeEventListener('fcm:foreground-message', handler as EventListener);
   }, []);
 
-  if (!authReady) {
-    // Show a minimal loading screen while we verify auth
-    return (
-      <QueryClientProvider client={queryClient}>
-        <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#faf9f7' }}>
-          <div style={{ width: 32, height: 32, border: '3px solid #e5e7eb', borderTopColor: '#4c1d95', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      </QueryClientProvider>
-    );
-  }
-
+  // NOTE: We no longer block the UI on auth. The app renders immediately and
+  // auth rehydrates silently in the background. Protected route layouts
+  // (_admin.tsx, _student.tsx) handle auth-gating and redirects themselves.
+  // This eliminates the 1–12 second white spinner on every page load.
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />

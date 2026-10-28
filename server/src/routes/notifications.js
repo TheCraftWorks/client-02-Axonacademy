@@ -17,7 +17,8 @@ router.get('/', async (req, res, next) => {
     const notifications = await Notification.find({ recipient: req.user._id })
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     const total = await Notification.countDocuments({ recipient: req.user._id });
 

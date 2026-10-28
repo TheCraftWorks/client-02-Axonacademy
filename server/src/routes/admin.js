@@ -46,10 +46,15 @@ router.get('/stats', (req, res) => {
 // USER MANAGEMENT
 // ==========================================
 
+// In-memory cache for admin users list (TTL: 30s)
+const adminUsersCache = new Map();
+const ADMIN_USERS_CACHE_TTL = 30 * 1000;
+
 // GET /users → List all users (filter role/status, paginate, search)
 router.get('/users', protect, restrictTo('admin', 'superadmin', 'faculty'), async (req, res, next) => {
   try {
-    const { role, status, search } = req.query;
+    const { role, status, search, limit: rawLimit } = req.query;
+    const limit = parseInt(rawLimit, 10) || 0;
     const filter = {};
 
     if (req.user.role === 'faculty' && role !== 'student') {
@@ -57,6 +62,12 @@ router.get('/users', protect, restrictTo('admin', 'superadmin', 'faculty'), asyn
         success: false,
         message: 'Faculty can only view student users.'
       });
+    }
+
+    const cacheKey = `users_${req.user.role}_${role || ''}_${status || ''}_${search || ''}_${limit}`;
+    const cached = adminUsersCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < ADMIN_USERS_CACHE_TTL)) {
+      return res.json(cached.data);
     }
 
     if (role) filter.role = role;
@@ -67,12 +78,19 @@ router.get('/users', protect, restrictTo('admin', 'superadmin', 'faculty'), asyn
       filter.$or = [{ fullName: q }, { email: q }, { phone: q }];
     }
 
-    const users = await User.find(filter)
+    let usersQuery = User.find(filter)
       .select('fullName email phone role isVerified isActive avatar createdAt')
-      .sort({ createdAt: -1 })
-      .lean();
+      .sort({ createdAt: -1 });
 
-    res.json({ success: true, users });
+    if (limit > 0) {
+      usersQuery = usersQuery.limit(limit);
+    }
+
+    const users = await usersQuery.lean();
+    const result = { success: true, users };
+    adminUsersCache.set(cacheKey, { data: result, timestamp: Date.now() });
+
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -123,6 +141,8 @@ router.post('/users', protect, restrictTo('admin', 'superadmin'), async (req, re
         enrollmentNo
       });
     }
+
+    adminUsersCache.clear();
 
     // 4. Send Welcome Email (fire-and-forget — never block the API response)
     //    On Render/Vercel, SMTP connections can be slow or fail silently.
@@ -193,6 +213,7 @@ router.delete('/users/:id', protect, restrictTo('admin', 'superadmin'), async (r
       { $pull: { students: { student: id } } }
     );
 
+    adminUsersCache.clear();
     res.json({ success: true, message: 'Student user deleted from DB entirely' });
   } catch (error) {
     next(error);

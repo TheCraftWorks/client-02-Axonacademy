@@ -215,11 +215,13 @@ function AdminStudents() {
   const [msgStudent, setMsgStudent] = useState<{ id: string; name: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const refreshData = async () => {
-    setIsLoading(true);
+  const refreshData = async (force = false) => {
+    if (mongoStudents.length === 0) {
+      setIsLoading(true);
+    }
     try {
       const [data, students] = await Promise.all([
-        apiGetClassrooms(true),
+        apiGetClassrooms(force),
         getAdminUsers("student"),
       ]);
       classroomActions.setClassrooms(data);

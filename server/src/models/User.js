@@ -26,8 +26,9 @@ const userSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Indexes for super-fast retrieval during auth
+// Indexes for super-fast retrieval during auth and role filtering
 userSchema.index({ email: 1, role: 1 });
+userSchema.index({ role: 1, isActive: 1 });
 
 // Pre-save password hashing hook
 userSchema.pre('save', async function (next) {

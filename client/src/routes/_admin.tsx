@@ -4,7 +4,8 @@ import {
   Briefcase, BarChart3, CreditCard, Settings, School, MessageCircle, Award, Video, MessageSquareQuote
 } from "lucide-react";
 import { PortalShell } from "@/components/portal/PortalShell";
-import { useClassroomStore } from "@/lib/classroomStore";
+import { useClassroomStore, classroomActions } from "@/lib/classroomStore";
+import { getClassrooms } from "@/lib/api";
 import { useEffect, useState } from "react";
 
 const ADMIN_NAV = [
@@ -37,15 +38,29 @@ export const Route = createFileRoute("/_admin")({
 });
 
 function AdminLayout() {
-  const { currentUser } = useClassroomStore();
+  const { currentUser, authReady, classrooms } = useClassroomStore();
   const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
     setHasMounted(true);
   }, []);
 
-  if (!hasMounted) {
-    return null;
+  useEffect(() => {
+    if (currentUser && currentUser.role !== "student" && classrooms.length === 0) {
+      getClassrooms()
+        .then((cls) => classroomActions.setClassrooms(cls))
+        .catch(() => {});
+    }
+  }, [currentUser?.id, currentUser?.role]);
+
+  // Show a minimal skeleton while SSR hydration completes or auth is rehydrating — avoids blank flash and false redirect
+  if (!hasMounted || !authReady) {
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--background, #faf9f7)' }}>
+        <div style={{ width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#4c1d95', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
   }
 
   if (!currentUser || currentUser.role === "student") {

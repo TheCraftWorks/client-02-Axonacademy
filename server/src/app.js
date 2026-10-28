@@ -114,8 +114,8 @@ app.options(/.*/, cors(corsOptions));
 
 // ==================== END CORS ====================
 
-// Logger
-app.use(morgan('dev'));
+// Logger — 'combined' (Apache format) in production, 'dev' locally
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // Body Parser
 app.use(express.json({ limit: '10mb' }));
@@ -127,10 +127,19 @@ app.use(express.urlencoded({
 // Cookies
 app.use(cookieParser());
 
-// Static Files
+// Static Files — cache for 7 days in production, no-store in dev
 app.use(
   '/uploads',
-  express.static(path.join(__dirname, '../uploads'))
+  express.static(path.join(__dirname, '../uploads'), {
+    maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+    etag: true,
+    lastModified: true,
+    setHeaders(res) {
+      if (process.env.NODE_ENV === 'production') {
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      }
+    },
+  })
 );
 
 // Rate Limit

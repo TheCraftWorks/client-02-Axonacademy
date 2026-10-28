@@ -166,7 +166,7 @@ function CourseCard({ c }: { c: ProgramCourse }) {
     <div className="group rounded-3xl border border-border bg-card overflow-hidden hover:-translate-y-1 hover:border-plum-dark/30 transition-all flex flex-col h-full">
       <div className="relative aspect-[16/10] bg-gradient-to-br from-plum to-plum-dark overflow-hidden shrink-0">
         {c.image ? (
-          <img src={getAssetUrl(c.image)} alt={c.title} className="absolute inset-0 h-full w-full object-cover" />
+          <img src={getAssetUrl(c.image)} alt={c.title} loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 bg-noise opacity-30" />
         )}

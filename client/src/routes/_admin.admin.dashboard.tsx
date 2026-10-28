@@ -12,7 +12,7 @@ export const Route = createFileRoute("/_admin/admin/dashboard")({
   component: AdminHome,
 });
 
-const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
+const HEARTBEAT_INTERVAL_MS = 60_000; // 60 seconds
 
 function Stat({ label, value, delta, up = true, icon: Icon }: {
   label: string; value: string; delta: string; up?: boolean;
@@ -71,7 +71,7 @@ function AdminHome() {
   const loadData = useCallback(async () => {
     try {
       const [studentUsers, programsList] = await Promise.all([
-        getAdminUsers("student"),
+        getAdminUsers("student", 20),
         getAdminPrograms(),
       ]);
       setStudents(studentUsers);
@@ -90,6 +90,7 @@ function AdminHome() {
   useEffect(() => {
     loadData();
     intervalRef.current = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       loadData();
     }, HEARTBEAT_INTERVAL_MS);
     return () => {

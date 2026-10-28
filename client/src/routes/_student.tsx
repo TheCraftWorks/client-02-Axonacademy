@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_student")({
 });
 
 function StudentLayout() {
-  const { currentUser } = useClassroomStore();
+  const { currentUser, classrooms, authReady } = useClassroomStore();
   const [loadError, setLoadError] = useState("");
   const [hasMounted, setHasMounted] = useState(false);
   const [isLoadingClassrooms, setIsLoadingClassrooms] = useState(false);
@@ -40,15 +40,19 @@ function StudentLayout() {
     let active = true;
     const loadMyClassrooms = async () => {
       if (!currentUser || currentUser.role !== "student") return;
-      setIsLoadingClassrooms(true);
+      if (classrooms.length === 0) {
+        setIsLoadingClassrooms(true);
+      }
       try {
-        const classrooms = await getMyClassrooms();
+        const cls = await getMyClassrooms();
         if (!active) return;
-        classroomActions.setClassrooms(classrooms);
+        classroomActions.setClassrooms(cls);
         setLoadError("");
       } catch (err) {
         if (!active) return;
-        setLoadError(err instanceof Error ? err.message : "Could not load your classrooms");
+        if (classrooms.length === 0) {
+          setLoadError(err instanceof Error ? err.message : "Could not load your classrooms");
+        }
       } finally {
         if (active) setIsLoadingClassrooms(false);
       }
@@ -60,8 +64,14 @@ function StudentLayout() {
     };
   }, [currentUser?.id, currentUser?.role]);
 
-  if (!hasMounted) {
-    return null;
+  // Show a minimal skeleton while SSR hydration completes or auth is rehydrating — avoids blank flash and false redirect
+  if (!hasMounted || !authReady) {
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--background, #faf9f7)' }}>
+        <div style={{ width: 28, height: 28, border: '3px solid #e5e7eb', borderTopColor: '#4c1d95', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
   }
 
   if (!currentUser || currentUser.role !== "student") {

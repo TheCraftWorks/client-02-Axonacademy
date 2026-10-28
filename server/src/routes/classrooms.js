@@ -32,7 +32,13 @@ const slugify = (value) => String(value || '')
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '');
 
+
+// Redis client (graceful fallback to no-op if REDIS_URL not set)
+const redis = require('../config/redis');
+const REDIS_TTL_SEC = 120; // 2-minute Redis TTL
+
 // In-memory cache for ultra-fast classroom responses (TTL: 60 seconds)
+// Used as L1 cache; Redis is L2 (survives server restarts)
 const responseCache = new Map();
 const CACHE_TTL_MS = 60 * 1000;
 
@@ -48,13 +54,39 @@ function getCachedData(key) {
 
 function setCachedData(key, data) {
   responseCache.set(key, { data, timestamp: Date.now() });
+  // Also persist to Redis asynchronously (fire-and-forget)
+  redis.setex(key, REDIS_TTL_SEC, JSON.stringify(data)).catch(() => {});
+}
+
+async function getCachedDataWithRedis(key) {
+  // L1: in-memory
+  const mem = getCachedData(key);
+  if (mem) return mem;
+  // L2: Redis
+  try {
+    const raw = await redis.get(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Populate L1 so subsequent calls are instant
+      responseCache.set(key, { data: parsed, timestamp: Date.now() });
+      return parsed;
+    }
+  } catch (_) {}
+  return null;
 }
 
 function clearClassroomCache() {
   responseCache.clear();
+  // Also clear Redis keys for classrooms (best-effort)
+  redis.keys('classrooms:*').then(keys => {
+    if (keys && keys.length > 0) {
+      keys.forEach(k => redis.del(k).catch(() => {}));
+    }
+  }).catch(() => {});
 }
 
 router.clearClassroomCache = clearClassroomCache;
+
 
 // Prevent CastError for all routes expecting a classroom :id
 router.param('id', (req, res, next, id) => {
@@ -200,8 +232,10 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
 
-  // Ensure students.student is populated across classrooms
-  await manualPopulate(list, 'students.student', 'fullName email phone avatar role isVerified isActive', false);
+  // Ensure students.student is populated across classrooms (only needed for detailed single-classroom view)
+  if (!isList) {
+    await manualPopulate(list, 'students.student', 'fullName email phone avatar role isVerified isActive', false);
+  }
   const classroomIds = list.map((classroom) => classroom._id);
 
   // 1. Live Meetings (exclude large attendees & waitingRoom arrays on overview)
@@ -678,7 +712,7 @@ router.post('/upload-asset', protect, restrictTo('admin', 'superadmin', 'faculty
 router.get('/my', protect, async (req, res, next) => {
   try {
     const cacheKey = `my_${req.user._id.toString()}`;
-    const cached = getCachedData(cacheKey);
+    const cached = await getCachedDataWithRedis(cacheKey);
     if (cached) {
       return res.json(cached);
     }
@@ -701,7 +735,6 @@ router.get('/my', protect, async (req, res, next) => {
       }
     });
 
-    await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
     const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { studentId: req.user._id, isList: true }) };
     setCachedData(cacheKey, result);
     res.json(result);
@@ -742,8 +775,6 @@ router.get('/:id', protect, async (req, res, next) => {
         s => s.student && s.student.toString() === req.user._id.toString()
       );
     }
-
-    await manualPopulate(classroom, 'students.student', 'fullName email phone avatar role isVerified isActive');
 
     const result = {
       success: true,
@@ -942,7 +973,7 @@ router.get('/', async (req, res, next) => {
   try {
     const { status, program } = req.query;
     const cacheKey = `all_${req.user._id.toString()}_${req.user.role}_${status || ''}_${program || ''}`;
-    const cached = getCachedData(cacheKey);
+    const cached = await getCachedDataWithRedis(cacheKey);
     if (cached) {
       return res.json(cached);
     }

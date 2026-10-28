@@ -51,7 +51,7 @@ const SKY  = "#2D9CDB";
                     <div className="flex items-center justify-between">
                       {c.image ? (
                         <div className="h-12 w-12 overflow-hidden rounded-2xl" style={{ backgroundColor: NAVY }}>
-                          <img src={getAssetUrl(c.image)} alt={c.title} className="h-full w-full object-cover" />
+                          <img src={getAssetUrl(c.image)} alt={c.title} loading="lazy" className="h-full w-full object-cover" />
                         </div>
                       ) : (
                         <div className="grid h-12 w-12 place-items-center rounded-2xl text-white animate-pulse" style={{ backgroundColor: NAVY }}>

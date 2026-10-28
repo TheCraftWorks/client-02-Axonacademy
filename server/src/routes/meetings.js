@@ -107,8 +107,10 @@ router.get('/classroom/:classroomId', protect, async (req, res, next) => {
     }
 
     const meetings = await LiveMeeting.find({ classroom: classroom._id })
+      .select('-waitingRoom')
       .populate('createdBy', 'fullName')
-      .sort({ scheduledAt: 1 });
+      .sort({ scheduledAt: 1 })
+      .lean();
 
     res.json({ success: true, meetings });
   } catch (error) {
@@ -136,9 +138,11 @@ router.get('/my', protect, async (req, res, next) => {
     }
 
     const meetings = await LiveMeeting.find(filter)
+      .select('-waitingRoom -attendees')
       .populate('classroom', 'name code')
       .populate('createdBy', 'fullName')
-      .sort({ scheduledAt: 1 });
+      .sort({ scheduledAt: 1 })
+      .lean();
 
     res.json({ success: true, meetings });
   } catch (error) {
@@ -311,8 +315,10 @@ router.get('/today', protect, restrictTo('admin', 'superadmin'), async (req, res
       scheduledAt: { $gte: startOfDay, $lte: endOfDay },
       status: { $ne: 'cancelled' }
     })
-      .populate('classroom', 'name code students')
-      .sort({ scheduledAt: 1 });
+      .select('-waitingRoom')
+      .populate('classroom', 'name code')
+      .sort({ scheduledAt: 1 })
+      .lean();
 
     res.json({ success: true, meetings });
   } catch (error) {

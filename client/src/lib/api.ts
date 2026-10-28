@@ -489,8 +489,11 @@ export async function uploadProfileAvatar(file: File, onProgress?: (pct: number)
   });
 }
 
-export async function getAdminUsers(role?: string) {
-  const query = role ? `?role=${encodeURIComponent(role)}` : '';
+export async function getAdminUsers(role?: string, limit?: number) {
+  const params = new URLSearchParams();
+  if (role) params.set('role', role);
+  if (limit) params.set('limit', String(limit));
+  const query = params.toString() ? `?${params.toString()}` : '';
   const payload = await fetchJson(`/admin/users${query}`);
   return payload.users.map((user: any) => ({
     id: String(user._id || user.id),

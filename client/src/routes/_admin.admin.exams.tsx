@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ClipboardList, Users, CheckCircle2, AlertCircle, ArrowLeft, BarChart2, BookOpen, Trophy, Eye, Crown, Medal, Sparkles, Clock, Check } from "lucide-react";
 import { DarkCard } from "@/components/portal/PortalShell";
 import { useClassroomStore, getExamType, getGrade, classroomActions } from "@/lib/classroomStore";
-import { publishQuiz, closeQuiz, getQuizReport } from "@/lib/api";
+import { publishQuiz, closeQuiz, getQuizReport, getClassrooms } from "@/lib/api";
 import { QuizLeaderboard } from "@/components/quiz/QuizLeaderboard";
 import { AdminStudentAnswerSheetModal } from "@/components/quiz/AdminStudentAnswerSheetModal";
 import { useMemo, useState, useEffect } from "react";
@@ -13,6 +13,12 @@ export const Route = createFileRoute("/_admin/admin/exams")({
 
 function AdminExams() {
   const { classrooms } = useClassroomStore();
+
+  useEffect(() => {
+    if (classrooms.length === 0) {
+      getClassrooms().then(cls => classroomActions.setClassrooms(cls)).catch(() => {});
+    }
+  }, [classrooms.length]);
   const [viewQuizId, setViewQuizId] = useState<string | null>(null);
   const [batchFilter, setBatchFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");

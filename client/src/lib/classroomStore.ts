@@ -283,6 +283,7 @@ interface StoreState {
   users: User[];
   courses: Course[];
   currentUser: User | null;
+  authReady: boolean;
   accessToken: string | null;
   threads: Thread[];
   payments: Payment[];
@@ -329,11 +330,25 @@ const getSavedToken = () => {
   return null;
 };
 
+const getSavedClassrooms = (): Classroom[] => {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = sessionStorage.getItem('axon_classrooms');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+  }
+  return INITIAL_CLASSROOMS;
+};
+
 export const classroomStore = createStore({
-  classrooms: INITIAL_CLASSROOMS,
+  classrooms: getSavedClassrooms(),
   users: INITIAL_USERS,
   courses: INITIAL_COURSES,
   currentUser: null, // always null at boot; __root.tsx rehydrates via GET /auth/me (cookie)
+  authReady: false,
   accessToken: getSavedToken(),
   threads: INITIAL_THREADS,
   payments: INITIAL_PAYMENTS,
@@ -383,7 +398,12 @@ export const authActions = {
     return false;
   },
   logout: () => {
-    classroomStore.setState(() => ({ currentUser: null }));
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('axon_classrooms');
+      } catch (_) {}
+    }
+    classroomStore.setState(() => ({ currentUser: null, classrooms: [] }));
   }
 };
 
@@ -463,6 +483,11 @@ export const classroomActions = {
     });
   },
   setClassrooms: (classrooms: Classroom[]) => {
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('axon_classrooms', JSON.stringify(classrooms));
+      } catch (_) {}
+    }
     classroomStore.setState(() => ({ classrooms }));
   },
 

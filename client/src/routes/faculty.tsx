@@ -61,7 +61,7 @@ function FacultyPage() {
                   {/* Avatar */}
                   <div className="h-20 w-20 overflow-hidden rounded-full bg-gradient-to-br from-navy to-sky flex items-center justify-center font-display font-bold text-2xl text-white shrink-0">
                     {f.image ? (
-                      <img src={f.image} alt={f.name} className="h-full w-full object-cover" />
+                      <img src={f.image} alt={f.name} loading="lazy" className="h-full w-full object-cover" />
                     ) : (
                       f.initials || f.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
                     )}

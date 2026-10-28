@@ -54,7 +54,7 @@ export default defineConfig({
 			},
 		},
 		server: {
-			// Local dev proxy — only used during `npm run dev`
+			// Local dev proxy – only used during `npm run dev`
 			proxy: rawApiUrl
 				? {
 					'/api': {
@@ -65,6 +65,36 @@ export default defineConfig({
 				}
 				: undefined,
 		},
+		build: {
+			// Split vendor libraries into separately cached chunks.
+			// Once a chunk is cached by the browser, re-deploys only invalidate
+			// chunks that actually changed — not the entire bundle.
+			rollupOptions: {
+				output: {
+					manualChunks(id: string) {
+						// React core — almost never changes, cache for a long time
+						if (id.includes("node_modules/react/") || id.includes("node_modules/react-dom/")) {
+							return "vendor-react";
+						}
+						// TanStack (router + query) — cached separately
+						if (id.includes("node_modules/@tanstack/")) {
+							return "vendor-tanstack";
+						}
+						// Icon libraries — large but stable
+						if (id.includes("node_modules/react-icons/") || id.includes("node_modules/lucide-react/")) {
+							return "vendor-icons";
+						}
+						// Animation libraries
+						if (id.includes("node_modules/framer-motion/") || id.includes("node_modules/gsap/")) {
+							return "vendor-animation";
+						}
+						// Utilities
+						if (id.includes("node_modules/axios/") || id.includes("node_modules/sonner/") || id.includes("node_modules/zustand/")) {
+							return "vendor-utils";
+						}
+					},
+				},
+			},
+		},
 	},
 });
-

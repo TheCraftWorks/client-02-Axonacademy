@@ -47,7 +47,7 @@ export function BlogPreview() {
               <article key={p._id || p.id || p.title} className="group rounded-3xl overflow-hidden bg-card border border-border hover:-translate-y-1 transition-all flex flex-col">
                 <div className={`relative aspect-[16/10] ${p.image ? "" : "bg-gradient-to-br " + tint} overflow-hidden`}>
                   {p.image ? (
-                    <img src={getAssetUrl(p.image)} alt={p.title} className="h-full w-full object-cover" />
+                    <img src={getAssetUrl(p.image)} alt={p.title} loading="lazy" className="h-full w-full object-cover" />
                   ) : (
                     <div className="absolute inset-0 bg-noise opacity-30" />
                   )}
