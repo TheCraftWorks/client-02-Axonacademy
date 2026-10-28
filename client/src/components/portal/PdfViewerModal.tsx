@@ -21,6 +21,7 @@ interface PdfViewerModalProps {
   onClose: () => void;
   url: string;
   title?: string;
+  allowDownload?: boolean;
 }
 
 declare global {
@@ -104,7 +105,14 @@ function loadPdfJsEngine(): Promise<any> {
   return pdfjsPromise;
 }
 
-export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalProps) {
+export function PdfViewerModal({
+  isOpen,
+  onClose,
+  url,
+  title,
+}: PdfViewerModalProps) {
+  // Always disable downloads across both student and admin portals
+  const allowDownload = false;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
@@ -114,6 +122,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   const [useIframeFallback, setUseIframeFallback] = useState(false);
   const [swipeNotice, setSwipeNotice] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [renderedDimensions, setRenderedDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -122,6 +131,12 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentAreaRef = useRef<HTMLDivElement | null>(null);
   const fitScaleRef = useRef<number>(1.0);
+  const scaleRef = useRef<number>(1.0);
+  const isManuallyZoomedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
 
   // Mouse pan tracking for desktop
   const isMouseDownRef = useRef(false);
@@ -139,9 +154,19 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
   const isZoomed = scale > fitScaleRef.current * 1.08;
 
-  // Keyboard shortcut blocker (Ctrl+S, Ctrl+P, Cmd+S, Cmd+P, Esc)
+  // Keyboard shortcut & print blocker (Ctrl+S, Ctrl+P, Cmd+S, Cmd+P, Esc, PrintScreen)
   useEffect(() => {
     if (!isOpen) return;
+
+    // Inject temporary print blocking style so browser Print dialog cannot capture document
+    const styleId = 'pdf-viewer-anti-print-style';
+    let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = styleId;
+      styleTag.innerHTML = '@media print { * { display: none !important; } html, body { display: none !important; } }';
+      document.head.appendChild(styleTag);
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -163,10 +188,21 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         e.preventDefault();
         e.stopPropagation();
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (e.key === 'PrintScreen') {
+        e.preventDefault();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      const el = document.getElementById(styleId);
+      if (el) el.remove();
+    };
   }, [isOpen, onClose, numPages]);
 
   // Compute optimal fit-width scale based on screen/container
@@ -219,7 +255,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         const context = currentCanvas.getContext('2d');
         if (!context) return;
 
-        const effectiveScale = customScale !== undefined ? customScale : scale;
+        const effectiveScale = customScale !== undefined ? customScale : scaleRef.current;
         const viewport = page.getViewport({ scale: effectiveScale });
         const outputScale = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
@@ -252,7 +288,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         }
       }
     },
-    [scale]
+    []
   );
 
   // Load the PDF document
@@ -357,6 +393,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         // Calculate initial auto-fit scale
         const firstPage = await pdf.getPage(1);
         const fitScale = computeFitScale(firstPage);
+        scaleRef.current = fitScale;
         setScale(fitScale);
 
         setLoading(false);
@@ -389,12 +426,12 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
         }
       }
     };
-  }, [isOpen, url, computeFitScale, renderPage]);
+  }, [isOpen, url, retryKey, computeFitScale, renderPage]);
 
   // Re-render when page or scale changes
   useEffect(() => {
     if (pdfDocRef.current && !loading && !useIframeFallback) {
-      renderPage(currentPage, pdfDocRef.current);
+      renderPage(currentPage, pdfDocRef.current, scale);
     }
   }, [currentPage, scale, loading, useIframeFallback, renderPage]);
 
@@ -406,10 +443,11 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     const handleResize = async () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(async () => {
-        if (pdfDocRef.current && !isZoomed) {
+        if (pdfDocRef.current && !isManuallyZoomedRef.current) {
           try {
             const page = await pdfDocRef.current.getPage(currentPage);
             const newFit = computeFitScale(page);
+            scaleRef.current = newFit;
             setScale(newFit);
           } catch {
             // ignore
@@ -420,7 +458,7 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isOpen, currentPage, computeFitScale, isZoomed]);
+  }, [isOpen, currentPage, computeFitScale]);
 
   if (!isOpen) return null;
 
@@ -436,38 +474,82 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
     }
   };
 
-  const handleZoomIn = () => {
-    setScale((s) => Math.min(3.5, Number((s + 0.25).toFixed(2))));
-  };
+  const handleZoomIn = useCallback(() => {
+    isManuallyZoomedRef.current = true;
+    setScale((s) => {
+      const next = Math.min(3.5, Number((s + 0.25).toFixed(2)));
+      scaleRef.current = next;
+      return next;
+    });
+  }, []);
 
-  const handleZoomOut = () => {
-    setScale((s) => Math.max(0.4, Number((s - 0.25).toFixed(2))));
-  };
+  const handleZoomOut = useCallback(() => {
+    isManuallyZoomedRef.current = true;
+    setScale((s) => {
+      const next = Math.max(0.4, Number((s - 0.25).toFixed(2)));
+      scaleRef.current = next;
+      return next;
+    });
+  }, []);
 
-  const handleFitWidth = async () => {
+  const handleFitWidth = useCallback(async () => {
+    isManuallyZoomedRef.current = false;
     if (pdfDocRef.current) {
       try {
         const page = await pdfDocRef.current.getPage(currentPage);
         const fitScale = computeFitScale(page);
+        scaleRef.current = fitScale;
         setScale(fitScale);
       } catch {
+        scaleRef.current = 1.0;
         setScale(1.0);
       }
     } else {
+      scaleRef.current = 1.0;
       setScale(1.0);
     }
-  };
+  }, [currentPage, computeFitScale]);
 
-  const handleResetZoom = () => {
+  const handleResetZoom = useCallback(() => {
+    isManuallyZoomedRef.current = true;
+    scaleRef.current = 1.0;
     setScale(1.0);
-  };
+  }, []);
+
+  // Mouse wheel zoom with Ctrl/Cmd key
+  useEffect(() => {
+    if (!isOpen) return;
+    const contentEl = contentAreaRef.current;
+    if (!contentEl) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          handleZoomIn();
+        } else if (e.deltaY > 0) {
+          handleZoomOut();
+        }
+      }
+    };
+
+    contentEl.addEventListener('wheel', handleWheel, { passive: false });
+    return () => contentEl.removeEventListener('wheel', handleWheel);
+  }, [isOpen, handleZoomIn, handleZoomOut]);
 
   const toggleFullscreen = () => {
     setIsFullscreen((prev) => !prev);
   };
 
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    setUseIframeFallback(false);
+    setRetryKey((prev) => prev + 1);
+  };
+
   const handleOpenExternal = () => {
-    if (url) {
+    if (url && allowDownload) {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
@@ -522,7 +604,10 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
       const dist = Math.sqrt(dx * dx + dy * dy);
       const ratio = dist / pinchStartDistanceRef.current;
       const newScale = Math.min(3.5, Math.max(0.4, pinchStartScaleRef.current * ratio));
-      setScale(Number(newScale.toFixed(2)));
+      const rounded = Number(newScale.toFixed(2));
+      isManuallyZoomedRef.current = true;
+      scaleRef.current = rounded;
+      setScale(rounded);
     }
   };
 
@@ -650,15 +735,6 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               </div>
             )}
 
-            {/* Open in new tab fallback */}
-            <button
-              onClick={handleOpenExternal}
-              className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
-              title="Open in new window"
-            >
-              <LuExternalLink className="h-3.5 w-3.5" />
-            </button>
-
             {/* Fullscreen Toggle */}
             <button
               onClick={toggleFullscreen}
@@ -712,10 +788,10 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
               <p className="text-xs text-slate-400 leading-relaxed mb-4">{error}</p>
               <div className="flex items-center justify-center gap-2">
                 <button
-                  onClick={handleOpenExternal}
+                  onClick={handleRetry}
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5"
                 >
-                  <LuExternalLink className="h-3.5 w-3.5" /> Open Document
+                  <LuRotateCcw className="h-3.5 w-3.5" /> Retry Preview
                 </button>
                 <button
                   onClick={onClose}
@@ -729,24 +805,28 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
 
           {/* Canvas Rendering Engine */}
           {!loading && !error && !useIframeFallback && (
-            <div
-              className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white m-auto shrink-0 transition-[width,height] duration-100"
-              style={{
-                width: renderedDimensions.width > 0 ? `${renderedDimensions.width}px` : 'auto',
-                height: renderedDimensions.height > 0 ? `${renderedDimensions.height}px` : 'auto',
-              }}
-            >
-              <canvas
-                ref={canvasRef}
-                className="block select-none pointer-events-auto"
-                onContextMenu={(e) => e.preventDefault()}
-              />
-              {/* Subtle Protected Overlay Watermark */}
+            <div className="w-fit min-w-full min-h-full flex items-center justify-center p-2 sm:p-4">
               <div
-                className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.035] select-none text-slate-900 font-extrabold text-3xl sm:text-6xl uppercase rotate-[-25deg]"
-                style={{ letterSpacing: '0.25em' }}
+                className="relative shadow-2xl rounded-lg overflow-hidden border border-slate-800 bg-white shrink-0"
+                style={{
+                  width: renderedDimensions.width > 0 ? `${renderedDimensions.width}px` : 'auto',
+                  height: renderedDimensions.height > 0 ? `${renderedDimensions.height}px` : 'auto',
+                }}
               >
-                Axon Academy
+                <canvas
+                  ref={canvasRef}
+                  className="block select-none pointer-events-auto"
+                  onContextMenu={(e) => e.preventDefault()}
+                  onDragStart={(e) => e.preventDefault()}
+                  draggable={false}
+                />
+                {/* Subtle Protected Overlay Watermark */}
+                <div
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.035] select-none text-slate-900 font-extrabold text-3xl sm:text-6xl uppercase rotate-[-25deg]"
+                  style={{ letterSpacing: '0.25em' }}
+                >
+                  Axon Academy
+                </div>
               </div>
             </div>
           )}
@@ -754,6 +834,17 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
           {/* Iframe Fallback */}
           {!loading && !error && useIframeFallback && (
             <div className="w-full h-full relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 m-auto flex flex-col">
+              {/* Invisible blocker over Google Docs viewer's pop-out button (top right corner) */}
+              {!allowDownload && (
+                <div
+                  className="absolute top-0 right-0 w-16 h-14 z-20 bg-transparent pointer-events-auto cursor-not-allowed"
+                  title="PDF downloading is disabled"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                />
+              )}
               <iframe
                 src={
                   isPublicHttpUrl && typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -762,6 +853,11 @@ export function PdfViewerModal({ isOpen, onClose, url, title }: PdfViewerModalPr
                 }
                 className="w-full flex-1 border-0"
                 title="Document Preview"
+                sandbox={
+                  !allowDownload
+                    ? 'allow-scripts allow-same-origin'
+                    : 'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox'
+                }
                 onContextMenu={(e) => e.preventDefault()}
               />
             </div>

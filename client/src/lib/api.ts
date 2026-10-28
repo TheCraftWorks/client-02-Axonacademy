@@ -137,6 +137,31 @@ function normalizeBackendClassroom(raw: any) {
     return { attendance, quizAvg, progress };
   };
 
+  const studentNameMap = new Map<string, string>();
+  const normalizedStudents = Array.isArray(raw.students)
+    ? raw.students.map((s: any) => {
+      const studentObj = typeof s.student === 'object' && s.student !== null ? s.student : (typeof s === 'object' && s !== null ? s : {});
+      const id = String(studentObj._id || studentObj.id || (typeof s.student === 'string' ? s.student : '') || s._id || s.id || `student-${Date.now()}`);
+      const metrics = computeStudentMetrics(id);
+      const studentName = studentObj.fullName || studentObj.name || (studentObj.email ? studentObj.email.split('@')[0] : '') || s.name || s.fullName || '';
+      if (id && studentName) {
+        studentNameMap.set(id, studentName);
+      }
+      return {
+        id,
+        name: studentName || 'Student',
+        email: studentObj.email || s.email || '',
+        enrollmentId: s.enrollmentId || (id && id.length >= 4 && !id.startsWith('student-') ? `STU-${id.slice(-4).toUpperCase()}` : `STU-${Date.now().toString().slice(-4)}`),
+        progress: typeof s.progress === 'number' ? s.progress : metrics.progress,
+        attendance: typeof s.attendance === 'number' ? s.attendance : metrics.attendance,
+        quizAvg: typeof s.quizAvg === 'number' ? s.quizAvg : metrics.quizAvg,
+        status: s.status || 'active',
+        addedAt: s.addedAt ? new Date(s.addedAt).toISOString() : new Date().toISOString(),
+        certificateUrl: s.certificateUrl || undefined,
+      };
+    })
+    : [];
+
   return {
     id: raw._id || raw.id,
     name: raw.name || '',
@@ -148,28 +173,7 @@ function normalizeBackendClassroom(raw: any) {
     programId: raw.program?._id || raw.program?.id || (typeof raw.program === 'string' && raw.program.length === 24 ? raw.program : ''),
     createdAt: raw.createdAt || new Date().toISOString(),
     pendingJoinRequestsCount: raw.pendingJoinRequestsCount || 0,
-    students: Array.isArray(raw.students)
-      ? raw.students.map((s: any) => ({
-        ...(() => {
-          const studentObj = typeof s.student === 'object' && s.student !== null ? s.student : (typeof s === 'object' && s !== null ? s : {});
-          const id = String(studentObj._id || studentObj.id || (typeof s.student === 'string' ? s.student : '') || s._id || s.id || `student-${Date.now()}`);
-          const metrics = computeStudentMetrics(id);
-          const studentName = studentObj.fullName || studentObj.name || (studentObj.email ? studentObj.email.split('@')[0] : '') || s.name || s.fullName || '';
-          return {
-            id,
-            name: studentName || 'Student',
-            email: studentObj.email || s.email || '',
-            enrollmentId: s.enrollmentId || (id && id.length >= 4 && !id.startsWith('student-') ? `STU-${id.slice(-4).toUpperCase()}` : `STU-${Date.now().toString().slice(-4)}`),
-            progress: typeof s.progress === 'number' ? s.progress : metrics.progress,
-            attendance: typeof s.attendance === 'number' ? s.attendance : metrics.attendance,
-            quizAvg: typeof s.quizAvg === 'number' ? s.quizAvg : metrics.quizAvg,
-            status: s.status || 'active',
-            addedAt: s.addedAt ? new Date(s.addedAt).toISOString() : new Date().toISOString(),
-            certificateUrl: s.certificateUrl || undefined,
-          };
-        })()
-      }))
-      : [],
+    students: normalizedStudents,
     announcements: Array.isArray(raw.announcements)
       ? raw.announcements.map(normalizeBackendAnnouncement)
       : [],
@@ -200,18 +204,38 @@ function normalizeBackendClassroom(raw: any) {
         cloudflareUrl: r.cloudflareUrl,
         folder: r.folder ? String(r.folder?._id || r.folder) : null,
         viewStats: Array.isArray(r.viewStats)
-          ? r.viewStats.map((v: any) => ({
-            studentId: String(v.student?._id || v.student),
-            studentName: v.student ? v.student.fullName || 'Student' : 'Student',
-            watchedPercent: r.duration > 0 ? Math.round((v.totalWatchedSec / r.duration) * 100) : 0,
-            totalWatchedSec: v.totalWatchedSec || 0,
-            lastPosition: v.lastPosition || 0,
-          }))
+          ? r.viewStats.map((v: any) => {
+            const rawStudent = v.student;
+            const studentId = String(rawStudent?._id || (typeof rawStudent === 'object' ? rawStudent?.id : rawStudent) || v.studentId || '');
+            let studentName = '';
+            if (rawStudent && typeof rawStudent === 'object') {
+              studentName = rawStudent.fullName || rawStudent.name || (rawStudent.email ? rawStudent.email.split('@')[0] : '');
+            }
+            if (!studentName || studentName === 'Student') {
+              studentName = studentNameMap.get(studentId) || (typeof v.studentName === 'string' && v.studentName !== 'Student' ? v.studentName : '') || 'Student';
+            }
+            return {
+              studentId,
+              studentName,
+              watchedPercent: r.duration > 0 ? Math.round((v.totalWatchedSec / r.duration) * 100) : 0,
+              totalWatchedSec: v.totalWatchedSec || 0,
+              lastPosition: v.lastPosition || 0,
+            };
+          })
           : [],
       }))
       : [],
     folders: Array.isArray(raw.folders)
       ? raw.folders.map((f: any) => ({
+        id: f._id || f.id,
+        name: f.name,
+        description: f.description || '',
+        classroomId: String(f.classroom?._id || f.classroom),
+        createdBy: String(f.createdBy?._id || f.createdBy),
+      }))
+      : [],
+    docFolders: Array.isArray(raw.docFolders)
+      ? raw.docFolders.map((f: any) => ({
         id: f._id || f.id,
         name: f.name,
         description: f.description || '',
@@ -240,6 +264,7 @@ function normalizeBackendClassroom(raw: any) {
           type: quest.type || 'mcq',
           text: quest.text,
           image: quest.image || undefined,
+          video: quest.video || undefined,
           marks: quest.marks || 1,
           explanation: quest.explanation || '',
           order: quest.order || 1,
@@ -325,6 +350,7 @@ function normalizeBackendAnnouncement(raw: any) {
     createdAt: raw?.createdAt || new Date().toISOString(),
     author: authorName,
     attachments: normalizedAttachments,
+    folder: raw?.folder ? (raw.folder._id || raw.folder.id || raw.folder).toString() : null,
   };
 }
 
@@ -349,6 +375,7 @@ function normalizeBackendQuiz(raw: any) {
       type: quest.type || 'mcq',
       text: quest.text || '',
       image: quest.image || undefined,
+      video: quest.video || undefined,
       marks: quest.marks || 1,
       explanation: quest.explanation || '',
       order: quest.order || 0,
@@ -389,11 +416,32 @@ async function fetchJson(path: string, options: RequestInit = {}) {
   const extraHeaders = options.headers as Record<string, string> | undefined;
   if (extraHeaders) Object.assign(headers, extraHeaders);
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include', // sends HttpOnly cookies cross-origin (Vercel → Railway)
-    headers,
-    ...options,
-  });
+  const doFetch = () =>
+    fetch(`${API_BASE}${path}`, {
+      credentials: 'include', // sends HttpOnly cookies cross-origin (Vercel → Railway)
+      headers,
+      ...options,
+    });
+
+  let response: Response;
+  try {
+    response = await doFetch();
+  } catch (err: unknown) {
+    const isNetworkError =
+      err instanceof Error &&
+      (err.message.toLowerCase().includes('failed to fetch') ||
+        err.message.toLowerCase().includes('networkerror') ||
+        err.message.toLowerCase().includes('load failed') ||
+        err.message.toLowerCase().includes('network request failed'));
+
+    // Automatically retry once after 1.2s to absorb Railway cold start / proxy hiccups
+    if (isNetworkError) {
+      await new Promise(res => setTimeout(res, 1200));
+      response = await doFetch();
+    } else {
+      throw err;
+    }
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -534,6 +582,8 @@ const CLIENT_CACHE_TTL = 30_000;
 export function invalidateClientClassroomCache() {
   cachedClassroomsListMap.clear();
   cachedClassroomDetails.clear();
+  inFlightClassroomsPromise = null;
+  inFlightMyClassroomsPromise = null;
 }
 
 export function invalidateClassroomCacheById(classroomId: string) {
@@ -551,16 +601,29 @@ function getCacheUserKey(): string {
   return u?.id || u?.userId || 'anonymous';
 }
 
+let inFlightClassroomsPromise: Promise<any> | null = null;
+let inFlightMyClassroomsPromise: Promise<any> | null = null;
+
 export async function getClassrooms(forceRefresh = false) {
   const userKey = `admin_${getCacheUserKey()}`;
   const cached = cachedClassroomsListMap.get(userKey);
   if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
     return cached.data;
   }
-  const payload = await fetchJson('/classrooms');
-  const normalized = payload.classrooms.map(normalizeBackendClassroom);
-  cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
-  return normalized;
+  if (inFlightClassroomsPromise) {
+    return inFlightClassroomsPromise;
+  }
+  inFlightClassroomsPromise = (async () => {
+    try {
+      const payload = await fetchJson('/classrooms');
+      const normalized = payload.classrooms.map(normalizeBackendClassroom);
+      cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
+      return normalized;
+    } finally {
+      inFlightClassroomsPromise = null;
+    }
+  })();
+  return inFlightClassroomsPromise;
 }
 
 export async function getMyClassrooms(forceRefresh = false) {
@@ -569,10 +632,20 @@ export async function getMyClassrooms(forceRefresh = false) {
   if (!forceRefresh && cached && (Date.now() - cached.timestamp < CLIENT_CACHE_TTL)) {
     return cached.data;
   }
-  const payload = await fetchJson('/classrooms/my');
-  const normalized = payload.classrooms.map(normalizeBackendClassroom);
-  cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
-  return normalized;
+  if (inFlightMyClassroomsPromise) {
+    return inFlightMyClassroomsPromise;
+  }
+  inFlightMyClassroomsPromise = (async () => {
+    try {
+      const payload = await fetchJson('/classrooms/my');
+      const normalized = payload.classrooms.map(normalizeBackendClassroom);
+      cachedClassroomsListMap.set(userKey, { data: normalized, timestamp: Date.now() });
+      return normalized;
+    } finally {
+      inFlightMyClassroomsPromise = null;
+    }
+  })();
+  return inFlightMyClassroomsPromise;
 }
 
 export async function getClassroomById(id: string, forceRefresh = false) {
@@ -587,10 +660,10 @@ export async function getClassroomById(id: string, forceRefresh = false) {
   return normalized;
 }
 
-export async function createClassroomAnnouncement(classroomId: string, content: string, attachments: any[] = []) {
+export async function createClassroomAnnouncement(classroomId: string, content: string, attachments: any[] = [], folderId?: string | null) {
   const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/announcements`, {
     method: 'POST',
-    body: JSON.stringify({ content, attachments }),
+    body: JSON.stringify({ content, attachments, folderId: folderId || undefined }),
   });
   return normalizeBackendAnnouncement(payload.announcement);
 }
@@ -600,6 +673,39 @@ export async function deleteClassroomAnnouncement(classroomId: string, announcem
     `/classrooms/${encodeURIComponent(classroomId)}/announcements/${encodeURIComponent(announcementId)}`,
     { method: 'DELETE' }
   );
+}
+
+export async function moveAnnouncementToFolder(classroomId: string, announcementId: string, folderId: string | null) {
+  const payload = await fetchJson(
+    `/classrooms/${encodeURIComponent(classroomId)}/announcements/${encodeURIComponent(announcementId)}/folder`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ folderId }),
+    }
+  );
+  return normalizeBackendAnnouncement(payload.announcement);
+}
+
+export async function createClassroomDocFolder(classroomId: string, name: string, description: string = '') {
+  const payload = await fetchJson(`/classrooms/${encodeURIComponent(classroomId)}/doc-folders`, {
+    method: 'POST',
+    body: JSON.stringify({ classroomId, name, description }),
+  });
+  return payload.folder;
+}
+
+export async function updateClassroomDocFolder(folderId: string, name: string, description: string = '') {
+  const payload = await fetchJson(`/classrooms/doc-folders/${encodeURIComponent(folderId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name, description }),
+  });
+  return payload.folder;
+}
+
+export async function deleteClassroomDocFolder(folderId: string) {
+  return fetchJson(`/classrooms/doc-folders/${encodeURIComponent(folderId)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function getClassroomAnnouncements(classroomId: string) {
@@ -686,6 +792,7 @@ function normalizeBackendQuizAttempt(att: any) {
       questionId: String(ans.questionId),
       questionText: ans.questionText || '',
       image: ans.image || undefined,
+      video: ans.video || undefined,
       marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
       correctOptions: ans.correctOptions || [],
@@ -715,6 +822,7 @@ function normalizeApiQuizQuestion(q: any) {
     type: q.type || 'mcq',
     text: q.text || '',
     image: q.image || undefined,
+    video: q.video || undefined,
     marks: q.marks || 1,
     explanation: q.explanation || '',
     order: q.order || 0,
@@ -805,6 +913,7 @@ export interface QuizAttemptReviewResult {
     questionId: string;
     questionText: string;
     image?: string; // Optional Cloudinary image URL
+    video?: string; // Optional Cloudinary video clip URL
     marks?: number;
     selectedOptions: string[];
     correctOptions: string[];
@@ -844,6 +953,7 @@ export async function getQuizAttemptResult(quizId: string, attemptId?: string): 
       questionId: String(ans.questionId),
       questionText: ans.questionText || '',
       image: ans.image || undefined,
+      video: ans.video || undefined,
       marks: ans.marks || 1,
       selectedOptions: ans.selectedOptions || [],
       correctOptions: ans.correctOptions || [],
@@ -957,6 +1067,55 @@ export async function uploadQuestionImage({
     };
 
     xhr.onerror = () => reject(new Error('Network error during image upload'));
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Upload a question video clip (10 to 30s) to Cloudinary via the quiz video upload endpoint.
+ */
+export async function uploadQuestionVideo({
+  file,
+  onProgress,
+}: {
+  file: File;
+  onProgress?: (percentage: number) => void;
+}): Promise<{ url: string; publicId?: string }> {
+  const accessToken = classroomStore.getState().accessToken;
+  const formData = new FormData();
+  formData.append('video', file);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/quizzes/upload-question-video`);
+
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+    const devHeaders = getDevAuthUserHeaders();
+    Object.entries(devHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const percentage = Math.round((e.loaded / e.total) * 100);
+        onProgress?.(percentage);
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const resp = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && resp.success) {
+          resolve({ url: resp.url, publicId: resp.publicId });
+        } else {
+          reject(new Error(resp.message || `Video upload failed: ${xhr.statusText}`));
+        }
+      } catch (err) {
+        reject(new Error('Failed to parse video upload response'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during video upload'));
     xhr.send(formData);
   });
 }
@@ -1717,7 +1876,7 @@ export async function uploadClassroomRecordingToCloudflare({
       credentials: 'include',
       headers: baseHeaders,
       body: JSON.stringify({ objectKey, uploadId }),
-    }).catch(() => {});
+    }).catch(() => { });
 
     throw uploadError;
   }
@@ -1728,7 +1887,7 @@ export async function uploadClassroomRecordingToCloudflare({
       credentials: 'include',
       headers: baseHeaders,
       body: JSON.stringify({ objectKey, uploadId }),
-    }).catch(() => {});
+    }).catch(() => { });
     throw new Error('Upload cancelled');
   }
 
@@ -2625,7 +2784,7 @@ export async function uploadLibraryRecordingToCloudflare({
         credentials: 'include',
         headers: baseHeaders,
         body: JSON.stringify({ objectKey, uploadId }),
-      }).catch(() => {});
+      }).catch(() => { });
       throw new Error('Upload cancelled');
     }
 

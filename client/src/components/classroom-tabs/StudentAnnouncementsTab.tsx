@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Megaphone, FileText, ChevronRight, Eye, Search } from "lucide-react";
-import { LuEye, LuDownload, LuSearch, LuX, LuFolder, LuFileText } from "react-icons/lu";
+import { LuEye, LuDownload, LuSearch, LuX, LuFolder, LuFileText, LuArrowLeft } from "react-icons/lu";
 import { useClassroomStore } from "@/lib/classroomStore";
 import { resolveAttachmentUrl } from "@/lib/api";
 import { PdfViewerModal } from "@/components/portal/PdfViewerModal";
 import { TabSkeletonLoader, timeAgo } from "./shared";
-
 function AnnouncementsTab({
   classroomId,
   isFetching,
@@ -16,6 +15,7 @@ function AnnouncementsTab({
   initialSubTab?: "text" | "pdf";
 }) {
   const [subTab, setSubTab] = useState<"text" | "pdf">(initialSubTab);
+  const [currentDocFolderId, setCurrentDocFolderId] = useState<string | null>(null);
   const { classrooms } = useClassroomStore();
   const cls = classrooms.find((c) => c.id === classroomId || (c as any)._id === classroomId);
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null);
@@ -28,6 +28,7 @@ function AnnouncementsTab({
   }, [initialSubTab]);
 
   const announcements = cls?.announcements || [];
+  const docFolders = cls?.docFolders || [];
 
   // Extract all PDF attachments from all announcements in this classroom
   const allPdfs = useMemo(() => {
@@ -39,6 +40,7 @@ function AnnouncementsTab({
       announcementContent: string;
       authorName: string;
       createdAt: string;
+      folder?: string | null;
     }> = [];
 
     announcements.forEach((ann: any, annIdx: number) => {
@@ -88,6 +90,7 @@ function AnnouncementsTab({
           announcementContent: safeContent,
           authorName: String(authorName),
           createdAt: ann.createdAt || new Date().toISOString(),
+          folder: ann.folder || null,
         });
       });
     });
@@ -95,21 +98,49 @@ function AnnouncementsTab({
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [announcements]);
 
+  // For students: Only display folders that have at least 1 document (matching recordings tab UX)
+  const foldersWithDocs = useMemo(() => {
+    return docFolders.filter(folder =>
+      allPdfs.some(d => d.folder === folder.id)
+    );
+  }, [docFolders, allPdfs]);
+
+  const currentDocFolder = foldersWithDocs.find(f => f.id === currentDocFolderId);
+
+  const folderFilteredPdfs = useMemo(() => {
+    if (currentDocFolderId) {
+      return allPdfs.filter(doc => doc.folder === currentDocFolderId);
+    }
+    // At root: show documents that are not assigned to any existing folder
+    return allPdfs.filter(doc => !doc.folder || !foldersWithDocs.some(f => f.id === doc.folder));
+  }, [allPdfs, currentDocFolderId, foldersWithDocs]);
+
   const filteredPdfs = useMemo(() => {
-    if (!searchQuery.trim()) return allPdfs;
+    if (!searchQuery.trim()) return folderFilteredPdfs;
     const q = searchQuery.toLowerCase().trim();
-    return allPdfs.filter(
+    return folderFilteredPdfs.filter(
       (doc) =>
         doc.name.toLowerCase().includes(q) ||
         doc.announcementContent.toLowerCase().includes(q) ||
         doc.authorName.toLowerCase().includes(q)
     );
-  }, [allPdfs, searchQuery]);
+  }, [folderFilteredPdfs, searchQuery]);
 
-  const textAnnouncementsCount = announcements.length;
+  const textAnnouncements = useMemo(() => {
+    return announcements.filter((ann: any) => {
+      if (!ann) return false;
+      const rawAttachments = Array.isArray(ann.attachments)
+        ? ann.attachments
+        : (ann.attachment ? [ann.attachment] : []);
+      const hasAttachments = rawAttachments.length > 0 || !!ann.fileUrl || !!ann.pdfUrl;
+      return !hasAttachments && !ann.folder;
+    });
+  }, [announcements]);
+
+  const textAnnouncementsCount = textAnnouncements.length;
   const pdfDocumentsCount = allPdfs.length;
 
-  if (isFetching && announcements.length === 0) {
+  if (isFetching && textAnnouncements.length === 0 && allPdfs.length === 0) {
     return <TabSkeletonLoader type="rows" />;
   }
 
@@ -173,7 +204,7 @@ function AnnouncementsTab({
       {/* Sub-tab 1: Text Announcements Content */}
       {subTab === "text" && (
         <div className="space-y-4 pt-2">
-          {announcements.length === 0 && !isFetching && (
+          {textAnnouncements.length === 0 && !isFetching && (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center shadow-xs">
               <div className="grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-blue-500 mx-auto mb-3 border border-blue-100">
                 <Megaphone className="h-7 w-7" />
@@ -185,7 +216,7 @@ function AnnouncementsTab({
             </div>
           )}
 
-          {announcements.map((ann: any, idx: number) => {
+          {textAnnouncements.map((ann: any, idx: number) => {
             if (!ann) return null;
             const authorName = typeof ann.author === 'object' && ann.author !== null
               ? (ann.author.fullName || ann.author.name || 'Faculty / Admin')
@@ -198,7 +229,6 @@ function AnnouncementsTab({
               .join("")
               .slice(0, 2) || "FA";
 
-            const rawAttachments = Array.isArray(ann.attachments) ? ann.attachments : [];
             const safeContent = typeof ann.content === 'string' ? ann.content : (typeof ann.content === 'object' && ann.content !== null ? JSON.stringify(ann.content) : String(ann.content || ''));
             const annId = ann.id || ann._id || `ann-${idx}`;
 
@@ -219,50 +249,6 @@ function AnnouncementsTab({
                       <span className="text-slate-400 text-xs font-medium">{timeAgo(ann.createdAt)}</span>
                     </div>
                     <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap break-words">{safeContent}</div>
-
-                    {rawAttachments.length > 0 && (
-                      <div className="mt-4 pt-3 border-t border-slate-100 space-y-2.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
-                            <FileText className="h-3.5 w-3.5 text-rose-500" />
-                            <span>{rawAttachments.length} Attached {rawAttachments.length === 1 ? "Document" : "Documents"}</span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setSubTab("pdf")}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
-                          >
-                            <span>Open PDF Repository</span>
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {rawAttachments.map((at: any, i: number) => {
-                            if (!at) return null;
-                            const atUrl = typeof at === 'string' ? at : (at.url || at.fileUrl || at.secure_url || at.link || at.path || '');
-                            const cfKey = typeof at === 'object' && at !== null ? (at.cloudflareKey || at.publicId || at.key) : undefined;
-                            const resolvedUrl = resolveAttachmentUrl(atUrl, cfKey);
-                            if (!atUrl && !resolvedUrl && !cfKey) return null;
-                            const rawName = typeof at === 'string' ? '' : (at.name || at.filename || at.title || '');
-                            const fallbackName = cfKey ? cfKey.split('/').pop() : (atUrl ? atUrl.split('?')[0].split('/').pop() : `Document_${i + 1}.pdf`);
-                            const atName = (rawName && rawName.trim()) ? rawName.trim() : (fallbackName || `Document_${i + 1}.pdf`);
-
-                            return (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => setPreviewPdf({ url: resolvedUrl || atUrl, name: atName })}
-                                className="inline-flex items-center gap-2 bg-rose-50 hover:bg-rose-100/80 border border-rose-200/80 rounded-xl px-3 py-1.5 text-xs font-bold text-rose-700 hover:text-rose-800 transition-all cursor-pointer shadow-2xs group"
-                              >
-                                <FileText className="h-3.5 w-3.5 text-rose-500 shrink-0 group-hover:scale-110 transition-transform" />
-                                <span className="truncate max-w-[180px] sm:max-w-[240px]">{atName}</span>
-                                <Eye className="h-3 w-3 text-rose-400 ml-0.5" />
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -274,18 +260,37 @@ function AnnouncementsTab({
       {/* Sub-tab 2: PDF Documents Content */}
       {subTab === "pdf" && (
         <div className="space-y-4 pt-2">
-          {/* Top Banner & Search Filter Bar */}
+          {/* Top Banner & Folder Navigation Bar */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600 border border-rose-100">
-                <FileText className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Classroom PDF Repository</h3>
-                <p className="text-xs text-slate-500">
-                  {allPdfs.length} {allPdfs.length === 1 ? "document" : "documents"} available
-                </p>
-              </div>
+              {currentDocFolderId ? (
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentDocFolderId(null)}
+                    className="inline-flex items-center gap-1 font-bold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
+                  >
+                    <LuArrowLeft className="w-4 h-4" /> All PDF Folders
+                  </button>
+                  <span className="text-slate-400">/</span>
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <LuFolder className="h-4 w-4 text-rose-500" />
+                    {currentDocFolder?.name}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-50 text-rose-600 border border-rose-100">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">Classroom PDF Repository</h3>
+                    <p className="text-xs text-slate-500">
+                      {allPdfs.length} {allPdfs.length === 1 ? "document" : "documents"} available
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {allPdfs.length > 0 && (
@@ -295,11 +300,58 @@ function AnnouncementsTab({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search PDF documents..."
+                  placeholder={currentDocFolderId ? `Search in ${currentDocFolder?.name}...` : "Search PDF documents..."}
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-rose-400 focus:bg-white transition-all text-slate-800 placeholder-slate-400"
                 />
               </div>
             )}
+          </div>
+
+          {/* Grid of Folders (only visible at root when folders exist) */}
+          {!currentDocFolderId && foldersWithDocs.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Document Folders ({foldersWithDocs.length})
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {foldersWithDocs.map((folder) => {
+                  const docCount = allPdfs.filter(d => d.folder === folder.id).length;
+                  return (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => setCurrentDocFolderId(folder.id)}
+                      className="flex items-center gap-3.5 p-4 rounded-2xl border border-slate-200 bg-white hover:border-rose-300 hover:shadow-md transition-all text-left shadow-2xs group cursor-pointer"
+                    >
+                      <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <LuFolder className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-900 text-sm truncate group-hover:text-rose-600 transition-colors">
+                          {folder.name}
+                        </div>
+                        {folder.description && (
+                          <div className="text-xs text-slate-500 truncate mt-0.5">{folder.description}</div>
+                        )}
+                        <div className="text-[11px] text-rose-600 font-semibold mt-1">
+                          {docCount} {docCount === 1 ? 'document' : 'documents'}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-rose-500 transition-colors shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Section Header for Documents List */}
+          <div className="flex items-center justify-between pt-1">
+            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              {currentDocFolder
+                ? `Documents in "${currentDocFolder.name}" (${filteredPdfs.length})`
+                : (!currentDocFolderId && foldersWithDocs.length > 0 ? `Other / General Documents (${filteredPdfs.length})` : `All Documents (${filteredPdfs.length})`)}
+            </div>
           </div>
 
           {/* Empty States */}
@@ -317,65 +369,80 @@ function AnnouncementsTab({
 
           {allPdfs.length > 0 && filteredPdfs.length === 0 && (
             <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center shadow-xs">
-              <p className="text-slate-600 text-sm font-medium">No PDF documents match &quot;{searchQuery}&quot;</p>
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="mt-2 text-xs text-rose-600 hover:text-rose-700 font-semibold cursor-pointer underline"
-              >
-                Clear search filter
-              </button>
+              <p className="text-slate-600 text-sm font-medium">
+                {searchQuery ? `No PDF documents match "${searchQuery}"` : (currentDocFolder ? `No documents in folder "${currentDocFolder.name}" yet.` : "No documents at root level.")}
+              </p>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="mt-2 text-xs text-rose-600 hover:text-rose-700 font-semibold cursor-pointer underline"
+                >
+                  Clear search filter
+                </button>
+              )}
             </div>
           )}
 
           {/* PDF Grid Cards */}
           {filteredPdfs.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredPdfs.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4.5 hover:border-rose-300 hover:shadow-md transition-all"
-                >
-                  <div>
-                    <div className="flex items-start gap-3">
-                      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs">
-                        <FileText className="h-6 w-6" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700">
-                            PDF
-                          </span>
-                          <span className="text-[11px] text-slate-400">{timeAgo(doc.createdAt)}</span>
+              {filteredPdfs.map((doc) => {
+                const assignedFolder = foldersWithDocs.find(f => f.id === doc.folder);
+                return (
+                  <div
+                    key={doc.id}
+                    className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-4.5 hover:border-rose-300 hover:shadow-md transition-all"
+                  >
+                    <div>
+                      <div className="flex items-start gap-3">
+                        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-rose-500 to-pink-600 text-white shadow-xs">
+                          <FileText className="h-6 w-6" />
                         </div>
-                        <h4 className="text-sm font-bold text-slate-900 mt-1 truncate" title={doc.name}>
-                          {doc.name}
-                        </h4>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700">
+                              PDF
+                            </span>
+                            {assignedFolder && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-700">
+                                <LuFolder className="h-2.5 w-2.5 text-rose-500" />
+                                {assignedFolder.name}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-400">{timeAgo(doc.createdAt)}</span>
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 mt-1 truncate" title={doc.name}>
+                            {doc.name}
+                          </h4>
+                        </div>
+                      </div>
+
+                      {doc.announcementContent && (
+                        <p className="mt-2.5 text-xs text-slate-600 line-clamp-2 leading-relaxed bg-slate-50/80 p-2 rounded-lg border border-slate-100">
+                          {doc.announcementContent}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-slate-500 truncate">
+                        By <span className="font-medium text-slate-700">{doc.authorName}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewPdf({ url: doc.url, name: doc.name })}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>View PDF</span>
+                        </button>
                       </div>
                     </div>
-
-                    {doc.announcementContent && (
-                      <p className="mt-2.5 text-xs text-slate-600 line-clamp-2 leading-relaxed bg-slate-50/80 p-2 rounded-lg border border-slate-100">
-                        {doc.announcementContent}
-                      </p>
-                    )}
                   </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                    <div className="text-[11px] text-slate-500 truncate">
-                      By <span className="font-medium text-slate-700">{doc.authorName}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewPdf({ url: doc.url, name: doc.name })}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs hover:shadow cursor-pointer"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      <span>View PDF</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -384,7 +451,6 @@ function AnnouncementsTab({
   );
 }
 
-// â”€â”€â”€ Live Classes Tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
+// ÔöÇÔöÇÔöÇ Live Classes Tab ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 export { AnnouncementsTab as StudentAnnouncementsTab };

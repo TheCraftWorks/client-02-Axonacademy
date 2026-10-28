@@ -96,6 +96,7 @@ router.get('/classroom/:classroomId', protect, async (req, res, next) => {
 
     const recordings = await ClassroomRecording.find(filter)
       .populate('uploadedBy', 'fullName')
+      .populate('viewStats.student', 'fullName email')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -1139,6 +1140,10 @@ router.post('/:id/progress', protect, async (req, res, next) => {
     }
 
     const progress = updated?.viewStats?.[0] || null;
+
+    if (typeof classroomsRouter.clearClassroomCache === 'function') {
+      classroomsRouter.clearClassroomCache();
+    }
 
     res.json({
       success: true,

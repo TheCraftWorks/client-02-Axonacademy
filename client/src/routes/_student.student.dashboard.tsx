@@ -75,11 +75,20 @@ function Dashboard() {
   const totalSubmissions = enrolledClassrooms.reduce((s, c) => s + c.quizzes.reduce((ss, q) => ss + q.attempts.filter(a => a.studentId === studentId && a.status === 'submitted').length, 0), 0);
   
   const allStudentAnnouncements = enrolledClassrooms.flatMap(c =>
-    c.announcements.map(a => ({
-      ...a,
-      classroomName: c.name,
-      classroomId: c.id || (c as any)._id
-    }))
+    (c.announcements || [])
+      .filter((a: any) => {
+        if (!a) return false;
+        const rawAttachments = Array.isArray(a.attachments)
+          ? a.attachments
+          : (a.attachment ? [a.attachment] : []);
+        const hasAttachments = rawAttachments.length > 0 || !!a.fileUrl || !!a.pdfUrl;
+        return !hasAttachments && !a.folder;
+      })
+      .map(a => ({
+        ...a,
+        classroomName: c.name,
+        classroomId: c.id || (c as any)._id
+      }))
   ).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const studentAnnouncements = allStudentAnnouncements.slice(0, 4);
 

@@ -8,6 +8,7 @@ export interface ReviewQuestionItem {
   questionId: string;
   questionText: string;
   image?: string; // Optional Cloudinary image URL
+  video?: string; // Optional Cloudinary video clip URL
   marks?: number;
   selectedOptions: string[];
   correctOptions: string[];
@@ -297,6 +298,22 @@ export function QuizQuestionReviewTabs({
                           </span>
                         </div>
                       </button>
+                    )}
+                    {/* Question Video Clip in Review */}
+                    {q.video && (
+                      <div className="mt-2.5 max-w-sm rounded-xl overflow-hidden border border-slate-200 bg-slate-950 shadow-xs">
+                        <video
+                          src={q.video}
+                          controls
+                          controlsList="nodownload"
+                          playsInline
+                          preload="metadata"
+                          className="w-full max-h-52 object-contain mx-auto block"
+                        />
+                        <span className="px-2.5 py-1 text-[10px] text-slate-400 block font-medium bg-slate-900/80 border-t border-slate-800">
+                          Video Clip for Question {questionNo}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>

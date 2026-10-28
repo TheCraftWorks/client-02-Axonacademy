@@ -26,6 +26,7 @@ const quizSchema = new mongoose.Schema({
     type:       { type: String, enum: ['mcq','msq','true_false'], default: 'mcq' },
     text:       { type: String, required: true },
     image:      { type: String }, // optional image URL
+    video:      { type: String }, // optional video URL (10-30s clips)
     marks:      { type: Number, default: 1 },
     options: [{
       label:     String, // A, B, C, D, E
