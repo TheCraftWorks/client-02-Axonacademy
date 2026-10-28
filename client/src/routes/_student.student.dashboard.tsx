@@ -42,8 +42,12 @@ function Dashboard() {
     retry: 1,
   });
   const studentId = currentUser?.id || "";
+  const studentUserId = (currentUser as any)?.userId || "";
   
-  const enrolledClassrooms = classrooms.filter(c => c.students.some(s => s.id === studentId && s.status === 'active'));
+  const enrolledClassrooms = classrooms.filter(c => {
+    if (!c.students || c.students.length === 0) return true;
+    return c.students.some(s => (s.id === studentId || (studentUserId && s.id === studentUserId)) && s.status === 'active');
+  });
   const activeCoursesCount = enrolledClassrooms.length;
 
   // Fetch progress for the first active classroom for the dashboard summary

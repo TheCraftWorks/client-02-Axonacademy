@@ -4,9 +4,9 @@ import {
   ArrowUpRight, ArrowDownRight, Activity,
 } from "lucide-react";
 import { DarkCard } from "@/components/portal/PortalShell";
-import { useClassroomStore } from "@/lib/classroomStore";
+import { useClassroomStore, classroomActions } from "@/lib/classroomStore";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { getAdminUsers, getAdminPrograms } from "@/lib/api";
+import { getAdminUsers, getAdminPrograms, getClassrooms } from "@/lib/api";
 
 export const Route = createFileRoute("/_admin/admin/dashboard")({
   component: AdminHome,
@@ -70,12 +70,16 @@ function AdminHome() {
 
   const loadData = useCallback(async () => {
     try {
-      const [studentUsers, programsList] = await Promise.all([
-        getAdminUsers("student", 20),
+      const [studentUsers, programsList, freshClassrooms] = await Promise.all([
+        getAdminUsers("student"),
         getAdminPrograms(),
+        getClassrooms(true).catch(() => null),
       ]);
       setStudents(studentUsers);
       setCourses(programsList);
+      if (Array.isArray(freshClassrooms) && freshClassrooms.length > 0) {
+        classroomActions.setClassrooms(freshClassrooms);
+      }
       setLastRefreshed(new Date());
       // Trigger heartbeat pulse animation briefly
       setPulse(true);
@@ -100,18 +104,20 @@ function AdminHome() {
 
   const activeStudentsSet = new Set<string>();
   classrooms.forEach(c => {
-    c.students.forEach(st => {
+    (c.students || []).forEach(st => {
       if (st.status === 'active') {
         activeStudentsSet.add(st.id);
       }
     });
   });
-  const activeStudents = activeStudentsSet.size;
-  const totalEnrolments = classrooms.reduce((s, c) => s + c.students.length, 0);
+  const activeStudents = activeStudentsSet.size > 0
+    ? activeStudentsSet.size
+    : students.filter(s => s.isActive !== false).length;
+  const totalEnrolments = classrooms.reduce((s, c) => s + (c.students?.length || 0), 0) || activeStudents;
 
   const totalRevenue = classrooms.reduce((s, cls) => {
-    const course = courses.find(x => x.title === cls.program);
-    return s + (course?.price || 0) * cls.students.filter(st => st.status === "active").length;
+    const course = courses.find(x => x.title === cls.program || x.id === cls.programId);
+    return s + (course?.price || 0) * (cls.students || []).filter(st => st.status === "active").length;
   }, 0);
 
   const formattedRevenue = totalRevenue >= 100000

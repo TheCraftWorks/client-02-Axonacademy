@@ -55,8 +55,9 @@ function getCachedData(key) {
 
 function setCachedData(key, data) {
   responseCache.set(key, { data, timestamp: Date.now() });
-  // Also persist to Redis asynchronously (fire-and-forget)
-  redis.setex(key, REDIS_TTL_SEC, JSON.stringify(data)).catch(() => {});
+  // Also persist to Redis asynchronously with prefix
+  const redisKey = `cls:${key}`;
+  redis.setex(redisKey, REDIS_TTL_SEC, JSON.stringify(data)).catch(() => {});
 }
 
 async function getCachedDataWithRedis(key) {
@@ -65,7 +66,8 @@ async function getCachedDataWithRedis(key) {
   if (mem) return mem;
   // L2: Redis
   try {
-    const raw = await redis.get(key);
+    const redisKey = `cls:${key}`;
+    const raw = await redis.get(redisKey);
     if (raw) {
       const parsed = JSON.parse(raw);
       // Populate L1 so subsequent calls are instant
@@ -78,13 +80,19 @@ async function getCachedDataWithRedis(key) {
 
 function clearClassroomCache() {
   responseCache.clear();
-  // Also clear Redis keys for classrooms (best-effort)
-  redis.keys('classrooms:*').then(keys => {
-    if (keys && keys.length > 0) {
-      keys.forEach(k => redis.del(k).catch(() => {}));
-    }
-  }).catch(() => {});
+  // Clear all related Redis keys
+  const patterns = ['cls:*', 'classrooms:*', 'my_*', 'all_*', 'detail_*'];
+  patterns.forEach(p => {
+    redis.keys(p).then(keys => {
+      if (keys && keys.length > 0) {
+        keys.forEach(k => redis.del(k).catch(() => {}));
+      }
+    }).catch(() => {});
+  });
 }
+
+// Clear on startup to prevent any stale cache from surviving code changes
+clearClassroomCache();
 
 router.clearClassroomCache = clearClassroomCache;
 
@@ -233,18 +241,16 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
   const list = Array.isArray(classrooms) ? classrooms : [classrooms];
   if (list.length === 0) return classrooms;
 
-  // Ensure students.student is populated across classrooms (only needed for detailed single-classroom view)
-  if (!isList) {
-    await manualPopulate(list, 'students.student', 'fullName email phone avatar role isVerified isActive', false);
-  }
+  // Ensure students.student is populated across classrooms
+  await manualPopulate(list, 'students.student', 'fullName email phone avatar role isVerified isActive', false);
   const classroomIds = list.map((classroom) => classroom._id);
 
-  // 1. Live Meetings (exclude large attendees & waitingRoom arrays on overview)
+  // 1. Live Meetings (exclude waitingRoom, keep attendees for attendance stats)
   let meetingsQuery = LiveMeeting.find({ classroom: { $in: classroomIds } });
   if (isList) {
-    meetingsQuery = meetingsQuery.select('_id classroom title status scheduledAt duration roomId webexLink');
+    meetingsQuery = meetingsQuery.select('-waitingRoom');
   } else {
-    meetingsQuery = meetingsQuery.select('-attendees -waitingRoom').populate('createdBy', 'fullName');
+    meetingsQuery = meetingsQuery.select('-waitingRoom').populate('createdBy', 'fullName');
   }
   meetingsQuery = meetingsQuery.sort({ scheduledAt: 1 }).lean();
 
@@ -258,10 +264,10 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
     .sort({ order: 1, createdAt: -1 })
     .lean();
 
-  // 3. Recordings (exclude heavy transcripts and session history)
+  // 3. Recordings (exclude heavy transcripts and session history, keep viewStats for watched progress)
   let recordingsQuery = ClassroomRecording.find({ classroom: { $in: classroomIds } });
   if (isList) {
-    recordingsQuery = recordingsQuery.select('_id classroom title isPublished duration folder createdAt');
+    recordingsQuery = recordingsQuery.select('-transcript -viewStats.sessions');
   } else {
     recordingsQuery = recordingsQuery
       .select('-transcript -viewStats.sessions')
@@ -281,9 +287,7 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
 
   // 5. Quizzes
   let quizzesQuery = Quiz.find({ classroom: { $in: classroomIds } });
-  if (isList) {
-    quizzesQuery = quizzesQuery.select('_id classroom title status');
-  } else if (!isStaff) {
+  if (!isStaff) {
     quizzesQuery = quizzesQuery.select('-questions.explanation -questions.options.isCorrect');
   }
   quizzesQuery = quizzesQuery.sort({ createdAt: -1 }).lean();
@@ -298,14 +302,9 @@ const attachClassroomDetails = async (classrooms, options = {}) => {
       .select('-answers -questionOrder')
       .sort({ createdAt: -1 })
       .lean();
-  } else if (!isList) {
-    quizAttemptsQuery = QuizAttempt.find({ classroom: { $in: classroomIds } })
-      .select('-answers -questionOrder')
-      .sort({ createdAt: -1 })
-      .lean();
   } else {
     quizAttemptsQuery = QuizAttempt.find({ classroom: { $in: classroomIds } })
-      .select('_id status quiz classroom')
+      .select('-answers -questionOrder')
       .sort({ createdAt: -1 })
       .lean();
   }
@@ -765,10 +764,14 @@ router.get('/my', protect, async (req, res, next) => {
     // to avoid querying user info for all other classmates in the list endpoint
     classrooms.forEach(c => {
       if (c.students) {
-        c.students = c.students.filter(s => s.student && s.student.toString() === req.user._id.toString());
+        c.students = c.students.filter(s => {
+          const sId = s.student?._id ? s.student._id.toString() : s.student?.toString();
+          return sId === req.user._id.toString();
+        });
       }
     });
 
+    await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
     const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { studentId: req.user._id, isList: true }) };
     setCachedData(cacheKey, result);
     res.json(result);
@@ -806,9 +809,14 @@ router.get('/:id', protect, async (req, res, next) => {
     // For student, filter students array to avoid serializing 200+ other users
     if (isStudent && Array.isArray(classroom.students)) {
       classroom.students = classroom.students.filter(
-        s => s.student && s.student.toString() === req.user._id.toString()
+        s => {
+          const sId = s.student?._id ? s.student._id.toString() : s.student?.toString();
+          return sId === req.user._id.toString();
+        }
       );
     }
+
+    await manualPopulate(classroom, 'students.student', 'fullName email phone avatar role isVerified isActive');
 
     const result = {
       success: true,
@@ -1027,6 +1035,7 @@ router.get('/', async (req, res, next) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    await manualPopulate(classrooms, 'students.student', 'fullName email phone avatar role isVerified isActive');
     const result = { success: true, classrooms: await attachClassroomDetails(classrooms, { isList: true }) };
     setCachedData(cacheKey, result);
     res.json(result);

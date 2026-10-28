@@ -140,17 +140,29 @@ function normalizeBackendClassroom(raw: any) {
   const studentNameMap = new Map<string, string>();
   const normalizedStudents = Array.isArray(raw.students)
     ? raw.students.map((s: any) => {
-      const studentObj = typeof s.student === 'object' && s.student !== null ? s.student : (typeof s === 'object' && s !== null ? s : {});
-      const id = String(studentObj._id || studentObj.id || (typeof s.student === 'string' ? s.student : '') || s._id || s.id || `student-${Date.now()}`);
+      const hasStudentObj = typeof s.student === 'object' && s.student !== null;
+      const studentObj = hasStudentObj ? s.student : (typeof s === 'object' && s !== null ? s : {});
+      const id = String(
+        (hasStudentObj ? (s.student._id || s.student.id) : null) ||
+        (typeof s.student === 'string' && s.student ? s.student : null) ||
+        s.studentId ||
+        s.userId ||
+        s._id ||
+        s.id ||
+        `student-${Date.now()}`
+      );
       const metrics = computeStudentMetrics(id);
-      const studentName = studentObj.fullName || studentObj.name || (studentObj.email ? studentObj.email.split('@')[0] : '') || s.name || s.fullName || '';
+      const studentName = (hasStudentObj ? (s.student.fullName || s.student.name) : null) ||
+        studentObj.fullName || studentObj.name ||
+        (studentObj.email ? studentObj.email.split('@')[0] : '') ||
+        s.name || s.fullName || '';
       if (id && studentName) {
         studentNameMap.set(id, studentName);
       }
       return {
         id,
         name: studentName || 'Student',
-        email: studentObj.email || s.email || '',
+        email: (hasStudentObj ? s.student.email : null) || studentObj.email || s.email || '',
         enrollmentId: s.enrollmentId || (id && id.length >= 4 && !id.startsWith('student-') ? `STU-${id.slice(-4).toUpperCase()}` : `STU-${Date.now().toString().slice(-4)}`),
         progress: typeof s.progress === 'number' ? s.progress : metrics.progress,
         attendance: typeof s.attendance === 'number' ? s.attendance : metrics.attendance,
@@ -584,6 +596,11 @@ export function invalidateClientClassroomCache() {
   cachedClassroomDetails.clear();
   inFlightClassroomsPromise = null;
   inFlightMyClassroomsPromise = null;
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem('axon_classrooms');
+    } catch (_) {}
+  }
 }
 
 export function invalidateClassroomCacheById(classroomId: string) {

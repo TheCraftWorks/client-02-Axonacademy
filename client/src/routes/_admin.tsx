@@ -46,7 +46,7 @@ function AdminLayout() {
   }, []);
 
   useEffect(() => {
-    if (currentUser && currentUser.role !== "student" && classrooms.length === 0) {
+    if (currentUser && currentUser.role !== "student") {
       getClassrooms()
         .then((cls) => classroomActions.setClassrooms(cls))
         .catch(() => {});

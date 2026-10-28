@@ -38,15 +38,16 @@ function Exams() {
     a.studentId === currentUser?.userId ||
     (currentEmail && a.studentEmail && a.studentEmail.toLowerCase() === currentEmail);
 
-  const enrolledClassrooms = classrooms.filter((c) =>
-    c.students.some(
+  const enrolledClassrooms = classrooms.filter((c) => {
+    if (!c.students || c.students.length === 0) return true;
+    return c.students.some(
       (s) =>
         (s.id === currentUser?.id ||
           s.id === currentUser?.userId ||
           (s.email && currentEmail && s.email.toLowerCase() === currentEmail)) &&
         s.status === "active"
-    )
-  );
+    );
+  });
 
   const allQuizzes = enrolledClassrooms.flatMap((c) =>
     (c.quizzes || [])

@@ -301,9 +301,14 @@ function createStore(initial: StoreState) {
     setState: (updater: (s: StoreState) => Partial<StoreState>) => {
       const patch = updater(state);
       
-      // Auto-clear accessToken when logging out or if currentUser is null
+      // Auto-clear accessToken and classroom cache when logging out or if currentUser is null
       if ('currentUser' in patch && !patch.currentUser) {
         patch.accessToken = null;
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.removeItem('axon_classrooms');
+          } catch (_) {}
+        }
       }
 
       state = { ...state, ...patch };

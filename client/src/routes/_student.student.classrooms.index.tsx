@@ -66,9 +66,11 @@ function StudentClassrooms() {
   const { isLoadingClassrooms } = useStudentLayout();
 
   const currentStudentId = currentUser?.id || "";
-  const myClassrooms = classrooms.filter((c) =>
-    c.students.some((s) => s.id === currentStudentId && s.status === "active"),
-  );
+  const currentStudentUserId = (currentUser as any)?.userId || "";
+  const myClassrooms = classrooms.filter((c) => {
+    if (!c.students || c.students.length === 0) return true;
+    return c.students.some((s) => (s.id === currentStudentId || (currentStudentUserId && s.id === currentStudentUserId)) && s.status === "active");
+  });
 
   return (
     <div className="space-y-6">
