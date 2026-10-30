@@ -117,8 +117,17 @@ router.get('/:id/stream', protect, restrictTo('admin', 'superadmin', 'faculty'),
         s3Params.Range = range;
       }
 
-      const command = new GetObjectCommand(s3Params);
-      const s3Response = await client.send(command);
+      let s3Response;
+      try {
+        const command = new GetObjectCommand(s3Params);
+        s3Response = await client.send(command);
+      } catch (proxyErr) {
+        console.warn('[Recording Proxy] S3Client direct stream failed, falling back to presigned redirect:', proxyErr.message);
+        const { generatePresignedGetUrl } = require('../config/cloudflare');
+        const presignedUrl = await generatePresignedGetUrl(recording.cloudflareKey, 3600);
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        return res.redirect(307, presignedUrl);
+      }
 
       // Set headers from S3 response to support proper media range streaming
       res.status(s3Response.$metadata.httpStatusCode || (range ? 206 : 200));

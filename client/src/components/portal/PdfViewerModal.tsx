@@ -409,7 +409,12 @@ export function PdfViewerModal({
         console.warn('[PDF Viewer] Error loading PDF engine/doc:', err?.message);
         if (!isCancelled) {
           setLoading(false);
-          setUseIframeFallback(true);
+          const msg = err?.message || '';
+          if (msg.includes('@smithy') || msg.includes('timeout') || msg.includes('HTTP 500') || msg.includes('HTTP 404') || msg.includes('Failed to fetch')) {
+            setError(msg);
+          } else {
+            setUseIframeFallback(true);
+          }
         }
       }
     }

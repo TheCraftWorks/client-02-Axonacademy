@@ -544,9 +544,10 @@ router.get('/r2-proxy', async (req, res, next) => {
       return res.redirect(307, presignedUrl);
     }
 
-    // Direct stream from R2 with Range support (avoids cross-origin 307 redirect CORS issues)
+    // Direct stream from R2 with Range support and automatic fallback
     const { GetObjectCommand } = require('@aws-sdk/client-s3');
     const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
+    const https = require('https');
     const client = getS3Client();
 
     const range = req.headers.range;
@@ -558,8 +559,78 @@ router.get('/r2-proxy', async (req, res, next) => {
       s3Params.Range = range;
     }
 
-    const command = new GetObjectCommand(s3Params);
-    const s3Response = await client.send(command);
+    let s3Response = null;
+    try {
+      const command = new GetObjectCommand(s3Params);
+      s3Response = await client.send(command);
+    } catch (s3Err) {
+      if (s3Err.name === 'NoSuchKey' || s3Err.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ success: false, message: 'File not found' });
+      }
+
+      console.warn('[R2 Proxy] Direct S3Client stream failed, falling back to presigned stream:', s3Err.message);
+
+      // Resilient Fallback: Generate presigned GET URL and stream via https.get (IPv4)
+      try {
+        const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
+          responseContentType: 'application/pdf',
+          responseContentDisposition: disposition,
+        });
+
+        const urlObj = new URL(presignedUrl);
+        const options = {
+          hostname: urlObj.hostname,
+          port: 443,
+          path: urlObj.pathname + urlObj.search,
+          method: 'GET',
+          family: 4,
+          headers: {
+            'User-Agent': 'AxonAcademy-PDF-Proxy/1.0',
+          },
+        };
+        if (range) {
+          options.headers['Range'] = range;
+        }
+
+        const fallbackReq = https.get(options, (remoteRes) => {
+          res.status(remoteRes.statusCode || (range ? 206 : 200));
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Type', remoteRes.headers['content-type'] || 'application/pdf');
+          res.setHeader('Content-Disposition', disposition);
+          res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+          if (remoteRes.headers['content-length']) res.setHeader('Content-Length', remoteRes.headers['content-length']);
+          if (remoteRes.headers['content-range']) res.setHeader('Content-Range', remoteRes.headers['content-range']);
+          if (remoteRes.headers['etag']) res.setHeader('ETag', remoteRes.headers['etag']);
+
+          req.on('close', () => {
+            if (!res.writableEnded && remoteRes.destroy) {
+              remoteRes.destroy();
+            }
+          });
+
+          remoteRes.pipe(res);
+        });
+
+        fallbackReq.on('error', (netErr) => {
+          console.warn('[R2 Proxy] https.get fallback failed, redirecting:', netErr.message);
+          if (!res.headersSent) {
+            return res.redirect(307, presignedUrl);
+          }
+        });
+
+        req.on('close', () => {
+          fallbackReq.destroy();
+        });
+
+        return;
+      } catch (fallbackErr) {
+        console.error('[R2 Proxy] Fallback failed:', fallbackErr);
+        if (!res.headersSent) {
+          return res.status(500).json({ success: false, message: s3Err.message || 'Failed to stream document' });
+        }
+        return;
+      }
+    }
 
     res.status(s3Response.$metadata?.httpStatusCode || (range ? 206 : 200));
     res.setHeader('Accept-Ranges', 'bytes');

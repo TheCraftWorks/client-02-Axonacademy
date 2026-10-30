@@ -1,6 +1,12 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const dns = require('dns');
 const dotenv = require('dotenv');
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 const {
   S3Client,
   PutObjectCommand,
@@ -41,6 +47,13 @@ function getS3Client() {
     throw new Error('Cloudflare R2 is not fully configured. Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_R2_ACCESS_KEY_ID, and CLOUDFLARE_R2_SECRET_ACCESS_KEY.');
   }
 
+  const httpsAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 50,
+    timeout: 15000,
+    family: 4, // Enforce IPv4 to eliminate IPv6 socket hangs/blackholes with Cloudflare R2
+  });
+
   s3Client = new S3Client({
     endpoint: `https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
     credentials: {
@@ -49,9 +62,10 @@ function getS3Client() {
     },
     region: 'auto',
     forcePathStyle: true,
-    maxAttempts: 3,
+    maxAttempts: 2,
     requestHandler: new NodeHttpHandler({
-      connectionTimeout: 30000,
+      httpsAgent,
+      connectionTimeout: 10000,
       requestTimeout: 60000,
     }),
   });

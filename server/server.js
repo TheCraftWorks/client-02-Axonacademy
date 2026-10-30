@@ -2,6 +2,12 @@ const dotenv = require('dotenv');
 // Load environment configurations
 dotenv.config();
 
+const dns = require('dns');
+// Prioritize IPv4 in DNS lookups to eliminate IPv6 blackhole socket connection timeouts with cloud providers
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 const http = require('http');
 const app = require('./src/app');
 const connectDB = require('./src/config/db');
