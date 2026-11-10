@@ -1605,20 +1605,18 @@ export async function uploadAnnouncementPdf({
 }
 
 /**
- * Resolves an attachment URL to a full streamable URL.
+ * Resolves an attachment URL to a full, secure, streamable proxy URL.
+ * Automatically handles Cloudinary secure delivery restrictions, Cloudflare R2 S3 URLs,
+ * and attaches auth tokens for robust cross-origin & iframe preview.
  */
 export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): string {
-  const key = cloudflareKey || (!rawUrl?.startsWith('http') && rawUrl?.includes('announcements/') ? rawUrl : undefined);
-  if (!rawUrl && !key) return '';
+  if (!rawUrl && !cloudflareKey) return '';
 
   const cleanUrl = (rawUrl || '').trim();
+  const cleanKey = (cloudflareKey || '').trim();
 
-  // Already a full absolute URL or blob/data
-  if (cleanUrl && (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://') || cleanUrl.startsWith('blob:') || cleanUrl.startsWith('data:'))) {
-    if (cleanUrl.includes('r2-proxy') && !cleanUrl.includes('stream=')) {
-      const sep = cleanUrl.includes('?') ? '&' : '?';
-      return `${cleanUrl}${sep}stream=true`;
-    }
+  // 1. Data URLs and local blob URLs: can be opened directly
+  if (cleanUrl.startsWith('blob:') || cleanUrl.startsWith('data:')) {
     return cleanUrl;
   }
 
@@ -1626,36 +1624,86 @@ export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): st
   const cleanApiBase = (API_BASE || '/api/v1').replace(/\/+$/, '');
   const rootBase = cleanApiBase.replace(/\/api\/v1\/?$/, '');
 
-  if (cleanUrl && (cleanUrl.startsWith('/api/v1/') || cleanUrl.startsWith('/api/v1?'))) {
+  // Retrieve current access token for query-param auth fallback
+  const savedToken = typeof window !== 'undefined'
+    ? (localStorage.getItem('accessToken') || localStorage.getItem('token'))
+    : null;
+  const accessToken = classroomStore.getState?.()?.accessToken || savedToken;
+  const tokenQuery = accessToken ? `&token=${encodeURIComponent(accessToken)}` : '';
+
+  // 2. Cloudinary URLs: ALWAYS route through /classrooms/files proxy!
+  // Direct client access to Cloudinary raw/pdf files returns HTTP 401 (x-cld-error: deny or ACL failure).
+  if (cleanUrl.includes('res.cloudinary.com/')) {
     const sep = cleanUrl.includes('?') ? '&' : '?';
-    const withStream = cleanUrl.includes('r2-proxy') && !cleanUrl.includes('stream=')
-      ? `${cleanUrl}${sep}stream=true`
-      : cleanUrl;
-    return `${rootBase}${withStream}`;
+    return `${cleanApiBase}/classrooms/files?url=${encodeURIComponent(cleanUrl)}${tokenQuery}`;
   }
 
-  if (cleanUrl && cleanUrl.startsWith('/')) {
-    const sep = cleanUrl.includes('?') ? '&' : '?';
-    const withStream = cleanUrl.includes('r2-proxy') && !cleanUrl.includes('stream=')
-      ? `${cleanUrl}${sep}stream=true`
-      : cleanUrl;
-    return `${cleanApiBase}${withStream}`;
+  // 3. Direct Cloudflare R2 S3 storage URLs:
+  // e.g. https://<account>.r2.cloudflarestorage.com/<bucket>/announcements/...
+  // S3 storage URLs require AWS HMAC signatures and return 401 if fetched directly.
+  if (cleanUrl.includes('.r2.cloudflarestorage.com/') || cleanUrl.includes('.r2.dev/')) {
+    const keyMatch = cleanUrl.match(/\/(announcements\/[^?#]+|classroom-assets\/[^?#]+)/);
+    const extractedKey = keyMatch ? keyMatch[1] : cleanKey;
+    if (extractedKey) {
+      return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(extractedKey)}&stream=true${tokenQuery}`;
+    }
   }
 
-  if (key) {
-    return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(key)}&stream=true`;
+  // 4. If an explicit cloudflareKey is provided, route through /r2-proxy
+  if (cleanKey) {
+    return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(cleanKey)}&stream=true${tokenQuery}`;
   }
 
-  if (cleanUrl) {
-    const cleaned = cleanUrl.replace(/^\/+/, '');
-    const sep = cleaned.includes('?') ? '&' : '?';
-    const withStream = cleaned.includes('r2-proxy') && !cleaned.includes('stream=')
-      ? `${cleaned}${sep}stream=true`
-      : cleanUrl;
-    return `${cleanApiBase}/${withStream}`;
+  // 5. If cleanUrl is an announcement or classroom-asset key (not a full URL)
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    if (cleanUrl.includes('announcements/') || cleanUrl.includes('classroom-assets/')) {
+      const strippedKey = cleanUrl.replace(/^\/+/, '');
+      return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(strippedKey)}&stream=true${tokenQuery}`;
+    }
   }
 
-  return '';
+  // 6. Already an r2-proxy URL (ensure stream=true and API base is correct)
+  if (cleanUrl.includes('r2-proxy')) {
+    const hasStream = cleanUrl.includes('stream=');
+    const hasToken = cleanUrl.includes('token=');
+    const streamParam = !hasStream ? '&stream=true' : '';
+    const authParam = (!hasToken && accessToken) ? `&token=${encodeURIComponent(accessToken)}` : '';
+
+    if (cleanUrl.startsWith('/api/v1/') || cleanUrl.startsWith('/api/v1?')) {
+      const sep = cleanUrl.includes('?') ? '' : '?';
+      return `${rootBase}${cleanUrl}${sep}${streamParam}${authParam}`.replace('?&', '?');
+    }
+    if (cleanUrl.startsWith('/')) {
+      const sep = cleanUrl.includes('?') ? '' : '?';
+      return `${cleanApiBase}${cleanUrl}${sep}${streamParam}${authParam}`.replace('?&', '?');
+    }
+    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+      const sep = cleanUrl.includes('?') ? '' : '?';
+      return `${cleanUrl}${sep}${streamParam}${authParam}`.replace('?&', '?');
+    }
+    return `${cleanApiBase}/${cleanUrl}${streamParam}${authParam}`.replace('?&', '?');
+  }
+
+  // 7. Already a files proxy URL
+  if (cleanUrl.includes('/files?url=')) {
+    const hasToken = cleanUrl.includes('token=');
+    const authParam = (!hasToken && accessToken) ? `&token=${encodeURIComponent(accessToken)}` : '';
+    if (cleanUrl.startsWith('/api/v1/')) {
+      return `${rootBase}${cleanUrl}${authParam}`;
+    }
+    if (cleanUrl.startsWith('/')) {
+      return `${cleanApiBase}${cleanUrl}${authParam}`;
+    }
+    return `${cleanUrl}${authParam}`;
+  }
+
+  // 8. Other relative paths starting with /
+  if (cleanUrl.startsWith('/')) {
+    return `${cleanApiBase}${cleanUrl}`;
+  }
+
+  // 9. Standard external public URLs
+  return cleanUrl;
 }
 
 /**

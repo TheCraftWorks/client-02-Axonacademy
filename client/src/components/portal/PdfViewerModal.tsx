@@ -15,6 +15,7 @@ import {
   LuExternalLink,
 } from 'react-icons/lu';
 import { classroomStore } from '@/lib/classroomStore';
+import { resolveAttachmentUrl } from '@/lib/api';
 
 interface PdfViewerModalProps {
   isOpen: boolean;
@@ -56,7 +57,7 @@ function loadPdfJsEngine(): Promise<any> {
     const timeout = setTimeout(() => {
       pdfjsPromise = null;
       reject(new Error('PDF engine load timed out'));
-    }, 10000);
+    }, 15000);
 
     const onScriptLoaded = () => {
       clearTimeout(timeout);
@@ -74,10 +75,21 @@ function loadPdfJsEngine(): Promise<any> {
       }
     };
 
-    const onScriptError = () => {
-      clearTimeout(timeout);
-      pdfjsPromise = null;
-      reject(new Error('Failed to load PDF engine from CDN'));
+    const trySecondaryCDN = () => {
+      const fallbackScript = document.createElement('script');
+      fallbackScript.id = 'pdfjs-cdn-fallback-script';
+      fallbackScript.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+      fallbackScript.async = true;
+      fallbackScript.onload = () => {
+        fallbackScript.dataset.loaded = 'true';
+        onScriptLoaded();
+      };
+      fallbackScript.onerror = () => {
+        clearTimeout(timeout);
+        pdfjsPromise = null;
+        reject(new Error('Failed to load PDF engine from CDN'));
+      };
+      document.head.appendChild(fallbackScript);
     };
 
     if (existingScript) {
@@ -85,7 +97,7 @@ function loadPdfJsEngine(): Promise<any> {
         onScriptLoaded();
       } else {
         existingScript.addEventListener('load', onScriptLoaded, { once: true });
-        existingScript.addEventListener('error', onScriptError, { once: true });
+        existingScript.addEventListener('error', trySecondaryCDN, { once: true });
       }
       return;
     }
@@ -98,7 +110,7 @@ function loadPdfJsEngine(): Promise<any> {
       script.dataset.loaded = 'true';
       onScriptLoaded();
     };
-    script.onerror = onScriptError;
+    script.onerror = trySecondaryCDN;
     document.head.appendChild(script);
   });
 
@@ -123,6 +135,7 @@ export function PdfViewerModal({
   const [swipeNotice, setSwipeNotice] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [effectiveUrl, setEffectiveUrl] = useState<string>(url || '');
   const [renderedDimensions, setRenderedDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -306,30 +319,57 @@ export function PdfViewerModal({
 
     async function loadDocument() {
       try {
-        // Step 1: Load PDF.js engine first
+        // Step 1: Resolve URL to secure stream proxy if needed
+        const resolvedUrl = resolveAttachmentUrl(url) || url;
+
+        // Step 2: Load PDF.js engine first
         const pdfjs = await loadPdfJsEngine();
         if (isCancelled) return;
 
-        const isRelativeOrSameOrigin =
-          !url.startsWith('http://') &&
-          !url.startsWith('https://') ||
-          (typeof window !== 'undefined' && url.startsWith(window.location.origin));
-
-        const savedToken = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+        // Retrieve authentication token from all possible client sources
+        const savedToken = typeof window !== 'undefined'
+          ? (localStorage.getItem('accessToken') || localStorage.getItem('token'))
+          : null;
         const accessToken = classroomStore.getState?.()?.accessToken || savedToken;
+
+        // Determine if target is our API backend (or relative)
+        const isBackendOrRelative =
+          !resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://') ||
+          (typeof window !== 'undefined' && resolvedUrl.startsWith(window.location.origin)) ||
+          resolvedUrl.includes('/api/v1') ||
+          resolvedUrl.includes('api1.axonmedacademy.com') ||
+          resolvedUrl.includes('localhost') ||
+          resolvedUrl.includes('127.0.0.1');
+
         const httpHeaders: Record<string, string> = {};
-        if (accessToken && isRelativeOrSameOrigin) {
+        if (accessToken && isBackendOrRelative) {
           httpHeaders['Authorization'] = `Bearer ${accessToken}`;
         }
+        if (!import.meta.env.PROD && isBackendOrRelative) {
+          const currentUser = classroomStore.getState?.()?.currentUser;
+          if (currentUser?.email) {
+            httpHeaders['x-dev-user-email'] = currentUser.email;
+            httpHeaders['x-dev-user-role'] = currentUser.role || 'admin';
+            httpHeaders['x-dev-user-name'] = currentUser.name || 'Admin';
+          }
+        }
+
+        // Ensure token query param is attached for backend streaming if not present
+        let streamUrl = resolvedUrl;
+        if (accessToken && isBackendOrRelative && !streamUrl.includes('token=')) {
+          const sep = streamUrl.includes('?') ? '&' : '?';
+          streamUrl = `${streamUrl}${sep}token=${encodeURIComponent(accessToken)}`;
+        }
+        setEffectiveUrl(streamUrl);
 
         let pdf: any;
 
-        // Step 2: Try fast progressive Range Streaming on URL (fetches header & Page 1 in <1s)
+        // Step 3: Try fast progressive Range Streaming on URL (fetches header & Page 1 in <1s)
         try {
           const loadingTask = pdfjs.getDocument({
-            url,
+            url: streamUrl,
             httpHeaders: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
-            withCredentials: isRelativeOrSameOrigin,
+            withCredentials: isBackendOrRelative,
             rangeChunkSize: 65536,
             disableAutoFetch: true,  // Stream pages on-demand rather than downloading whole upfront
             disableStream: false,    // Progressive stream
@@ -342,20 +382,43 @@ export function PdfViewerModal({
 
           // Fallback: Fetch raw bytes with timeout if range streaming failed
           const controller = new AbortController();
-          const fetchTimeout = setTimeout(() => controller.abort(), 15000);
+          const fetchTimeout = setTimeout(() => controller.abort(), 20000);
 
           let response: Response;
           try {
-            response = await fetch(url, {
+            response = await fetch(streamUrl, {
               headers: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
-              credentials: isRelativeOrSameOrigin ? 'include' : 'omit',
+              credentials: isBackendOrRelative ? 'include' : 'omit',
               signal: controller.signal,
             });
           } catch {
-            response = await fetch(url, { signal: controller.signal });
+            response = await fetch(streamUrl, { signal: controller.signal });
+          } finally {
+            clearTimeout(fetchTimeout);
           }
 
-          clearTimeout(fetchTimeout);
+          // If direct storage fetch failed with 401/403, retry via backend proxy
+          if (!response.ok && (streamUrl.includes('res.cloudinary.com/') || streamUrl.includes('.r2.'))) {
+            console.warn('[PDF Viewer] Direct storage returned status', response.status, '- attempting server proxy...');
+            const apiBase = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '');
+            let fallbackProxyUrl = '';
+            if (streamUrl.includes('res.cloudinary.com/')) {
+              fallbackProxyUrl = `${apiBase}/classrooms/files?url=${encodeURIComponent(streamUrl.split('?')[0])}${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
+            } else {
+              const filename = streamUrl.split('?')[0].split('/').pop() || '';
+              fallbackProxyUrl = `${apiBase}/classrooms/r2-proxy?key=${encodeURIComponent(filename)}&stream=true${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
+            }
+            try {
+              const retryResp = await fetch(fallbackProxyUrl, {
+                headers: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
+                credentials: 'include',
+              });
+              if (retryResp.ok) {
+                response = retryResp;
+                setEffectiveUrl(fallbackProxyUrl);
+              }
+            } catch (_) {}
+          }
 
           if (!response.ok) {
             let errorMsg = `HTTP ${response.status}: Failed to fetch document`;
@@ -413,7 +476,7 @@ export function PdfViewerModal({
           if (msg.includes('@smithy') || msg.includes('timeout') || msg.includes('HTTP 500') || msg.includes('HTTP 404') || msg.includes('Failed to fetch')) {
             setError(msg);
           } else {
-            setUseIframeFallback(true);
+            setError(msg || 'Failed to load document preview');
           }
         }
       }
@@ -645,7 +708,8 @@ export function PdfViewerModal({
     touchStartRef.current = null;
   };
 
-  const isPublicHttpUrl = typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes('localhost') && !url.includes('127.0.0.1');
+  const previewSrc = effectiveUrl || resolveAttachmentUrl(url) || url;
+  const isPublicHttpUrl = typeof previewSrc === 'string' && (previewSrc.startsWith('http://') || previewSrc.startsWith('https://')) && !previewSrc.includes('localhost') && !previewSrc.includes('127.0.0.1');
 
   return (
     <div
@@ -791,13 +855,24 @@ export function PdfViewerModal({
               <LuShieldAlert className="h-8 w-8 text-amber-400 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-200 mb-1">Preview Unavailable</p>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">{error}</p>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
                   onClick={handleRetry}
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5"
                 >
                   <LuRotateCcw className="h-3.5 w-3.5" /> Retry Preview
                 </button>
+                {!useIframeFallback && (
+                  <button
+                    onClick={() => {
+                      setError(null);
+                      setUseIframeFallback(true);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-white transition-colors"
+                  >
+                    Try Alternate Viewer
+                  </button>
+                )}
                 <button
                   onClick={onClose}
                   className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition-colors"
@@ -853,8 +928,8 @@ export function PdfViewerModal({
               <iframe
                 src={
                   isPublicHttpUrl && typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-                    ? `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`
-                    : `${url}#toolbar=0&navpanes=0&scrollbar=1`
+                    ? `https://docs.google.com/viewer?url=${encodeURIComponent(previewSrc)}&embedded=true`
+                    : `${previewSrc}#toolbar=0&navpanes=0&scrollbar=1`
                 }
                 className="w-full flex-1 border-0"
                 title="Document Preview"

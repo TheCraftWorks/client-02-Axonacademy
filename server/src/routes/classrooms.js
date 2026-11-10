@@ -18,6 +18,8 @@ const { protect, restrictTo, verifyClassroomAccess } = require('../middleware/au
 const mongoose = require('mongoose');
 const multer = require('multer');
 const https = require('https');
+const http = require('http');
+const path = require('path');
 const urlModule = require('url');
 const { cloudinary } = require('../config/cloudinary');
 
@@ -489,9 +491,244 @@ const getStudentRefId = (studentRef) => {
   return studentRef.toString();
 };
 
-// GET /files → Proxy file from Cloudinary using Admin API
-// Bypasses secured delivery by authenticating with API key/secret server-side
-// GET /r2-proxy → Stream or proxy download from R2 with server-side auth (key passed as query param)
+// ─── Document Proxy & Streaming Helpers ──────────────────────────────────────────
+
+/**
+ * Streams a remote HTTP/HTTPS resource to the client with full Range support,
+ * automatic redirect resolution (up to 5 hops), CORS, and inline preview headers.
+ */
+function streamRemoteUrl(targetUrl, req, res, options = {}, redirectCount = 0) {
+  if (redirectCount > 5) {
+    if (!res.headersSent) {
+      return res.status(502).json({ success: false, message: 'Too many redirects while streaming document' });
+    }
+    return;
+  }
+
+  try {
+    const parsed = new URL(targetUrl);
+    const client = parsed.protocol === 'http:' ? http : https;
+
+    const requestHeaders = {};
+    if (req.headers.range) {
+      requestHeaders['Range'] = req.headers.range;
+    }
+    if (options.headers) {
+      Object.assign(requestHeaders, options.headers);
+    }
+
+    const remoteReq = client.get(targetUrl, { headers: requestHeaders }, (remoteRes) => {
+      // Follow 301, 302, 303, 307, 308 redirects automatically
+      if ([301, 302, 303, 307, 308].includes(remoteRes.statusCode) && remoteRes.headers.location) {
+        remoteRes.resume();
+        const nextUrl = new URL(remoteRes.headers.location, targetUrl).toString();
+        return streamRemoteUrl(nextUrl, req, res, options, redirectCount + 1);
+      }
+
+      if (remoteRes.statusCode >= 400) {
+        remoteRes.resume();
+        if (typeof options.onErrorStatus === 'function') {
+          return options.onErrorStatus(remoteRes.statusCode);
+        }
+        if (!res.headersSent) {
+          return res.status(remoteRes.statusCode).json({
+            success: false,
+            message: `Remote storage returned HTTP ${remoteRes.statusCode}`
+          });
+        }
+        return;
+      }
+
+      const filename = options.filename || 'document.pdf';
+      const rawContentType = remoteRes.headers['content-type'] || 'application/pdf';
+      const contentType = rawContentType.includes('pdf') ? 'application/pdf' : rawContentType;
+
+      res.removeHeader('X-Frame-Options');
+      res.setHeader('Content-Security-Policy', "frame-ancestors *;");
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+      res.removeHeader('Pragma');
+      res.removeHeader('Expires');
+
+      const origin = req.headers.origin;
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Accept-Ranges, Content-Range, Content-Type, ETag, Cache-Control');
+
+      res.status(remoteRes.statusCode === 206 ? 206 : 200);
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+
+      if (remoteRes.headers['content-length']) {
+        res.setHeader('Content-Length', remoteRes.headers['content-length']);
+      }
+      if (remoteRes.headers['content-range']) {
+        res.setHeader('Content-Range', remoteRes.headers['content-range']);
+      }
+      if (remoteRes.headers['etag']) {
+        res.setHeader('ETag', remoteRes.headers['etag']);
+      }
+
+      req.on('close', () => {
+        if (!res.writableEnded && remoteRes.destroy) {
+          remoteRes.destroy();
+        }
+      });
+
+      remoteRes.pipe(res);
+    });
+
+    remoteReq.on('error', (err) => {
+      console.error('[Remote Stream Error]:', err.message);
+      if (typeof options.onErrorStatus === 'function') {
+        return options.onErrorStatus(500);
+      }
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, message: 'Failed to stream document: ' + err.message });
+      }
+    });
+  } catch (err) {
+    console.error('[streamRemoteUrl URL Parse Error]:', err.message);
+    if (!res.headersSent) {
+      res.status(400).json({ success: false, message: 'Invalid target document URL' });
+    }
+  }
+}
+
+/**
+ * Streams an asset stored in Cloudinary server-side using authenticated signatures,
+ * bypassing Cloudinary "Strict Transformations" and "PDF Delivery restriction" (deny / ACL failure).
+ */
+function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
+  let publicId = String(publicIdOrUrl || '').trim();
+  let filename = fallbackFilename || 'document.pdf';
+
+  // If publicId is a non-Cloudinary external URL, stream directly
+  if (!publicId.includes('res.cloudinary.com') && (publicId.startsWith('http://') || publicId.startsWith('https://'))) {
+    return streamRemoteUrl(publicId, req, res, { filename });
+  }
+
+  // Ensure Cloudinary configuration has cloud_name, api_key, api_secret
+  const currentCloudName = cloudinary.config().cloud_name || process.env.CLOUDINARY_CLOUD_NAME;
+  if (!currentCloudName) {
+    cloudinary.config({ cloud_name: 'dakcghc4d' });
+  }
+  if (!cloudinary.config().api_key && process.env.CLOUDINARY_API_KEY) {
+    cloudinary.config({
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+  }
+
+  if (publicId.includes('res.cloudinary.com')) {
+    const decoded = decodeURIComponent(publicId);
+    const cloudMatch = decoded.match(/res\.cloudinary\.com\/([^/]+)/);
+    if (cloudMatch && cloudMatch[1]) {
+      cloudinary.config({ cloud_name: cloudMatch[1] });
+    }
+    const match = decoded.match(/\/upload\/(?:v\d+\/)?(?:s--[^/]+--\/)?(?:v\d+\/)?(.+?)(?:\?|$)/);
+    if (match) {
+      publicId = match[1];
+    }
+  }
+
+  publicId = publicId.replace(/^\/+/, '');
+  const basename = path.basename(publicId);
+  if (basename && !fallbackFilename) {
+    filename = basename.endsWith('.pdf') ? basename : `${basename}.pdf`;
+  }
+
+  const ext = path.extname(publicId);
+  const cleanPublicId = ext ? publicId.slice(0, -ext.length) : publicId;
+  const format = (ext ? ext.replace(/^\./, '') : 'pdf').toLowerCase();
+
+  // Tier 1: Signed Delivery URL (resource_type: image) - Standard for Cloudinary PDFs
+  let signedImageUrl = '';
+  try {
+    signedImageUrl = cloudinary.url(cleanPublicId, {
+      resource_type: 'image',
+      format: format,
+      type: 'upload',
+      sign_url: true,
+      secure: true,
+    });
+  } catch (e) {
+    console.warn('[Cloudinary Signed Image URL Error]:', e.message);
+  }
+
+  // Tier 2: Private Download URL with Admin API timestamp signature
+  let privateDownloadUrl = '';
+  try {
+    privateDownloadUrl = cloudinary.utils.private_download_url(cleanPublicId, format, {
+      resource_type: 'image',
+      type: 'upload',
+    });
+  } catch (e) {
+    console.warn('[Cloudinary Private Download URL Error]:', e.message);
+  }
+
+  // Tier 3: Signed Delivery URL (resource_type: raw) - In case uploaded as raw
+  let signedRawUrl = '';
+  try {
+    signedRawUrl = cloudinary.url(publicId, {
+      resource_type: 'raw',
+      type: 'upload',
+      sign_url: true,
+      secure: true,
+    });
+  } catch (e) {}
+
+  const tryStream = (targetUrl, nextFallback) => {
+    streamRemoteUrl(targetUrl, req, res, {
+      filename,
+      onErrorStatus: (status) => {
+        console.warn(`[Cloudinary Stream] ${targetUrl.slice(0, 70)}... returned ${status}, falling back...`);
+        nextFallback();
+      }
+    });
+  };
+
+  const tryBasicAuth = () => {
+    const cloudConfig = cloudinary.config();
+    if (cloudConfig.api_key && cloudConfig.api_secret && publicIdOrUrl.startsWith('http')) {
+      const authHeader = 'Basic ' + Buffer.from(`${cloudConfig.api_key}:${cloudConfig.api_secret}`).toString('base64');
+      streamRemoteUrl(publicIdOrUrl, req, res, { filename, headers: { Authorization: authHeader } });
+    } else if (!res.headersSent) {
+      res.status(404).json({ success: false, message: 'Document not found in Cloudinary storage' });
+    }
+  };
+
+  if (signedImageUrl) {
+    tryStream(signedImageUrl, () => {
+      if (privateDownloadUrl) {
+        tryStream(privateDownloadUrl, () => {
+          if (signedRawUrl) {
+            tryStream(signedRawUrl, tryBasicAuth);
+          } else {
+            tryBasicAuth();
+          }
+        });
+      } else if (signedRawUrl) {
+        tryStream(signedRawUrl, tryBasicAuth);
+      } else {
+        tryBasicAuth();
+      }
+    });
+  } else if (privateDownloadUrl) {
+    tryStream(privateDownloadUrl, tryBasicAuth);
+  } else {
+    tryBasicAuth();
+  }
+}
+
+// ─── End Document Proxy Helpers ───────────────────────────────────────────────
+
+// GET /r2-proxy → Stream or proxy download from R2 with server-side auth (with automatic Cloudinary fallback)
 router.get('/r2-proxy', async (req, res, next) => {
   try {
     const { key, download, stream } = req.query;
@@ -510,12 +747,18 @@ router.get('/r2-proxy', async (req, res, next) => {
       }
     }
 
+    objectKey = objectKey.replace(/^\/+/, '');
+
     if (download === 'true') {
       return res.status(403).json({ success: false, message: 'Downloading documents is disabled' });
     }
 
+    // If key is a direct Cloudinary URL, route directly to Cloudinary streaming
+    if (objectKey.includes('res.cloudinary.com')) {
+      return streamCloudinaryAsset(objectKey, req, res);
+    }
+
     const { generatePresignedGetUrl, getS3Client, getCloudflareConfig } = require('../config/cloudflare');
-    const path = require('path');
     const filename = path.basename(objectKey) || 'document.pdf';
     const disposition = `inline; filename="${encodeURIComponent(filename)}"`;
 
@@ -537,40 +780,71 @@ router.get('/r2-proxy', async (req, res, next) => {
 
     // Only redirect if explicitly requested with redirect=true or stream=false
     if (stream === 'false' || req.query.redirect === 'true') {
-      const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
-        responseContentType: 'application/pdf',
-        responseContentDisposition: disposition,
-      });
-      return res.redirect(307, presignedUrl);
+      try {
+        const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
+          responseContentType: 'application/pdf',
+          responseContentDisposition: disposition,
+        });
+        return res.redirect(307, presignedUrl);
+      } catch (redirectErr) {
+        console.warn('[R2 Proxy Redirect Error]:', redirectErr.message);
+      }
     }
 
-    // Direct stream from R2 with Range support and automatic fallback
-    const { GetObjectCommand } = require('@aws-sdk/client-s3');
-    const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
-    const https = require('https');
-    const client = getS3Client();
-
-    const range = req.headers.range;
-    const s3Params = {
-      Bucket: CLOUDFLARE_R2_BUCKET,
-      Key: objectKey,
-    };
-    if (range) {
-      s3Params.Range = range;
-    }
-
-    let s3Response = null;
+    // Direct stream from R2 with Range support
     try {
-      const command = new GetObjectCommand(s3Params);
-      s3Response = await client.send(command);
-    } catch (s3Err) {
-      if (s3Err.name === 'NoSuchKey' || s3Err.$metadata?.httpStatusCode === 404) {
-        return res.status(404).json({ success: false, message: 'File not found' });
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
+      const client = getS3Client();
+
+      const range = req.headers.range;
+      const s3Params = {
+        Bucket: CLOUDFLARE_R2_BUCKET,
+        Key: objectKey,
+      };
+      if (range) {
+        s3Params.Range = range;
       }
 
-      console.warn('[R2 Proxy] Direct S3Client stream failed, falling back to presigned stream:', s3Err.message);
+      const command = new GetObjectCommand(s3Params);
+      const s3Response = await client.send(command);
 
-      // Resilient Fallback: Generate presigned GET URL and stream via https.get (IPv4)
+      res.status(s3Response.$metadata?.httpStatusCode || (range ? 206 : 200));
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
+      res.setHeader('Content-Disposition', disposition);
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+      if (s3Response.ContentLength) {
+        res.setHeader('Content-Length', s3Response.ContentLength);
+      }
+      if (s3Response.ContentRange) {
+        res.setHeader('Content-Range', s3Response.ContentRange);
+      }
+      if (s3Response.ETag) {
+        res.setHeader('ETag', s3Response.ETag);
+      }
+
+      req.on('close', () => {
+        if (!res.writableEnded && s3Response.Body?.destroy) {
+          s3Response.Body.destroy();
+        }
+      });
+
+      return s3Response.Body.pipe(res);
+    } catch (r2Error) {
+      console.warn('[R2 Proxy] R2 stream failed for key:', objectKey, 'error:', r2Error.message);
+
+      // AUTOMATIC CLOUDINARY FALLBACK:
+      // If the file was not found in R2 (e.g. uploaded during Cloudinary fallback),
+      // seamlessly stream from Cloudinary so no document is ever broken.
+      try {
+        console.log('[R2 Proxy] Attempting Cloudinary fallback stream for:', objectKey);
+        return streamCloudinaryAsset(objectKey, req, res, filename);
+      } catch (cloudErr) {
+        console.error('[R2 Proxy] Cloudinary fallback failed:', cloudErr.message);
+      }
+
+      // Fallback: Generate presigned GET URL and stream via https.get
       try {
         const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
           responseContentType: 'application/pdf',
@@ -583,17 +857,16 @@ router.get('/r2-proxy', async (req, res, next) => {
           port: 443,
           path: urlObj.pathname + urlObj.search,
           method: 'GET',
-          family: 4,
           headers: {
             'User-Agent': 'AxonAcademy-PDF-Proxy/1.0',
           },
         };
-        if (range) {
-          options.headers['Range'] = range;
+        if (req.headers.range) {
+          options.headers['Range'] = req.headers.range;
         }
 
         const fallbackReq = https.get(options, (remoteRes) => {
-          res.status(remoteRes.statusCode || (range ? 206 : 200));
+          res.status(remoteRes.statusCode || (req.headers.range ? 206 : 200));
           res.setHeader('Accept-Ranges', 'bytes');
           res.setHeader('Content-Type', remoteRes.headers['content-type'] || 'application/pdf');
           res.setHeader('Content-Disposition', disposition);
@@ -618,146 +891,46 @@ router.get('/r2-proxy', async (req, res, next) => {
           }
         });
 
-        req.on('close', () => {
-          fallbackReq.destroy();
-        });
-
         return;
       } catch (fallbackErr) {
-        console.error('[R2 Proxy] Fallback failed:', fallbackErr);
-        if (!res.headersSent) {
-          return res.status(500).json({ success: false, message: s3Err.message || 'Failed to stream document' });
-        }
-        return;
+        console.error('[R2 Proxy] Presigned fallback failed:', fallbackErr);
+      }
+
+      if (r2Error.name === 'NoSuchKey' || r2Error.$metadata?.httpStatusCode === 404) {
+        return res.status(404).json({ success: false, message: 'Document not found' });
+      }
+      if (!res.headersSent) {
+        return res.status(500).json({ success: false, message: r2Error.message || 'Failed to stream document' });
       }
     }
-
-    res.status(s3Response.$metadata?.httpStatusCode || (range ? 206 : 200));
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
-    res.setHeader('Content-Disposition', disposition);
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
-    if (s3Response.ContentLength) {
-      res.setHeader('Content-Length', s3Response.ContentLength);
-    }
-    if (s3Response.ContentRange) {
-      res.setHeader('Content-Range', s3Response.ContentRange);
-    }
-    if (s3Response.ETag) {
-      res.setHeader('ETag', s3Response.ETag);
-    }
-
-    req.on('close', () => {
-      if (!res.writableEnded && s3Response.Body?.destroy) {
-        s3Response.Body.destroy();
-      }
-    });
-
-    s3Response.Body.pipe(res);
   } catch (error) {
-    console.error('[R2 Proxy] Error:', error);
-    if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
-      return res.status(404).json({ success: false, message: 'File not found' });
-    }
+    console.error('[R2 Proxy Outer Error]:', error);
     if (!res.headersSent) {
       return res.status(500).json({ success: false, message: error.message || 'Failed to stream document' });
     }
   }
 });
 
-// Legacy /files route - now redirects to R2 proxy for backward compatibility
+// GET /files → Secure proxy for Cloudinary-hosted documents
 router.get('/files', async (req, res, next) => {
   try {
-    const { url } = req.query;
-    console.log('[File Proxy] Received request for:', url);
+    const { url, key, filename } = req.query;
+    const target = url || key;
 
-    if (!url) {
-      return res.status(400).json({ success: false, message: 'Missing ?url= parameter' });
+    if (!target) {
+      return res.status(400).json({ success: false, message: 'Missing ?url= or ?key= parameter' });
     }
 
-    const decodedUrl = decodeURIComponent(url);
-    console.log('[File Proxy] Decoded URL:', decodedUrl);
-
-    // Only allow proxying from Cloudinary for security
-    if (!decodedUrl.includes('res.cloudinary.com/')) {
-      return res.status(403).json({ success: false, message: 'Only Cloudinary URLs are allowed' });
-    }
-
-    // Extract public_id from the Cloudinary URL
-    const urlMatch = decodedUrl.match(/\/v\d+\/(.+?)(?:\?|$)/);
-    let publicId = urlMatch ? urlMatch[1] : null;
-    if (!publicId) {
-      const uploadMatch = decodedUrl.match(/\/upload\/(.+?)(?:\?|$)/);
-      publicId = uploadMatch ? uploadMatch[1] : null;
-    }
-
-    console.log('[File Proxy] Extracted publicId:', publicId);
-
-    if (!publicId) {
-      return res.status(400).json({ success: false, message: 'Could not extract file ID from URL' });
-    }
-
-    // Use Cloudinary SDK's download_stream which authenticates server-side
-    console.log('[File Proxy] Requesting download stream from Cloudinary...');
-    const downloadStream = cloudinary.uploader.download_stream(publicId, {
-      resource_type: 'raw'
-    });
-
-    // Wait for stream to start before setting headers
-    downloadStream.on('response', (streamRes) => {
-      console.log('[File Proxy] Cloudinary responded with status:', streamRes.statusCode);
-
-      const contentType = streamRes.headers['content-type'] || 'application/octet-stream';
-      res.setHeader('Content-Type', contentType);
-      if (streamRes.headers['content-length']) {
-        res.setHeader('Content-Length', streamRes.headers['content-length']);
-      }
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      if (contentType === 'application/pdf') {
-        res.setHeader('Content-Disposition', 'inline');
-      }
-
-      // Destroy streamRes if client closes connection to release Cloudinary socket
-      req.on('close', () => {
-        streamRes.destroy();
-      });
-
-      streamRes.pipe(res);
-    });
-
-    downloadStream.on('error', (err) => {
-      console.error('[File Proxy] Download error:', err.message);
-      console.error('[File Proxy] Error code:', err.code);
-      console.error('[File Proxy] Full error:', err);
-      if (!res.headersSent) {
-        res.status(502).json({
-          success: false,
-          message: 'Failed to download file from Cloudinary: ' + err.message
-        });
-      }
-    });
-
-    downloadStream.on('end', () => {
-      console.log('[File Proxy] Stream ended successfully');
-    });
+    const decoded = decodeURIComponent(target);
+    const safeFilename = filename || path.basename(decoded.split('?')[0]) || 'document.pdf';
+    return streamCloudinaryAsset(decoded, req, res, safeFilename);
   } catch (error) {
-    console.error('[File Proxy] Error:', error);
-    next(error);
+    console.error('[File Proxy Error]:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Failed to proxy file: ' + error.message });
+    }
   }
 });
-
-function pipeFileResponse(sourceRes, targetRes) {
-  const contentType = sourceRes.headers['content-type'] || 'application/octet-stream';
-  targetRes.setHeader('Content-Type', contentType);
-  if (sourceRes.headers['content-length']) {
-    targetRes.setHeader('Content-Length', sourceRes.headers['content-length']);
-  }
-  targetRes.setHeader('Access-Control-Allow-Origin', '*');
-  if (contentType === 'application/pdf') {
-    targetRes.setHeader('Content-Disposition', 'inline');
-  }
-  sourceRes.pipe(targetRes);
-}
 
 // POST /upload-asset → Admin/Faculty: Upload a classroom asset (PDF) to Cloudflare R2 (with Cloudinary fallback)
 router.post('/upload-asset', protect, restrictTo('admin', 'superadmin', 'faculty'), r2Upload.single('file'), async (req, res, next) => {
@@ -814,7 +987,7 @@ router.post('/upload-asset', protect, restrictTo('admin', 'superadmin', 'faculty
 
         return res.json({
           success: true,
-          url: cRes.secure_url,
+          url: `/classrooms/files?url=${encodeURIComponent(cRes.secure_url)}`,
           publicId: cRes.public_id,
           name: originalName
         });
