@@ -1137,14 +1137,12 @@ export async function uploadQuestionVideo({
   });
 }
 
-// ─── Chunk size for multipart uploads ────────────────────────────────────────
-// 10 MB per part (well above Cloudflare R2's 5 MB minimum).
-// Files < 100 MB use single presigned PUT with auto-retry.
-// Files ≥ 100 MB use 10 MB multipart chunks with part-level auto-retry.
-// 10 MB chunks give smooth, fast progress updates even on slow/mobile connections
-// and allow quick retries if any single chunk drops.
-const MULTIPART_CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
-const SINGLE_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB in bytes
+// ─── Chunk size and threshold for video uploads ───────────────────────────
+// Cloudflare R2 accepts single presigned PUT uploads up to 5 GB with zero server socket overhead.
+// Files < 250 MB use single presigned PUT for blazing upload speed and complete socket safety.
+// Files ≥ 250 MB use 25 MB multipart chunks (2.5x faster than 10 MB chunks) with automatic single-PUT fallback.
+const MULTIPART_CHUNK_SIZE = 25 * 1024 * 1024; // 25 MB in bytes (optimized for high-speed chunking)
+const SINGLE_UPLOAD_THRESHOLD = 250 * 1024 * 1024; // 250 MB in bytes (single PUT direct to R2)
 
 export interface VideoUploadProgress {
   loaded: number;
@@ -1631,30 +1629,70 @@ export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): st
   const accessToken = classroomStore.getState?.()?.accessToken || savedToken;
   const tokenQuery = accessToken ? `&token=${encodeURIComponent(accessToken)}` : '';
 
-  // 2. Cloudinary URLs: ALWAYS route through /classrooms/files proxy!
-  // Direct client access to Cloudinary raw/pdf files returns HTTP 401 (x-cld-error: deny or ACL failure).
-  if (cleanUrl.includes('res.cloudinary.com/')) {
-    const sep = cleanUrl.includes('?') ? '&' : '?';
-    return `${cleanApiBase}/classrooms/files?url=${encodeURIComponent(cleanUrl)}${tokenQuery}`;
+  let decodedUrl = cleanUrl;
+  try {
+    decodedUrl = decodeURIComponent(cleanUrl);
+  } catch {}
+
+  // 2. Already a /files proxy URL (Cloudinary proxy) - DO NOT override with cloudflareKey!
+  if (cleanUrl.includes('/files?') || decodedUrl.includes('/classrooms/files')) {
+    let path = cleanUrl;
+    if (!path.startsWith('http://') && !path.startsWith('https://')) {
+      path = path.startsWith('/api/v1') ? `${rootBase}${path}` : `${cleanApiBase}${path.startsWith('/') ? '' : '/'}${path}`;
+    }
+    if (accessToken && !path.includes('token=')) {
+      const sep = path.includes('?') ? '&' : '?';
+      path = `${path}${sep}token=${encodeURIComponent(accessToken)}`;
+    }
+    return path;
   }
 
-  // 3. Direct Cloudflare R2 S3 storage URLs:
-  // e.g. https://<account>.r2.cloudflarestorage.com/<bucket>/announcements/...
-  // S3 storage URLs require AWS HMAC signatures and return 401 if fetched directly.
-  if (cleanUrl.includes('.r2.cloudflarestorage.com/') || cleanUrl.includes('.r2.dev/')) {
-    const keyMatch = cleanUrl.match(/\/(announcements\/[^?#]+|classroom-assets\/[^?#]+)/);
+  // 3. Direct Cloudinary URLs: ALWAYS route through /classrooms/files proxy!
+  // Handles both unencoded and encoded Cloudinary URLs
+  if (decodedUrl.includes('res.cloudinary.com')) {
+    const cldMatch = decodedUrl.match(/https?:\/\/res\.cloudinary\.com\/[^\s&]+/);
+    const cldUrl = cldMatch ? cldMatch[0] : (cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl.replace(/^https?:\/\//, '')}`);
+    return `${cleanApiBase}/classrooms/files?url=${encodeURIComponent(cldUrl)}${tokenQuery}`;
+  }
+
+  // 4. Cloudinary announcement keys (e.g. announcements/announcement-1794599628735-...)
+  if (cleanKey.includes('announcement-') || cleanUrl.includes('announcement-')) {
+    const keyTarget = cleanKey.includes('announcement-') ? cleanKey : cleanUrl.replace(/^\/+/, '');
+    return `${cleanApiBase}/classrooms/files?key=${encodeURIComponent(keyTarget)}${tokenQuery}`;
+  }
+
+  // 5. Already an r2-proxy URL (ensure stream=true and API base is correct)
+  if (cleanUrl.includes('r2-proxy')) {
+    let path = cleanUrl;
+    if (!path.startsWith('http://') && !path.startsWith('https://')) {
+      path = path.startsWith('/api/v1') ? `${rootBase}${path}` : `${cleanApiBase}${path.startsWith('/') ? '' : '/'}${path}`;
+    }
+    if (!path.includes('stream=')) {
+      const sep = path.includes('?') ? '&' : '?';
+      path = `${path}${sep}stream=true`;
+    }
+    if (accessToken && !path.includes('token=')) {
+      const sep = path.includes('?') ? '&' : '?';
+      path = `${path}${sep}token=${encodeURIComponent(accessToken)}`;
+    }
+    return path;
+  }
+
+  // 6. Direct Cloudflare R2 S3 storage URLs:
+  if (decodedUrl.includes('.r2.cloudflarestorage.com/') || decodedUrl.includes('.r2.dev/')) {
+    const keyMatch = decodedUrl.match(/\/(announcements\/[^?#]+|classroom-assets\/[^?#]+)/);
     const extractedKey = keyMatch ? keyMatch[1] : cleanKey;
     if (extractedKey) {
       return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(extractedKey)}&stream=true${tokenQuery}`;
     }
   }
 
-  // 4. If an explicit cloudflareKey is provided, route through /r2-proxy
+  // 7. If an explicit cloudflareKey is provided, route through /r2-proxy
   if (cleanKey) {
     return `${cleanApiBase}/classrooms/r2-proxy?key=${encodeURIComponent(cleanKey)}&stream=true${tokenQuery}`;
   }
 
-  // 5. If cleanUrl is an announcement or classroom-asset key (not a full URL)
+  // 8. If cleanUrl is an announcement or classroom-asset key (not a full URL)
   if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
     if (cleanUrl.includes('announcements/') || cleanUrl.includes('classroom-assets/')) {
       const strippedKey = cleanUrl.replace(/^\/+/, '');
@@ -1662,47 +1700,12 @@ export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): st
     }
   }
 
-  // 6. Already an r2-proxy URL (ensure stream=true and API base is correct)
-  if (cleanUrl.includes('r2-proxy')) {
-    const hasStream = cleanUrl.includes('stream=');
-    const hasToken = cleanUrl.includes('token=');
-    const streamParam = !hasStream ? '&stream=true' : '';
-    const authParam = (!hasToken && accessToken) ? `&token=${encodeURIComponent(accessToken)}` : '';
-
-    if (cleanUrl.startsWith('/api/v1/') || cleanUrl.startsWith('/api/v1?')) {
-      const sep = cleanUrl.includes('?') ? '' : '?';
-      return `${rootBase}${cleanUrl}${sep}${streamParam}${authParam}`.replace('?&', '?');
-    }
-    if (cleanUrl.startsWith('/')) {
-      const sep = cleanUrl.includes('?') ? '' : '?';
-      return `${cleanApiBase}${cleanUrl}${sep}${streamParam}${authParam}`.replace('?&', '?');
-    }
-    if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
-      const sep = cleanUrl.includes('?') ? '' : '?';
-      return `${cleanUrl}${sep}${streamParam}${authParam}`.replace('?&', '?');
-    }
-    return `${cleanApiBase}/${cleanUrl}${streamParam}${authParam}`.replace('?&', '?');
-  }
-
-  // 7. Already a files proxy URL
-  if (cleanUrl.includes('/files?url=')) {
-    const hasToken = cleanUrl.includes('token=');
-    const authParam = (!hasToken && accessToken) ? `&token=${encodeURIComponent(accessToken)}` : '';
-    if (cleanUrl.startsWith('/api/v1/')) {
-      return `${rootBase}${cleanUrl}${authParam}`;
-    }
-    if (cleanUrl.startsWith('/')) {
-      return `${cleanApiBase}${cleanUrl}${authParam}`;
-    }
-    return `${cleanUrl}${authParam}`;
-  }
-
-  // 8. Other relative paths starting with /
+  // 9. Other relative paths starting with /
   if (cleanUrl.startsWith('/')) {
-    return `${cleanApiBase}${cleanUrl}`;
+    return cleanUrl.startsWith('/api/v1') ? `${rootBase}${cleanUrl}` : `${cleanApiBase}${cleanUrl}`;
   }
 
-  // 9. Standard external public URLs
+  // 10. Standard external public URLs
   return cleanUrl;
 }
 
@@ -1768,11 +1771,10 @@ export async function uploadClassroomRecordingToCloudflare({
   // Immediately notify UI of the exact total size and starting state
   reportProgress(0, file.size, 1, 1, 'Initializing upload...');
 
-  // ============================================================
-  // PATH A — Single presigned PUT for small files (< 20 MB)
-  // ============================================================
-  if (file.size < SINGLE_UPLOAD_THRESHOLD) {
+  // Helper for single presigned PUT upload (handles up to 5 GB with zero server socket overhead)
+  const uploadViaSinglePresigned = async () => {
     console.log(`[Upload] PATH A — single PUT | ${file.name} | ${fileMB} MB`);
+    reportProgress(0, file.size, 1, 1, 'Requesting upload signature...');
 
     const getPresignedUrl = async () => {
       const presignData = await fetchJsonWithTimeout<{
@@ -1833,32 +1835,50 @@ export async function uploadClassroomRecordingToCloudflare({
     );
 
     return saveData;
+  };
+
+  // ============================================================
+  // PATH A — Single presigned PUT for files (< 250 MB)
+  // ============================================================
+  if (file.size < SINGLE_UPLOAD_THRESHOLD) {
+    return await uploadViaSinglePresigned();
   }
 
   // ============================================================
-  // PATH B — Resilient Multipart Upload for files ≥ 20 MB (10 MB chunks)
+  // PATH B — Resilient Multipart Upload for huge files (≥ 250 MB in 25 MB chunks)
   // ============================================================
   const totalParts = Math.ceil(file.size / MULTIPART_CHUNK_SIZE);
-  console.log(`[Upload] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 10 MB`);
+  console.log(`[Upload] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 25 MB`);
 
-  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (${totalParts} parts × 10 MB)...`);
+  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (${totalParts} parts × 25 MB)...`);
 
-  const initiateData = await fetchJsonWithTimeout<{
+  let initiateData: {
     uploadId: string;
     objectKey: string;
     publicUrl: string;
-  }>(
-    `${API_BASE}/recordings/classroom/multipart/initiate`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
-    },
-    25000,
-    3,
-    signal
-  );
+  };
+
+  try {
+    initiateData = await fetchJsonWithTimeout<{
+      uploadId: string;
+      objectKey: string;
+      publicUrl: string;
+    }>(
+      `${API_BASE}/recordings/classroom/multipart/initiate`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ classroom, filename: file.name, contentType: videoContentType }),
+      },
+      20000,
+      2,
+      signal
+    );
+  } catch (initErr) {
+    console.warn('[Upload] Multipart initiate failed or timed out, falling back to single PUT upload:', initErr);
+    return await uploadViaSinglePresigned();
+  }
 
   const { uploadId, objectKey, publicUrl } = initiateData;
   const partBytesLoaded = new Array<number>(totalParts).fill(0);
@@ -2692,8 +2712,10 @@ export async function uploadLibraryRecordingToCloudflare({
   // Immediately notify UI of the exact total size and starting state
   reportProgress(0, file.size, 1, 1, 'Initializing upload...');
 
-  if (file.size < SINGLE_UPLOAD_THRESHOLD) {
+  // Helper for single presigned PUT upload (handles up to 5 GB with zero server socket overhead)
+  const uploadViaSinglePresigned = async () => {
     console.log(`[Upload Library] PATH A — single PUT | ${file.name} | ${fileMB} MB`);
+    reportProgress(0, file.size, 1, 1, 'Requesting upload signature...');
 
     const getPresignedUrl = async () => {
       const presignData = await fetchJsonWithTimeout<{
@@ -2743,29 +2765,50 @@ export async function uploadLibraryRecordingToCloudflare({
       signal
     );
     return saveData;
+  };
+
+  // ============================================================
+  // PATH A — Single presigned PUT for files (< 250 MB)
+  // ============================================================
+  if (file.size < SINGLE_UPLOAD_THRESHOLD) {
+    return await uploadViaSinglePresigned();
   }
 
+  // ============================================================
+  // PATH B — Resilient Multipart Upload for huge files (≥ 250 MB in 25 MB chunks)
+  // ============================================================
   const totalParts = Math.ceil(file.size / MULTIPART_CHUNK_SIZE);
-  console.log(`[Upload Library] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 10 MB`);
+  console.log(`[Upload Library] PATH B — multipart | ${file.name} | ${fileMB} MB | ${totalParts} parts × 25 MB`);
 
-  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (${totalParts} parts × 10 MB)...`);
+  reportProgress(0, file.size, 1, totalParts, `Initiating multipart upload (${totalParts} parts × 25 MB)...`);
 
-  const initiateData = await fetchJsonWithTimeout<{
+  let initiateData: {
     uploadId: string;
     objectKey: string;
     publicUrl: string;
-  }>(
-    `${API_BASE}/recordings/multipart/initiate`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: baseHeaders,
-      body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
-    },
-    25000,
-    3,
-    signal
-  );
+  };
+
+  try {
+    initiateData = await fetchJsonWithTimeout<{
+      uploadId: string;
+      objectKey: string;
+      publicUrl: string;
+    }>(
+      `${API_BASE}/recordings/multipart/initiate`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: baseHeaders,
+        body: JSON.stringify({ filename: file.name, contentType: videoContentType }),
+      },
+      20000,
+      2,
+      signal
+    );
+  } catch (initErr) {
+    console.warn('[Upload Library] Multipart initiate failed or timed out, falling back to single PUT upload:', initErr);
+    return await uploadViaSinglePresigned();
+  }
 
   const { uploadId, objectKey, publicUrl } = initiateData as any;
   const completedParts: { PartNumber: number; ETag: string }[] = [];

@@ -49,9 +49,10 @@ function getS3Client() {
 
   const httpsAgent = new https.Agent({
     keepAlive: true,
-    maxSockets: 50,
-    timeout: 15000,
-    family: 4, // Enforce IPv4 to eliminate IPv6 socket hangs/blackholes with Cloudflare R2
+    keepAliveMsecs: 3000,
+    maxSockets: 100,
+    maxFreeSockets: 10,
+    timeout: 30000,
   });
 
   s3Client = new S3Client({
@@ -62,11 +63,11 @@ function getS3Client() {
     },
     region: 'auto',
     forcePathStyle: true,
-    maxAttempts: 2,
+    maxAttempts: 3,
     requestHandler: new NodeHttpHandler({
       httpsAgent,
-      connectionTimeout: 10000,
-      requestTimeout: 60000,
+      connectionTimeout: 30000,
+      requestTimeout: 120000,
     }),
   });
 

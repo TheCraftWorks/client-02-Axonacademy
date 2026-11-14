@@ -397,27 +397,47 @@ export function PdfViewerModal({
             clearTimeout(fetchTimeout);
           }
 
-          // If direct storage fetch failed with 401/403, retry via backend proxy
-          if (!response.ok && (streamUrl.includes('res.cloudinary.com/') || streamUrl.includes('.r2.'))) {
-            console.warn('[PDF Viewer] Direct storage returned status', response.status, '- attempting server proxy...');
+          // If direct storage or proxy fetch returned an error (e.g. 401 or 404), attempt smart proxy crossover
+          if (!response.ok) {
+            console.warn('[PDF Viewer] Document fetch returned status', response.status, '- attempting smart fallback proxy...');
             const apiBase = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/+$/, '');
             let fallbackProxyUrl = '';
-            if (streamUrl.includes('res.cloudinary.com/')) {
-              fallbackProxyUrl = `${apiBase}/classrooms/files?url=${encodeURIComponent(streamUrl.split('?')[0])}${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
-            } else {
+
+            if (streamUrl.includes('r2-proxy')) {
+              // Extract the key parameter from r2-proxy and try through Cloudinary /files?key=
+              try {
+                const u = new URL(streamUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+                const keyParam = u.searchParams.get('key');
+                if (keyParam) {
+                  fallbackProxyUrl = `${apiBase}/classrooms/files?key=${encodeURIComponent(keyParam)}${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
+                }
+              } catch (_) {}
+            } else if (streamUrl.includes('/files?url=') || streamUrl.includes('res.cloudinary.com')) {
+              const decoded = decodeURIComponent(streamUrl);
+              const keyMatch = decoded.match(/(?:announcements|classroom-assets)\/[^?#&]+/);
+              if (keyMatch) {
+                fallbackProxyUrl = `${apiBase}/classrooms/r2-proxy?key=${encodeURIComponent(keyMatch[0])}&stream=true${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
+              } else {
+                const filename = streamUrl.split('?')[0].split('/').pop() || '';
+                fallbackProxyUrl = `${apiBase}/classrooms/r2-proxy?key=${encodeURIComponent(filename)}&stream=true${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
+              }
+            } else if (streamUrl.includes('.r2.')) {
               const filename = streamUrl.split('?')[0].split('/').pop() || '';
               fallbackProxyUrl = `${apiBase}/classrooms/r2-proxy?key=${encodeURIComponent(filename)}&stream=true${accessToken ? `&token=${encodeURIComponent(accessToken)}` : ''}`;
             }
-            try {
-              const retryResp = await fetch(fallbackProxyUrl, {
-                headers: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
-                credentials: 'include',
-              });
-              if (retryResp.ok) {
-                response = retryResp;
-                setEffectiveUrl(fallbackProxyUrl);
-              }
-            } catch (_) {}
+
+            if (fallbackProxyUrl && fallbackProxyUrl !== streamUrl) {
+              try {
+                const retryResp = await fetch(fallbackProxyUrl, {
+                  headers: Object.keys(httpHeaders).length > 0 ? httpHeaders : undefined,
+                  credentials: 'include',
+                });
+                if (retryResp.ok) {
+                  response = retryResp;
+                  setEffectiveUrl(fallbackProxyUrl);
+                }
+              } catch (_) {}
+            }
           }
 
           if (!response.ok) {

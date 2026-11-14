@@ -695,9 +695,33 @@ function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
 
   const tryBasicAuth = () => {
     const cloudConfig = cloudinary.config();
-    if (cloudConfig.api_key && cloudConfig.api_secret && publicIdOrUrl.startsWith('http')) {
+    const cName = cloudConfig.cloud_name || 'dakcghc4d';
+    const candidateUrls = [];
+
+    if (publicIdOrUrl.startsWith('http')) {
+      candidateUrls.push(publicIdOrUrl);
+    }
+    candidateUrls.push(`https://res.cloudinary.com/${cName}/image/upload/${cleanPublicId}.${format}`);
+    candidateUrls.push(`https://res.cloudinary.com/${cName}/image/upload/${cleanPublicId}`);
+    candidateUrls.push(`https://res.cloudinary.com/${cName}/raw/upload/${cleanPublicId}.${format}`);
+    candidateUrls.push(`https://res.cloudinary.com/${cName}/raw/upload/${cleanPublicId}`);
+
+    if (cloudConfig.api_key && cloudConfig.api_secret) {
       const authHeader = 'Basic ' + Buffer.from(`${cloudConfig.api_key}:${cloudConfig.api_secret}`).toString('base64');
-      streamRemoteUrl(publicIdOrUrl, req, res, { filename, headers: { Authorization: authHeader } });
+      const tryCandidate = (index) => {
+        if (index >= candidateUrls.length) {
+          if (!res.headersSent) {
+            res.status(404).json({ success: false, message: 'Document not found in Cloudinary storage' });
+          }
+          return;
+        }
+        streamRemoteUrl(candidateUrls[index], req, res, {
+          filename,
+          headers: { Authorization: authHeader },
+          onErrorStatus: () => tryCandidate(index + 1)
+        });
+      };
+      tryCandidate(0);
     } else if (!res.headersSent) {
       res.status(404).json({ success: false, message: 'Document not found in Cloudinary storage' });
     }
@@ -753,13 +777,14 @@ router.get('/r2-proxy', async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Downloading documents is disabled' });
     }
 
-    // If key is a direct Cloudinary URL, route directly to Cloudinary streaming
-    if (objectKey.includes('res.cloudinary.com')) {
-      return streamCloudinaryAsset(objectKey, req, res);
+    const filename = path.basename(objectKey) || 'document.pdf';
+
+    // If key is a direct Cloudinary URL or a Cloudinary announcement key, route directly to Cloudinary streaming
+    if (objectKey.includes('res.cloudinary.com') || objectKey.includes('announcement-')) {
+      return streamCloudinaryAsset(objectKey, req, res, filename);
     }
 
     const { generatePresignedGetUrl, getS3Client, getCloudflareConfig } = require('../config/cloudflare');
-    const filename = path.basename(objectKey) || 'document.pdf';
     const disposition = `inline; filename="${encodeURIComponent(filename)}"`;
 
     res.removeHeader('X-Frame-Options');
