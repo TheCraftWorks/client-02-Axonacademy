@@ -959,8 +959,10 @@ function TestsTab({ classroom, refreshClassroom, isFetching }: { classroom: Clas
 
     const formatSec = (sec?: number) => {
       if (!sec || sec <= 0) return "< 1m";
-      const m = Math.floor(sec / 60);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
       const s = sec % 60;
+      if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
       if (m === 0) return `${s}s`;
       return `${m}m ${s}s`;
     };

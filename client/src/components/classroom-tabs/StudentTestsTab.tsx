@@ -67,6 +67,7 @@ function TestsTab({
   const [error, setError] = useState("");
   const answersRef = useRef(answers);
   const submitQuizRef = useRef<() => void>(() => { });
+  const examStartTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
     answersRef.current = answers;
@@ -107,7 +108,13 @@ function TestsTab({
         })),
       });
 
-      const submitRes = await submitQuizAttempt(activeQuiz.id, attemptId);
+      let activeElapsedSec = Math.max(1, Math.round((Date.now() - examStartTimeRef.current) / 1000));
+      if (activeQuiz.duration && activeQuiz.duration > 0 && timeLeft !== null) {
+        const timerElapsed = Math.max(1, (activeQuiz.duration * 60) - timeLeft);
+        activeElapsedSec = Math.min(timerElapsed, activeQuiz.duration * 60);
+      }
+
+      const submitRes = await submitQuizAttempt(activeQuiz.id, attemptId, activeElapsedSec);
       const fullResult = await getQuizAttemptResult(activeQuiz.id, attemptId);
 
       const review: QuizResultReview = {
@@ -181,7 +188,10 @@ function TestsTab({
       setExamQuestions(payload.questions || []);
       setAnswers({});
 
-      if (quiz.duration && quiz.duration > 0) {
+      examStartTimeRef.current = Date.now();
+      if (typeof (payload as any).attempt?.remainingSec === 'number') {
+        setTimeLeft((payload as any).attempt.remainingSec);
+      } else if (quiz.duration && quiz.duration > 0) {
         setTimeLeft(quiz.duration * 60);
       } else {
         setTimeLeft(null);

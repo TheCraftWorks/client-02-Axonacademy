@@ -291,6 +291,16 @@ router.post('/:id/attempt/start', protect, async (req, res, next) => {
         options: (q.options || []).map(o => ({ label: o.label, text: o.text }))
       }));
 
+      const maxDurationSec = (typeof quiz.duration === 'number' && quiz.duration > 0) ? quiz.duration * 60 : null;
+      let remainingSec = null;
+      let remainingDurationMin = quiz.duration;
+
+      if (maxDurationSec && activeAttempt.startedAt) {
+        const elapsedSec = Math.max(0, Math.floor((Date.now() - new Date(activeAttempt.startedAt).getTime()) / 1000));
+        remainingSec = Math.max(0, maxDurationSec - elapsedSec);
+        remainingDurationMin = Math.ceil(remainingSec / 60);
+      }
+
       return res.json({
         success: true,
         isResumed: true,
@@ -298,7 +308,8 @@ router.post('/:id/attempt/start', protect, async (req, res, next) => {
           _id: activeAttempt._id,
           startedAt: activeAttempt.startedAt,
           attemptNo: activeAttempt.attemptNo,
-          duration: quiz.duration
+          duration: remainingDurationMin,
+          remainingSec,
         },
         questions: sanitizedQuestions
       });
@@ -465,7 +476,7 @@ router.put('/:id/attempt/answers', protect, async (req, res, next) => {
 // POST /:id/attempt/submit → Student: submit quiz and auto-score
 router.post('/:id/attempt/submit', protect, async (req, res, next) => {
   try {
-    const { attemptId } = req.body;
+    const { attemptId, timeTakenSec } = req.body;
     if (!attemptId || !mongoose.Types.ObjectId.isValid(attemptId)) {
       return res.status(400).json({ success: false, message: 'Valid attemptId is required' });
     }
@@ -544,7 +555,21 @@ router.post('/:id/attempt/submit', protect, async (req, res, next) => {
 
     attempt.status = 'submitted';
     attempt.submittedAt = new Date();
-    attempt.totalTimeTakenSec = Math.max(0, Math.round((attempt.submittedAt - (attempt.startedAt || new Date())) / 1000));
+
+    const maxDurationSec = (typeof quiz?.duration === 'number' && quiz.duration > 0) ? quiz.duration * 60 : null;
+    let computedTimeSec = Math.max(0, Math.round((attempt.submittedAt - (attempt.startedAt || new Date())) / 1000));
+
+    // If client provided active test-taking time in seconds, prefer it
+    if (typeof timeTakenSec === 'number' && !isNaN(timeTakenSec) && timeTakenSec > 0) {
+      computedTimeSec = Math.round(timeTakenSec);
+    }
+
+    // Strictly clamp to quiz.duration if configured
+    if (maxDurationSec) {
+      computedTimeSec = Math.min(maxDurationSec, computedTimeSec);
+    }
+
+    attempt.totalTimeTakenSec = computedTimeSec;
     attempt.score = {
       rawMarks: finalMarks,
       totalMarks,
@@ -802,34 +827,41 @@ router.get('/:id/leaderboard', protect, async (req, res, next) => {
       }
     }
 
+    const maxDurationSec = (typeof quiz.duration === 'number' && quiz.duration > 0) ? quiz.duration * 60 : null;
+
     const uniqueAttempts = Array.from(studentMap.values()).sort((a, b) => {
       if (b.percentage !== a.percentage) return b.percentage - a.percentage;
       if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
       if (b.scoreValue !== a.scoreValue) return b.scoreValue - a.scoreValue;
-      if ((a.totalTimeTakenSec || 0) !== (b.totalTimeTakenSec || 0)) return (a.totalTimeTakenSec || 0) - (b.totalTimeTakenSec || 0);
+      const aTime = maxDurationSec ? Math.min(maxDurationSec, a.totalTimeTakenSec || 0) : (a.totalTimeTakenSec || 0);
+      const bTime = maxDurationSec ? Math.min(maxDurationSec, b.totalTimeTakenSec || 0) : (b.totalTimeTakenSec || 0);
+      if (aTime !== bTime) return aTime - bTime;
       return new Date(a.submittedAt || 0) - new Date(b.submittedAt || 0);
     });
 
     // Build ranked entries
-    const leaderboard = uniqueAttempts.map((att, index) => ({
-      rank: index + 1,
-      studentId: att.student._id ? att.student._id.toString() : String(att.student),
-      studentName: att.student.fullName || 'Student',
-      email: att.student.email || '',
-      avatar: att.student.avatar || '',
-      score: att.scoreValue,
-      totalMarks: att.totalMarks,
-      percentage: att.percentage,
-      passed: att.passed,
-      timeTakenSec: att.totalTimeTakenSec || 0,
-      submittedAt: att.submittedAt,
-      attemptNo: att.attemptNo || 1,
-      correctCount: att.correctCount,
-      wrongCount: att.wrongCount,
-      unattemptedCount: att.unattemptedCount,
-      attendedCount: att.attendedCount,
-      totalQuestions: att.totalQuestions
-    }));
+    const leaderboard = uniqueAttempts.map((att, index) => {
+      const safeTimeTaken = maxDurationSec ? Math.min(maxDurationSec, att.totalTimeTakenSec || 0) : (att.totalTimeTakenSec || 0);
+      return {
+        rank: index + 1,
+        studentId: att.student._id ? att.student._id.toString() : String(att.student),
+        studentName: att.student.fullName || 'Student',
+        email: att.student.email || '',
+        avatar: att.student.avatar || '',
+        score: att.scoreValue,
+        totalMarks: att.totalMarks,
+        percentage: att.percentage,
+        passed: att.passed,
+        timeTakenSec: safeTimeTaken,
+        submittedAt: att.submittedAt,
+        attemptNo: att.attemptNo || 1,
+        correctCount: att.correctCount,
+        wrongCount: att.wrongCount,
+        unattemptedCount: att.unattemptedCount,
+        attendedCount: att.attendedCount,
+        totalQuestions: att.totalQuestions
+      };
+    });
 
     const totalParticipants = leaderboard.length;
     const averageScore = totalParticipants > 0

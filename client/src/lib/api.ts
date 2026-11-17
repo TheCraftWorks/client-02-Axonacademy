@@ -896,10 +896,10 @@ export async function saveQuizAnswersBulk(
   });
 }
 
-export async function submitQuizAttempt(quizId: string, attemptId: string) {
+export async function submitQuizAttempt(quizId: string, attemptId: string, timeTakenSec?: number) {
   const payload = await fetchJson(`/quizzes/${encodeURIComponent(quizId)}/attempt/submit`, {
     method: 'POST',
-    body: JSON.stringify({ attemptId }),
+    body: JSON.stringify({ attemptId, timeTakenSec }),
   });
   return {
     score: {
@@ -908,6 +908,7 @@ export async function submitQuizAttempt(quizId: string, attemptId: string) {
       percentage: Math.round(payload.score?.percentage ?? 0),
       passed: !!payload.score?.passed,
     },
+    attemptId: payload.attemptId,
   };
 }
 

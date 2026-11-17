@@ -1102,6 +1102,7 @@ router.post('/:id/progress', protect, async (req, res, next) => {
           }
         },
         {
+          
           ...updateOps,
           $set: {
             ...updateOps.$set,
