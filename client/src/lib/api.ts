@@ -1659,7 +1659,8 @@ export function resolveAttachmentUrl(rawUrl: string, cloudflareKey?: string): st
   // 4. Cloudinary announcement keys (e.g. announcements/announcement-1794599628735-...)
   if (cleanKey.includes('announcement-') || cleanUrl.includes('announcement-')) {
     const keyTarget = cleanKey.includes('announcement-') ? cleanKey : cleanUrl.replace(/^\/+/, '');
-    return `${cleanApiBase}/classrooms/files?key=${encodeURIComponent(keyTarget)}${tokenQuery}`;
+    const safeKey = keyTarget.toLowerCase().endsWith('.pdf') ? keyTarget : `${keyTarget}.pdf`;
+    return `${cleanApiBase}/classrooms/files?key=${encodeURIComponent(safeKey)}${tokenQuery}`;
   }
 
   // 5. Already an r2-proxy URL (ensure stream=true and API base is correct)

@@ -604,7 +604,7 @@ function streamRemoteUrl(targetUrl, req, res, options = {}, redirectCount = 0) {
  * Streams an asset stored in Cloudinary server-side using authenticated signatures,
  * bypassing Cloudinary "Strict Transformations" and "PDF Delivery restriction" (deny / ACL failure).
  */
-function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
+function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename, options = {}) {
   let publicId = String(publicIdOrUrl || '').trim();
   let filename = fallbackFilename || 'document.pdf';
 
@@ -643,9 +643,12 @@ function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
     filename = basename.endsWith('.pdf') ? basename : `${basename}.pdf`;
   }
 
-  const ext = path.extname(publicId);
-  const cleanPublicId = ext ? publicId.slice(0, -ext.length) : publicId;
-  const format = (ext ? ext.replace(/^\./, '') : 'pdf').toLowerCase();
+  const KNOWN_EXTENSIONS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.mp4', '.mov']);
+  const rawExt = path.extname(publicId).toLowerCase();
+  const hasKnownExt = KNOWN_EXTENSIONS.has(rawExt);
+
+  const cleanPublicId = hasKnownExt ? publicId.slice(0, -rawExt.length) : publicId;
+  const format = hasKnownExt ? rawExt.replace(/^\./, '') : 'pdf';
 
   // Tier 1: Signed Delivery URL (resource_type: image) - Standard for Cloudinary PDFs
   let signedImageUrl = '';
@@ -675,7 +678,7 @@ function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
   // Tier 3: Signed Delivery URL (resource_type: raw) - In case uploaded as raw
   let signedRawUrl = '';
   try {
-    signedRawUrl = cloudinary.url(publicId, {
+    signedRawUrl = cloudinary.url(cleanPublicId, {
       resource_type: 'raw',
       type: 'upload',
       sign_url: true,
@@ -705,11 +708,18 @@ function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
     candidateUrls.push(`https://res.cloudinary.com/${cName}/image/upload/${cleanPublicId}`);
     candidateUrls.push(`https://res.cloudinary.com/${cName}/raw/upload/${cleanPublicId}.${format}`);
     candidateUrls.push(`https://res.cloudinary.com/${cName}/raw/upload/${cleanPublicId}`);
+    if (format === 'pdf' && !cleanPublicId.endsWith('.pdf')) {
+      candidateUrls.push(`https://res.cloudinary.com/${cName}/image/upload/${cleanPublicId}.pdf`);
+      candidateUrls.push(`https://res.cloudinary.com/${cName}/raw/upload/${cleanPublicId}.pdf`);
+    }
 
     if (cloudConfig.api_key && cloudConfig.api_secret) {
       const authHeader = 'Basic ' + Buffer.from(`${cloudConfig.api_key}:${cloudConfig.api_secret}`).toString('base64');
       const tryCandidate = (index) => {
         if (index >= candidateUrls.length) {
+          if (typeof options.onCompleteFallback === 'function') {
+            return options.onCompleteFallback();
+          }
           if (!res.headersSent) {
             res.status(404).json({ success: false, message: 'Document not found in Cloudinary storage' });
           }
@@ -722,6 +732,8 @@ function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
         });
       };
       tryCandidate(0);
+    } else if (typeof options.onCompleteFallback === 'function') {
+      return options.onCompleteFallback();
     } else if (!res.headersSent) {
       res.status(404).json({ success: false, message: 'Document not found in Cloudinary storage' });
     }
@@ -747,6 +759,125 @@ function streamCloudinaryAsset(publicIdOrUrl, req, res, fallbackFilename) {
     tryStream(privateDownloadUrl, tryBasicAuth);
   } else {
     tryBasicAuth();
+  }
+}
+
+/**
+ * Streams an asset stored in Cloudflare R2 server-side using presigned GET URLs with native https.get.
+ * Eliminates AWS SDK socket hangs on container environments and provides instant (<300ms) byte-range streaming.
+ * Automatically falls back to Cloudinary if not found in R2.
+ */
+async function streamR2Asset(objectKey, req, res, fallbackFilename, options = {}) {
+  let cleanKey = String(objectKey || '').trim();
+  while (cleanKey.includes('%')) {
+    try {
+      const decoded = decodeURIComponent(cleanKey);
+      if (decoded === cleanKey) break;
+      cleanKey = decoded;
+    } catch {
+      break;
+    }
+  }
+  cleanKey = cleanKey.replace(/^\/+/, '');
+  const filename = fallbackFilename || path.basename(cleanKey) || 'document.pdf';
+  const disposition = `inline; filename="${encodeURIComponent(filename)}"`;
+
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *;");
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+  res.removeHeader('Pragma');
+  res.removeHeader('Expires');
+
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Accept-Ranges, Content-Range, Content-Type, ETag, Cache-Control');
+
+  try {
+    const { generatePresignedGetUrl } = require('../config/cloudflare');
+    const presignedUrl = await generatePresignedGetUrl(cleanKey, 7200, {
+      responseContentType: 'application/pdf',
+      responseContentDisposition: disposition,
+    });
+
+    const urlObj = new URL(presignedUrl);
+    const requestOptions = {
+      hostname: urlObj.hostname,
+      port: 443,
+      path: urlObj.pathname + urlObj.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'AxonAcademy-PDF-Proxy/1.0',
+      },
+    };
+    if (req.headers.range) {
+      requestOptions.headers['Range'] = req.headers.range;
+    }
+
+    const proxyReq = https.get(requestOptions, (remoteRes) => {
+      // 404 or 403: file not found in R2, attempt Cloudinary fallback
+      if (remoteRes.statusCode === 404 || remoteRes.statusCode === 403) {
+        if (!options.skipCloudinaryFallback) {
+          console.warn(`[R2 Stream] Key "${cleanKey}" returned ${remoteRes.statusCode} from R2, falling back to Cloudinary...`);
+          return streamCloudinaryAsset(cleanKey, req, res, filename);
+        }
+        if (!res.headersSent) {
+          return res.status(404).json({ success: false, message: 'Document not found in storage' });
+        }
+        return;
+      }
+
+      if (remoteRes.statusCode >= 400) {
+        if (!options.skipCloudinaryFallback) {
+          console.warn(`[R2 Stream] Key "${cleanKey}" returned ${remoteRes.statusCode} from R2, falling back to Cloudinary...`);
+          return streamCloudinaryAsset(cleanKey, req, res, filename);
+        }
+        if (!res.headersSent) {
+          return res.status(remoteRes.statusCode).json({ success: false, message: `Storage returned HTTP ${remoteRes.statusCode}` });
+        }
+        return;
+      }
+
+      res.status(remoteRes.statusCode || (req.headers.range ? 206 : 200));
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', remoteRes.headers['content-type'] || 'application/pdf');
+      res.setHeader('Content-Disposition', disposition);
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
+      if (remoteRes.headers['content-length']) res.setHeader('Content-Length', remoteRes.headers['content-length']);
+      if (remoteRes.headers['content-range']) res.setHeader('Content-Range', remoteRes.headers['content-range']);
+      if (remoteRes.headers['etag']) res.setHeader('ETag', remoteRes.headers['etag']);
+
+      req.on('close', () => {
+        if (!res.writableEnded && remoteRes.destroy) {
+          remoteRes.destroy();
+        }
+      });
+
+      remoteRes.pipe(res);
+    });
+
+    proxyReq.on('error', (netErr) => {
+      console.warn(`[R2 Stream] Network error for "${cleanKey}": ${netErr.message}, falling back to Cloudinary...`);
+      if (!options.skipCloudinaryFallback) {
+        return streamCloudinaryAsset(cleanKey, req, res, filename);
+      }
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, message: 'Failed to stream document from R2: ' + netErr.message });
+      }
+    });
+  } catch (err) {
+    console.warn(`[R2 Stream] Presign error for "${cleanKey}": ${err.message}, falling back to Cloudinary...`);
+    if (!options.skipCloudinaryFallback) {
+      return streamCloudinaryAsset(cleanKey, req, res, filename);
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Failed to stream document: ' + err.message });
+    }
   }
 }
 
@@ -781,153 +912,13 @@ router.get('/r2-proxy', async (req, res, next) => {
 
     // If key is a direct Cloudinary URL or a Cloudinary announcement key, route directly to Cloudinary streaming
     if (objectKey.includes('res.cloudinary.com') || objectKey.includes('announcement-')) {
-      return streamCloudinaryAsset(objectKey, req, res, filename);
-    }
-
-    const { generatePresignedGetUrl, getS3Client, getCloudflareConfig } = require('../config/cloudflare');
-    const disposition = `inline; filename="${encodeURIComponent(filename)}"`;
-
-    res.removeHeader('X-Frame-Options');
-    res.setHeader('Content-Security-Policy', "frame-ancestors *;");
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
-    res.removeHeader('Pragma');
-    res.removeHeader('Expires');
-
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Accept-Ranges, Content-Range, Content-Type, ETag, Cache-Control');
-
-    // Only redirect if explicitly requested with redirect=true or stream=false
-    if (stream === 'false' || req.query.redirect === 'true') {
-      try {
-        const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
-          responseContentType: 'application/pdf',
-          responseContentDisposition: disposition,
-        });
-        return res.redirect(307, presignedUrl);
-      } catch (redirectErr) {
-        console.warn('[R2 Proxy Redirect Error]:', redirectErr.message);
-      }
-    }
-
-    // Direct stream from R2 with Range support
-    try {
-      const { GetObjectCommand } = require('@aws-sdk/client-s3');
-      const { CLOUDFLARE_R2_BUCKET } = getCloudflareConfig();
-      const client = getS3Client();
-
-      const range = req.headers.range;
-      const s3Params = {
-        Bucket: CLOUDFLARE_R2_BUCKET,
-        Key: objectKey,
-      };
-      if (range) {
-        s3Params.Range = range;
-      }
-
-      const command = new GetObjectCommand(s3Params);
-      const s3Response = await client.send(command);
-
-      res.status(s3Response.$metadata?.httpStatusCode || (range ? 206 : 200));
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Content-Type', s3Response.ContentType || 'application/pdf');
-      res.setHeader('Content-Disposition', disposition);
-      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
-      if (s3Response.ContentLength) {
-        res.setHeader('Content-Length', s3Response.ContentLength);
-      }
-      if (s3Response.ContentRange) {
-        res.setHeader('Content-Range', s3Response.ContentRange);
-      }
-      if (s3Response.ETag) {
-        res.setHeader('ETag', s3Response.ETag);
-      }
-
-      req.on('close', () => {
-        if (!res.writableEnded && s3Response.Body?.destroy) {
-          s3Response.Body.destroy();
-        }
+      return streamCloudinaryAsset(objectKey, req, res, filename, {
+        onCompleteFallback: () => streamR2Asset(objectKey, req, res, filename, { skipCloudinaryFallback: true })
       });
-
-      return s3Response.Body.pipe(res);
-    } catch (r2Error) {
-      console.warn('[R2 Proxy] R2 stream failed for key:', objectKey, 'error:', r2Error.message);
-
-      // AUTOMATIC CLOUDINARY FALLBACK:
-      // If the file was not found in R2 (e.g. uploaded during Cloudinary fallback),
-      // seamlessly stream from Cloudinary so no document is ever broken.
-      try {
-        console.log('[R2 Proxy] Attempting Cloudinary fallback stream for:', objectKey);
-        return streamCloudinaryAsset(objectKey, req, res, filename);
-      } catch (cloudErr) {
-        console.error('[R2 Proxy] Cloudinary fallback failed:', cloudErr.message);
-      }
-
-      // Fallback: Generate presigned GET URL and stream via https.get
-      try {
-        const presignedUrl = await generatePresignedGetUrl(objectKey, 7200, {
-          responseContentType: 'application/pdf',
-          responseContentDisposition: disposition,
-        });
-
-        const urlObj = new URL(presignedUrl);
-        const options = {
-          hostname: urlObj.hostname,
-          port: 443,
-          path: urlObj.pathname + urlObj.search,
-          method: 'GET',
-          headers: {
-            'User-Agent': 'AxonAcademy-PDF-Proxy/1.0',
-          },
-        };
-        if (req.headers.range) {
-          options.headers['Range'] = req.headers.range;
-        }
-
-        const fallbackReq = https.get(options, (remoteRes) => {
-          res.status(remoteRes.statusCode || (req.headers.range ? 206 : 200));
-          res.setHeader('Accept-Ranges', 'bytes');
-          res.setHeader('Content-Type', remoteRes.headers['content-type'] || 'application/pdf');
-          res.setHeader('Content-Disposition', disposition);
-          res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
-          if (remoteRes.headers['content-length']) res.setHeader('Content-Length', remoteRes.headers['content-length']);
-          if (remoteRes.headers['content-range']) res.setHeader('Content-Range', remoteRes.headers['content-range']);
-          if (remoteRes.headers['etag']) res.setHeader('ETag', remoteRes.headers['etag']);
-
-          req.on('close', () => {
-            if (!res.writableEnded && remoteRes.destroy) {
-              remoteRes.destroy();
-            }
-          });
-
-          remoteRes.pipe(res);
-        });
-
-        fallbackReq.on('error', (netErr) => {
-          console.warn('[R2 Proxy] https.get fallback failed, redirecting:', netErr.message);
-          if (!res.headersSent) {
-            return res.redirect(307, presignedUrl);
-          }
-        });
-
-        return;
-      } catch (fallbackErr) {
-        console.error('[R2 Proxy] Presigned fallback failed:', fallbackErr);
-      }
-
-      if (r2Error.name === 'NoSuchKey' || r2Error.$metadata?.httpStatusCode === 404) {
-        return res.status(404).json({ success: false, message: 'Document not found' });
-      }
-      if (!res.headersSent) {
-        return res.status(500).json({ success: false, message: r2Error.message || 'Failed to stream document' });
-      }
     }
+
+    // Direct stream from R2 with presigned GET URL (Range support & automatic Cloudinary crossover)
+    return streamR2Asset(objectKey, req, res, filename);
   } catch (error) {
     console.error('[R2 Proxy Outer Error]:', error);
     if (!res.headersSent) {
@@ -936,7 +927,7 @@ router.get('/r2-proxy', async (req, res, next) => {
   }
 });
 
-// GET /files → Secure proxy for Cloudinary-hosted documents
+// GET /files → Secure proxy for Cloudinary-hosted documents (with automatic R2 crossover fallback)
 router.get('/files', async (req, res, next) => {
   try {
     const { url, key, filename } = req.query;
@@ -948,7 +939,21 @@ router.get('/files', async (req, res, next) => {
 
     const decoded = decodeURIComponent(target);
     const safeFilename = filename || path.basename(decoded.split('?')[0]) || 'document.pdf';
-    return streamCloudinaryAsset(decoded, req, res, safeFilename);
+
+    // If target clearly belongs to R2, stream from R2 directly
+    if (decoded.includes('.r2.cloudflarestorage.com') || (decoded.startsWith('announcements/') && !decoded.includes('announcement-'))) {
+      const r2Key = decoded.includes('.r2.cloudflarestorage.com')
+        ? (decoded.match(/\/(announcements\/[^?#]+|classroom-assets\/[^?#]+)/)?.[1] || decoded)
+        : decoded;
+      return streamR2Asset(r2Key, req, res, safeFilename);
+    }
+
+    return streamCloudinaryAsset(decoded, req, res, safeFilename, {
+      onCompleteFallback: () => {
+        console.log(`[File Proxy] Not in Cloudinary, attempting R2 crossover for: ${decoded}`);
+        return streamR2Asset(decoded, req, res, safeFilename, { skipCloudinaryFallback: true });
+      }
+    });
   } catch (error) {
     console.error('[File Proxy Error]:', error);
     if (!res.headersSent) {
